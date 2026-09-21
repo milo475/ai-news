@@ -36,6 +36,9 @@ LIVE=1 npx tsx --test src/fetchers/openrouter.test.ts  # + бодит катал
 - `src/app/medee/` — нийтийн мэдээний жагсаалт ба нийтлэлийн хуудас
 - `src/publish/facebook.ts` — нийтлэгдсэн мэдээг Facebook хуудсанд постлох
 - `src/pipeline.ts` — бүх шатыг дараалуулан ажиллуулах (cron)
+- `src/env.ts` — шаардлагатай env хувьсагчдын шалгалт
+- `src/app/api/health/route.ts` — DB холболт + сүүлийн ажиллалтуудын төлөв
+- `Dockerfile` — Playwright суурьтай, web ба cron хоёуланд нь
 
 ## Ишлэл (заавал)
 OpenRouter-ийн өгөгдөл CC BY 4.0. Сайт дээр:
@@ -51,7 +54,9 @@ npm run build && npm start
 `/argachlal`, `/medee` (agent нэмэгдэх хүртэл хоосон).
 
 Хуудсууд өгөгдлийг зөвхөн `src/data/index.ts`-ээс авна — DB эсвэл fixture-ийг тэнд сольдог.
-ISR: хуудас 1 цаг тутам дахин үүснэ (`revalidate = 3600`).
+Нүүр хуудас request тутам шинэчлэгдэнэ (`force-dynamic`) — build үед DB байдаггүй, мөн deploy хийсэн
+даруйд хуучин өгөгдөл харагдахгүйн тулд. Бусад хуудас: `/medee` 10 мин, `/medee/<slug>` болон
+`/model/...` 1 цагийн ISR.
 
 ## Мэдээний agent — 1-р шат (RSS цуглуулагч)
 LLM дуудахгүй: эх сурвалжаас татаж `Article.status = RAW` нийтлэл болгон хадгална.
@@ -170,3 +175,51 @@ npm run pipeline -- --skip openrouter      # алхам алгасах (тасл
 UTC 03:30 = Улаанбаатарын цагаар 11:30. `logs/` хавтас git-д ордоггүй (`.gitignore`).
 
 Railway/VPS дээр ижил командыг тухайн платформын cron service-ээр ажиллуулна (дараагийн шатанд).
+
+## Deploy (Railway, Hobby)
+Гурван сервис: **Postgres**, **web**, **cron**. Хоёулаа нэг `Dockerfile`-ээс build хийгдэж,
+зөвхөн start command-аараа ялгаатай.
+
+| Сервис | Start command | Тайлбар |
+|---|---|---|
+| web | `npm run start:web` | `prisma migrate deploy` хийгээд `next start`. Health: `/api/health` |
+| cron | `npm run start:cron` | `src/pipeline.ts`. Schedule: `30 3 * * *` (UTC 03:30 = УБ 11:30) |
+
+Cron сервис migration хийхгүй — түүнийг web хариуцна.
+
+### Env хувьсагчид
+
+**web**
+
+| Хувьсагч | Тайлбар |
+|---|---|
+| `DATABASE_URL` | `${{Postgres.DATABASE_URL}}` |
+| `ADMIN_PASSWORD` | `/admin`-ы Basic auth нууц үг. Хоосон бол `/admin` 503 |
+| `SITE_URL` | нийтийн домэйн, Facebook постын холбоост |
+| `OPENROUTER_API_KEY` | зөвхөн `/admin` дээрх «Дахин бичүүлэх» товчинд |
+| `NEXT_TELEMETRY_DISABLED` | `1` |
+
+**cron**
+
+| Хувьсагч | Тайлбар |
+|---|---|
+| `DATABASE_URL` | `${{Postgres.DATABASE_URL}}` |
+| `OPENROUTER_API_KEY` | үнэлгээ, бичилт, жагсаалтын Data API |
+| `SCORE_MODEL`, `WRITE_MODEL`, `RELEVANCE_THRESHOLD` | agent-ийн тохиргоо |
+| `SITE_URL` | Facebook постын холбоост |
+| `FB_PAGE_ID`, `FB_PAGE_ACCESS_TOKEN` | хоосон бол Facebook алхам алгасагдана |
+
+### Эхний удаад
+Deploy хийсний дараа эх сурвалжуудыг нэг удаа seed хийнэ:
+```bash
+railway run --service cron npm run db:seed:sources
+```
+
+### Docker локал дээр
+```bash
+docker build -t ai-medee .
+docker run --rm -p 3000:3000 -e DATABASE_URL=... -e ADMIN_PASSWORD=... ai-medee
+```
+Image суурь нь `mcr.microsoft.com/playwright:v1.63.0-noble` — chromium бэлэн байдаг тул
+`npx playwright install` хэрэггүй. **Playwright-ийн хувилбар `package.json`-той яг таарах ёстой**
+(тиймээс `"playwright": "1.63.0"` гэж тогтоосон, `^` байхгүй) — зөрвөл browser олдохгүй.

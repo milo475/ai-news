@@ -10,6 +10,7 @@
 import "dotenv/config";
 import { runAgent } from "./agent/process";
 import { prisma } from "./db";
+import { openRouterKey } from "./env";
 import { runOpenRouter } from "./fetchers/openrouter";
 import { runRss } from "./fetchers/rss";
 import { postPending } from "./publish/facebook";
@@ -72,6 +73,9 @@ async function main() {
   const skip = new Set(
     (skipArg > -1 ? (process.argv[skipArg + 1] ?? "") : "").split(",").map((s) => s.trim()).filter(Boolean),
   );
+
+  // LLM шаардлагатай алхам ажиллах гэж байвал түлхүүрийг эхлэхэд нь шалгана
+  if (!skip.has("openrouter") || !skip.has("agent")) openRouterKey();
 
   const rows: Row[] = [];
   let failed = false;

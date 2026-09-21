@@ -4,7 +4,8 @@ import { LeaderboardTable } from "@/components/LeaderboardTable";
 import { NewsList } from "@/components/NewsList";
 import { fmtDate } from "@/components/format";
 
-export const revalidate = 3600; // 1 цаг тутам дахин үүсгэнэ
+// Build үед DB байхгүй тул prerender хийхгүй — нүүр бүх үед шинэ өгөгдөл харуулна
+export const dynamic = "force-dynamic";
 
 export default async function Home() {
   const [{ date, rows }, note, news] = await Promise.all([getLeaderboard(10), getSourceNote(), getLatestNews(5)]);

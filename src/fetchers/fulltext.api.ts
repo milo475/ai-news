@@ -44,7 +44,9 @@ async function getBrowser(): Promise<Browser | null> {
   browserPromise ??= (async () => {
     try {
       const { chromium } = await import("playwright");
-      return await chromium.launch();
+      // container дотор root-оор ажиллах тул --no-sandbox хэрэгтэй.
+      // executablePath заахгүй — Playwright image дотор PLAYWRIGHT_BROWSERS_PATH тохируулагдсан.
+      return await chromium.launch({ headless: true, args: ["--no-sandbox"] });
     } catch (e) {
       console.error(
         `Playwright нээгдсэнгүй: ${(e as Error).message.split("\n")[0]}\n` +
