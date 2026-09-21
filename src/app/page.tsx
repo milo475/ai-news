@@ -8,10 +8,18 @@ import { fmtDate } from "@/components/format";
 // Build үед DB байхгүй тул prerender хийхгүй — нүүр бүх үед шинэ өгөгдөл харуулна
 export const dynamic = "force-dynamic";
 
-export default async function Home() {
+/** ?tab=chanar → LMArena Elo */
+const TABS = [
+  { key: "", label: "Хэрэглээ", source: "OPENROUTER_USAGE" as const, metric: "tokens" as const },
+  { key: "chanar", label: "Чанар", source: "ARENA_ELO" as const, metric: "elo" as const },
+];
+
+export default async function Home({ searchParams }: { searchParams: Promise<{ tab?: string }> }) {
+  const asked = (await searchParams).tab ?? "";
+  const tab = TABS.find((t) => t.key === asked) ?? TABS[0]!;
   const [{ date, rows }, note, news, useCases] = await Promise.all([
-    getLeaderboard(10),
-    getSourceNote(),
+    getLeaderboard(10, tab.source),
+    getSourceNote(tab.source),
     getLatestNews(5),
     getUseCases(6),
   ]);
@@ -52,11 +60,31 @@ export default async function Home() {
       )}
 
       <section className="space-y-3">
-        <div className="flex items-baseline justify-between">
-          <h2 className="text-xl font-semibold">Топ 10</h2>
-          <Link href="/jagsaalt" className="text-sm text-accent hover:underline">Бүтэн жагсаалт →</Link>
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <div className="flex items-baseline gap-3">
+            <h2 className="text-xl font-semibold">Топ 10</h2>
+            <span className="flex gap-1 text-xs">
+              {TABS.map((t) => (
+                <Link
+                  key={t.key || "hereglee"}
+                  href={t.key ? `/?tab=${t.key}` : "/"}
+                  className={`rounded-full border px-2.5 py-1 ${
+                    t.key === tab.key ? "border-accent text-accent" : "border-line text-muted hover:text-ink"
+                  }`}
+                >
+                  {t.label}
+                </Link>
+              ))}
+            </span>
+          </div>
+          <Link
+            href={tab.key ? `/jagsaalt?tab=${tab.key}` : "/jagsaalt"}
+            className="text-sm text-accent hover:underline"
+          >
+            Бүтэн жагсаалт →
+          </Link>
         </div>
-        <LeaderboardTable rows={rows} compact />
+        <LeaderboardTable rows={rows} compact metric={tab.metric} />
         <p className="text-xs text-muted">{note}</p>
       </section>
 

@@ -6,11 +6,21 @@ import { fmtDate } from "@/components/format";
 export const revalidate = 3600;
 export const metadata = { title: "Жагсаалт" };
 
-type Search = { company?: string; open?: string };
+type Search = { company?: string; open?: string; tab?: string };
+
+/** ?tab=chanar → LMArena Elo, үгүй бол OpenRouter хэрэглээ */
+const TABS = [
+  { key: "", label: "Хэрэглээ", source: "OPENROUTER_USAGE" as const, metric: "tokens" as const },
+  { key: "chanar", label: "Чанар", source: "ARENA_ELO" as const, metric: "elo" as const },
+];
 
 export default async function Jagsaalt({ searchParams }: { searchParams: Promise<Search> }) {
   const sp = await searchParams;
-  const [{ date, rows }, note] = await Promise.all([getLeaderboard(50), getSourceNote()]);
+  const tab = TABS.find((t) => t.key === (sp.tab ?? "")) ?? TABS[0]!;
+  const [{ date, rows }, note] = await Promise.all([
+    getLeaderboard(50, tab.source),
+    getSourceNote(tab.source),
+  ]);
 
   const companies = [...new Map(rows.map((r) => [r.company.slug, r.company.name])).entries()].sort((a, b) =>
     a[1].localeCompare(b[1]),
@@ -24,6 +34,7 @@ export default async function Jagsaalt({ searchParams }: { searchParams: Promise
     const next = { ...sp, ...patch };
     if (next.company) q.set("company", next.company);
     if (next.open) q.set("open", next.open);
+    if (next.tab) q.set("tab", next.tab);
     const s = q.toString();
     return s ? `/jagsaalt?${s}` : "/jagsaalt";
   };
@@ -34,8 +45,24 @@ export default async function Jagsaalt({ searchParams }: { searchParams: Promise
     <div className="space-y-6">
       <div>
         <p className="text-xs uppercase tracking-widest text-muted">{fmtDate(date)}</p>
-        <h1 className="text-2xl font-semibold tracking-tight">Хэрэглээгээр эрэмбэлсэн топ 50</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">
+          {tab.key === "chanar" ? "Чанараар эрэмбэлсэн топ 50" : "Хэрэглээгээр эрэмбэлсэн топ 50"}
+        </h1>
       </div>
+
+      <nav className="flex gap-4 text-sm border-b border-line">
+        {TABS.map((t) => (
+          <Link
+            key={t.key || "hereglee"}
+            href={link({ tab: t.key || undefined })}
+            className={`pb-2 -mb-px border-b-2 ${
+              t.key === tab.key ? "border-accent text-ink" : "border-transparent text-muted hover:text-ink"
+            }`}
+          >
+            {t.label}
+          </Link>
+        ))}
+      </nav>
 
       <div className="flex flex-wrap gap-2">
         <Link href={link({ open: undefined })} className={chip(!sp.open)}>Бүгд</Link>
@@ -50,7 +77,14 @@ export default async function Jagsaalt({ searchParams }: { searchParams: Promise
 
       <LeaderboardTable
         rows={filtered}
-        empty={rows.length > 0 ? "Энэ шүүлтэд тохирох модель алга." : undefined}
+        metric={tab.metric}
+        empty={
+          rows.length > 0
+            ? "Энэ шүүлтэд тохирох модель алга."
+            : tab.key === "chanar"
+              ? "Arena-гийн өгөгдөл хараахан татагдаагүй байна."
+              : undefined
+        }
       />
       <p className="text-xs text-muted">{note} Байр бүтэн жагсаалтын байр (шүүлтээр өөрчлөгдөхгүй).</p>
     </div>

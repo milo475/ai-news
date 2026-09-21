@@ -10,6 +10,7 @@
     "start:web": "prisma migrate deploy && next start -p ${PORT:-3000}",
     "start:cron": "tsx src/pipeline.ts",
     "fetch:openrouter": "tsx src/fetchers/openrouter.ts",
+    "fetch:arena": "tsx src/fetchers/arena.ts",
     "fetch:rss": "tsx src/fetchers/rss.ts",
     "agent:process": "tsx src/agent/process.ts",
     "publish:facebook": "tsx src/publish/facebook.ts",

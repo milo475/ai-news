@@ -12,6 +12,7 @@ import "dotenv/config";
 import { runAgent } from "./agent/process";
 import { prisma } from "./db";
 import { openRouterKey } from "./env";
+import { runArena } from "./fetchers/arena";
 import { runOpenRouter } from "./fetchers/openrouter";
 import { runRss } from "./fetchers/rss";
 import { postPending } from "./publish/facebook";
@@ -27,6 +28,13 @@ const STEPS: Step[] = [
     run: async () => {
       const r = await runOpenRouter(7);
       return `${r.models} модель, ${r.rows} мөр`;
+    },
+  },
+  {
+    name: "arena",
+    run: async () => {
+      const r = await runArena();
+      return `${r.matched} модель таарав (таараагүй ${r.unmatched}), ${r.date}`;
     },
   },
   {

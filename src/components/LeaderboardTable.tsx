@@ -15,15 +15,31 @@ export function Trend({ row }: { row: LeaderboardRow }) {
 
 const pctClass = (p: number | null) => (p === null ? "text-muted" : p >= 0 ? "text-up" : "text-down");
 
+/** Elo-г бүхэл тоогоор, өөрчлөлтийг оноогоор */
+const fmtElo = (s: string) => Math.round(Number(s)).toString();
+const fmtEloDelta = (s: string | null) => {
+  if (s === null) return "";
+  const n = Math.round(Number(s) * 10) / 10;
+  return `${n > 0 ? "+" : ""}${n}`;
+};
+
 export function LeaderboardTable({
   rows,
   compact = false,
+  metric = "tokens",
   empty = "Жагсаалтын өгөгдөл хараахан бэлэн болоогүй байна.",
 }: {
   rows: LeaderboardRow[];
   compact?: boolean;
+  /** tokens = OpenRouter хэрэглээ, elo = LMArena Elo */
+  metric?: "tokens" | "elo";
   empty?: string;
 }) {
+  const elo = metric === "elo";
+  const value = (r: LeaderboardRow) => (elo ? fmtElo(r.score) : fmtTokens(r.score));
+  const change = (r: LeaderboardRow) => (elo ? fmtEloDelta(r.scoreDelta) : fmtPct(r.scoreDeltaPct));
+  const changeClass = (r: LeaderboardRow) =>
+    elo ? (r.scoreDelta === null ? "text-muted" : Number(r.scoreDelta) >= 0 ? "text-up" : "text-down") : pctClass(r.scoreDeltaPct);
   if (rows.length === 0) {
     return <div className="rounded-lg border border-line p-8 text-center text-sm text-muted">{empty}</div>;
   }
@@ -37,7 +53,7 @@ export function LeaderboardTable({
             <th className="text-left px-3 py-2">Модель</th>
             <th className="text-left px-3 py-2 hidden sm:table-cell">Компани</th>
             {!compact && <th className="text-left px-3 py-2">Төрөл</th>}
-            <th className="text-right px-3 py-2">Токен / өдөр</th>
+            <th className="text-right px-3 py-2">{elo ? "Elo" : "Токен / өдөр"}</th>
             <th className="text-right px-3 py-2 w-20 hidden sm:table-cell">Өөрчлөлт</th>
           </tr>
         </thead>
@@ -61,11 +77,11 @@ export function LeaderboardTable({
                 </td>
               )}
               <td className="px-3 py-2 text-right tabular-nums whitespace-nowrap">
-                {fmtTokens(r.score)}
-                <span className={`block sm:hidden text-xs ${pctClass(r.scoreDeltaPct)}`}>{fmtPct(r.scoreDeltaPct)}</span>
+                {value(r)}
+                <span className={`block sm:hidden text-xs ${changeClass(r)}`}>{change(r)}</span>
               </td>
-              <td className={`px-3 py-2 text-right tabular-nums hidden sm:table-cell ${pctClass(r.scoreDeltaPct)}`}>
-                {fmtPct(r.scoreDeltaPct)}
+              <td className={`px-3 py-2 text-right tabular-nums hidden sm:table-cell ${changeClass(r)}`}>
+                {change(r)}
               </td>
             </tr>
           ))}

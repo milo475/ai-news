@@ -10,9 +10,10 @@ export const metadata = { title: "Админ" };
 const TABS = ["DRAFT", "RAW", "PUBLISHED", "REJECTED"] as const;
 type Status = (typeof TABS)[number];
 
-const JOBS = ["openrouter", "rss", "agent"] as const;
+const JOBS = ["openrouter", "arena", "rss", "agent"] as const;
 
 const RUN_BUTTONS = [
+  { job: "arena", label: "Arena татах" },
   { job: "rss", label: "Мэдээ татах" },
   { job: "agent", label: "Агент бичүүлэх" },
   { job: "pipeline", label: "Бүгд" },

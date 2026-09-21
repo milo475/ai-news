@@ -24,6 +24,28 @@ export default function Argachlal() {
       </section>
 
       <section className="space-y-2">
+        <h2 className="text-lg font-semibold">Чанарын жагсаалт — Arena Elo</h2>
+        <p>
+          Хоёр дахь жагсаалт нь <strong>LMArena</strong> (lmarena.ai)-гийн Elo оноонд суурилна. Тэнд хүмүүс
+          нэг асуултыг нэрээ нуусан хоёр модельд зэрэг өгч, аль нь илүү хариулснаа сонгодог. Олон мянган
+          ийм харьцуулалтаас шатрын Elo-тэй ижил аргаар оноо тооцдог: сайн гэж үнэлэгдсэн модель оноо авч,
+          хожигдсон нь алддаг. Өндөр Elo = хүмүүст илүү таалагдсан хариулт гэсэн үг —{" "}
+          <strong>хэрэглээ биш, чанарыг</strong> хэмжинэ.
+        </p>
+        <ul className="list-disc pl-5 space-y-1">
+          <li>Бид зөвхөн текстийн ерөнхий («overall») жагсаалтыг авна.</li>
+          <li>
+            Arena нэг моделийн хэд хэдэн хувилбарыг (жишээ нь «-high», «-max») тусад нь жагсаадаг. Бид
+            тэдгээрийг нэг модель болгон нэгтгэж, хамгийн өндөр Elo-г нь авна.
+          </li>
+          <li>Тиймээс энд харагдах байр нь Arena-гийн өөрийнх нь байр биш, манай жагсаалт доторх байр.</li>
+          <li>LMArena долоо хоног тутам шинэчилдэг тул өөрчлөлт өдөр бүр гардаггүй.</li>
+          <li>Arena-д байгаа ч манай каталогт байхгүй моделиуд жагсаалтад орохгүй.</li>
+        </ul>
+        <p className="text-muted">Өгөгдөл: Source: LMArena (lmarena.ai).</p>
+      </section>
+
+      <section className="space-y-2">
         <h2 className="text-lg font-semibold">Мэдээ</h2>
         <p>Мэдээ нийтлэгдэх хүртэл дараах зургаан алхмыг дамжина:</p>
         <ol className="list-decimal pl-5 space-y-1">
@@ -59,7 +81,7 @@ export default function Argachlal() {
 
       <section className="space-y-2">
         <h2 className="text-lg font-semibold">Удахгүй</h2>
-        <p>Arena (хүний саналын Elo) болон Artificial Analysis (оюун чадварын индекс) эх сурвалжуудыг нэмнэ.</p>
+        <p>Artificial Analysis (оюун чадварын индекс) эх сурвалжийг нэмнэ.</p>
       </section>
     </article>
   );

@@ -19,7 +19,13 @@ export default async function ModelPage({ params }: { params: Promise<Params> })
   const slug = (await params).slug.join("/");
   const m = await getModel(slug);
   if (!m) notFound();
-  const [history, note, news] = await Promise.all([getHistory(slug, 30), getSourceNote(), getNewsForModel(slug, 5)]);
+  const [history, arenaHistory, note, arenaNote, news] = await Promise.all([
+    getHistory(slug, 30),
+    getHistory(slug, 30, "ARENA_ELO"),
+    getSourceNote(),
+    getSourceNote("ARENA_ELO"),
+    getNewsForModel(slug, 5),
+  ]);
   const last = history[history.length - 1];
   const best = history.length ? Math.min(...history.map((h) => h.rank)) : null;
 
@@ -50,9 +56,12 @@ export default async function ModelPage({ params }: { params: Promise<Params> })
       <section className="space-y-2">
         <h2 className="text-lg font-semibold">Байрны өөрчлөлт, 30 хоног</h2>
         <div className="rounded-lg border border-line p-4">
-          <RankChart points={history} />
+          <RankChart points={history} arena={arenaHistory} />
         </div>
-        <p className="text-xs text-muted">{note}</p>
+        <p className="text-xs text-muted">
+          {note}
+          {arenaHistory.length > 0 && <> {arenaNote}</>}
+        </p>
       </section>
 
       <section className="grid md:grid-cols-2 gap-6">

@@ -9,6 +9,7 @@ export interface LeaderboardRow {
   rankDelta: number | null;     // null = шинэ орсон
   trend: "up" | "down" | "same" | "new";
   score: string;
+  scoreDelta: string | null;    // түүхий зөрүү (Elo-д оноогоор харуулна)
   scoreDeltaPct: number | null; // хувиар
   model: { slug: string; name: string; nameMn: string | null; isOpenWeights: boolean };
   company: { slug: string; name: string };
@@ -43,6 +44,7 @@ export async function getLatestLeaderboard(
       trend:
         s.rankDelta === null ? "new" : s.rankDelta > 0 ? "up" : s.rankDelta < 0 ? "down" : "same",
       score: s.score.toString(),
+      scoreDelta: s.scoreDelta === null ? null : s.scoreDelta.toString(),
       scoreDeltaPct: prev && prev > 0 && delta !== null ? Math.round((delta / prev) * 1000) / 10 : null,
       model: {
         slug: s.model.slug,

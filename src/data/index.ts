@@ -3,6 +3,7 @@
  * USE_FIXTURES=1 → зохиомол өгөгдөл; үгүй бол Postgres.
  */
 import type { LeaderboardRow } from "@/queries/leaderboard";
+import type { RankSource } from "@/generated/prisma/enums";
 
 const useFixtures = process.env.USE_FIXTURES === "1";
 
@@ -68,10 +69,13 @@ function toCard(a: CardRow): NewsCard {
   };
 }
 
-export async function getLeaderboard(limit = 50): Promise<{ date: Date | null; rows: LeaderboardRow[] }> {
+export async function getLeaderboard(
+  limit = 50,
+  source: RankSource = "OPENROUTER_USAGE",
+): Promise<{ date: Date | null; rows: LeaderboardRow[] }> {
   if (useFixtures) return (await import("./fixtures")).fixtureLeaderboard(limit);
   const { getLatestLeaderboard } = await import("@/queries/leaderboard");
-  return getLatestLeaderboard("OPENROUTER_USAGE", limit);
+  return getLatestLeaderboard(source, limit);
 }
 
 export async function getModel(slug: string): Promise<ModelDetail | null> {
@@ -87,10 +91,14 @@ export async function getModel(slug: string): Promise<ModelDetail | null> {
   };
 }
 
-export async function getHistory(slug: string, days = 30): Promise<HistoryPoint[]> {
-  if (useFixtures) return (await import("./fixtures")).fixtureHistory(slug);
+export async function getHistory(
+  slug: string,
+  days = 30,
+  source: RankSource = "OPENROUTER_USAGE",
+): Promise<HistoryPoint[]> {
+  if (useFixtures) return source === "ARENA_ELO" ? [] : (await import("./fixtures")).fixtureHistory(slug);
   const { getModelHistory } = await import("@/queries/leaderboard");
-  const h = await getModelHistory(slug, "OPENROUTER_USAGE", days);
+  const h = await getModelHistory(slug, source, days);
   return h.map((p) => ({ ...p, score: p.score.toString() }));
 }
 
@@ -209,8 +217,11 @@ export async function getNewsForUseCase(slug: string, nameMn: string, limit = 5)
   return rows.map(toCard);
 }
 
-export async function getSourceNote(): Promise<string> {
-  const { date } = await getLeaderboard(1);
+/** Заавал ишлэх тэмдэглэл. Эх сурвалж бүр өөрийн огноотой. */
+export async function getSourceNote(source: RankSource = "OPENROUTER_USAGE"): Promise<string> {
+  const { date } = await getLeaderboard(1, source);
   const asOf = date ? date.toISOString().slice(0, 10) : "—";
-  return `Source: OpenRouter (openrouter.ai/rankings), as of ${asOf}.`;
+  return source === "ARENA_ELO"
+    ? `Source: LMArena (lmarena.ai), as of ${asOf}.`
+    : `Source: OpenRouter (openrouter.ai/rankings), as of ${asOf}.`;
 }

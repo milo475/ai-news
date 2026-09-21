@@ -61,6 +61,7 @@ export function fixtureLeaderboard(limit = 50): { date: Date; rows: LeaderboardR
       rankDelta,
       trend: rankDelta === null ? "new" : rankDelta > 0 ? "up" : rankDelta < 0 ? "down" : "same",
       score: String(r.score * 1_000_000),
+      scoreDelta: y ? String((r.score - y.score) * 1_000_000) : null,
       scoreDeltaPct: y ? Math.round(((r.score - y.score) / y.score) * 1000) / 10 : null,
       model: { slug: m.slug, name: m.name, nameMn: null, isOpenWeights: m.open },
       company: { slug: m.companySlug, name: m.company },

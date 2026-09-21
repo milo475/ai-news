@@ -8,3 +8,5 @@ logs/*
 *.tsbuildinfo
 *.swp
 *.swo
+*.dump
+*.sql.gz

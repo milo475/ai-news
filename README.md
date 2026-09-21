@@ -13,6 +13,7 @@ npx playwright install chromium   # JS-ээр зурагддаг сайтын б
 ```bash
 npx tsx src/fetchers/openrouter.ts --days 60   # анх удаа: 60 хоногийн түүх
 npx tsx src/fetchers/openrouter.ts             # өдөр бүр (cron): сүүлийн 7 хоног
+npm run fetch:arena                            # LMArena Elo (долоо хоног тутам шинэчлэгддэг)
 npx tsx --test src/fetchers/openrouter.test.ts # логикийн тест
 LIVE=1 npx tsx --test src/fetchers/openrouter.test.ts  # + бодит каталог
 ```
@@ -20,6 +21,9 @@ LIVE=1 npx tsx --test src/fetchers/openrouter.test.ts  # + бодит катал
 ## Бүтэц
 - `prisma/schema.prisma` — Company, AiModel, RankingSnapshot, Source, Article, JobRun, UseCase, AiTool
 - `src/fetchers/openrouter.api.ts` — API дуудлага + цэвэр хувиргалт (DB-гүй, тесттэй)
+- `src/fetchers/arena.api.ts` — LMArena Elo татах + нэр тааруулах (DB-гүй, тесттэй)
+- `src/fetchers/arena.ts` — Arena Elo-г RankingSnapshot-д бичих
+- `src/data/model-aliases.ts` — Arena↔OpenRouter нэрийн гар тохируулга
 - `src/fetchers/openrouter.ts` — каталог + өдөр тутмын жагсаалтыг DB-д бичих
 - `src/queries/leaderboard.ts` — нүүр хуудас/моделийн хуудасны query
 - `src/fetchers/sources.seed.ts` — мэдээний RSS эх сурвалжуудын жагсаалт
@@ -182,7 +186,7 @@ Facebook-ийн буцаасан id `Article.fbPostId`-д хадгалагдан
 
 ## Pipeline
 ```bash
-npm run pipeline                          # openrouter → rss → agent → facebook
+npm run pipeline                          # openrouter → arena → rss → agent → facebook
 npm run pipeline -- --skip openrouter      # алхам алгасах (таслалаар олныг)
 ```
 Алхам бүр тусдаа try/catch — нэг нь унасан ч дараагийнх ажиллана. Төгсгөлд дүнгийн хүснэгт гарч,
@@ -306,3 +310,35 @@ npm run db:seed:usecases   # эхний өгөгдөл. Байгаа мөрий�
 Ангилал бүр задардаг: нэр/тайлбар/дараалал/идэвх засах, хэрэгслийн эрэмбэ/тэмдэглэл/идэвх засах,
 ангиллаас салгах, байгаа хэрэгслийг холбох, шинэ хэрэгсэл үүсгэж шууд холбох. Хадгалахад нүүр,
 `/hereglee`, тухайн ангиллын хуудас шинэчлэгдэнэ.
+
+## Чанарын жагсаалт — LMArena Elo
+OpenRouter-ийн жагсаалт «аль AI-г хамгийн их ашигладаг вэ» гэдгийг хэлдэг ч «аль нь хамгийн сайн вэ»
+гэдгийг хэлдэггүй. Хоёр дахь эх сурвалж нь **LMArena** (lmarena.ai)-гийн Elo — хүмүүсийн сохор
+харьцуулалтаас гарсан оноо.
+
+```bash
+npm run fetch:arena                   # эсвэл npm run pipeline -- --only arena
+```
+
+**Эх сурвалж:** HuggingFace-ийн албан ёсны `lmarena-ai/leaderboard-dataset` дата, datasets-server-ийн
+JSON API (`text/latest` split). Тэр split-ийн эхний мөрүүд нь «overall» ангилал, байраараа
+эрэмбэлэгдсэн байдаг тул нэг хүсэлтээр топ 100-г авна — Playwright-аар хуудас уншиж scrape хийх
+шаардлагагүй.
+
+Өгөгдөл `RankingSnapshot`-д `source = ARENA_ELO`-оор хадгалагдана (`score` = Elo, `rank` = байр).
+Шинэ хүснэгт нэмээгүй — `RankSource` enum-д `ARENA_ELO` анхнаасаа байсан тул **migration хэрэггүй**.
+
+Анхаарах:
+- Arena нэг моделийн хувилбаруудыг (`-high`, `-max`) тусад нь жагсаадаг. Бид нэг модель болгон
+  нэгтгэж, хамгийн өндөр Elo-г авна. Тиймээс харагдах байр нь Arena-гийн өөрийнх нь байр биш,
+  **манай таарсан багц доторх байр**.
+- Каталогт (`AiModel`) байхгүй моделид snapshot хадгалахгүй, шинэ модель ч үүсгэхгүй.
+  Таараагүй нэрсийг лог дээр `"түлхүүр": "…"` хэлбэрээр хэвлэнэ —
+  `src/data/model-aliases.ts`-д хуулж тавиад slug-ийг нь бичнэ.
+- LMArena долоо хоног тутам нийтэлдэг тул өөрчлөлтийг «өмнөх өдөр» биш **хамгийн сүүлийн өмнөх
+  нийтлэлтэй** харьцуулж тооцно. Эхний удаа ажиллуулахад бүх мөр «шинэ» гэж гарна; моделийн
+  хуудасны графикт Arena мөр хоёр дахь нийтлэлээс хойш гарч ирнэ.
+
+**UI:** `/jagsaalt` болон нүүр хуудсан дээр «Хэрэглээ | Чанар» таб (`?tab=chanar`), шүүлтүүр хоёуланд
+ижил ажиллана. Моделийн хуудсанд график дээр хоёр дахь (тасархай) мөр + legend. Ишлэлийг хоёуланг нь
+зэрэгцүүлж харуулна. `/argachlal`-д Arena Elo гэж юу вэ гэдгийг тайлбарласан.
