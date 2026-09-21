@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { getLatestNews, getLeaderboard, getSourceNote, getUseCases } from "@/data";
+import { getLatestDigest, getLatestNews, getLeaderboard, getSourceNote, getUseCases } from "@/data";
 import { LeaderboardTable } from "@/components/LeaderboardTable";
 import { NewsList } from "@/components/NewsList";
 import { UseCaseIcon } from "@/components/UseCaseIcon";
@@ -17,11 +17,12 @@ const TABS = [
 export default async function Home({ searchParams }: { searchParams: Promise<{ tab?: string }> }) {
   const asked = (await searchParams).tab ?? "";
   const tab = TABS.find((t) => t.key === asked) ?? TABS[0]!;
-  const [{ date, rows }, note, news, useCases] = await Promise.all([
+  const [{ date, rows }, note, news, useCases, digest] = await Promise.all([
     getLeaderboard(10, tab.source),
     getSourceNote(tab.source),
     getLatestNews(5),
     getUseCases(6),
+    getLatestDigest(),
   ]);
   const movers = [...rows].filter((r) => r.rankDelta !== null).sort((a, b) => (b.rankDelta ?? 0) - (a.rankDelta ?? 0));
   const top = movers[0];
@@ -107,6 +108,18 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ t
             ))}
           </div>
         </section>
+      )}
+
+      {digest && (
+        <Link
+          href={`/medee/${digest.slug}`}
+          className="block rounded-lg border border-accent/40 bg-accent/5 p-5 space-y-2 hover:bg-accent/10"
+        >
+          <p className="text-xs uppercase tracking-widest text-accent">Долоо хоногийн тойм</p>
+          <p className="text-xl md:text-2xl font-semibold tracking-tight">{digest.titleMn}</p>
+          <p className="text-sm text-muted">{digest.summaryMn}</p>
+          <p className="text-xs text-muted">{fmtDate(digest.publishedAt)} · бүтнээр унших →</p>
+        </Link>
       )}
 
       <section className="space-y-3">

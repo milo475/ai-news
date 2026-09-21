@@ -9,6 +9,8 @@
  * ямар нэг алхам унасан бол exit 1.
  */
 import "dotenv/config";
+import { runDigest } from "./agent/digest";
+import { isDigestDay } from "./agent/digest.api";
 import { runAgent } from "./agent/process";
 import { prisma } from "./db";
 import { openRouterKey } from "./env";
@@ -55,6 +57,15 @@ const STEPS: Step[] = [
       // Нийтлэл бүр унасан бол алхам өөрөө унасан гэж үзнэ — cron дээр эвдрэл нуугдахгүй
       if (r.scored > 0 && r.failed === r.scored) throw new Error(`бүх нийтлэл унасан — ${summary}`);
       return summary;
+    },
+  },
+  {
+    name: "digest",
+    run: async () => {
+      // Долоо хоногийн тойм — зөвхөн Ням гарагт (UTC)
+      if (!isDigestDay(new Date())) return "Ням гараг биш, алгасав";
+      const r = await runDigest(true);
+      return r.created ? `"${r.title}" → /medee/${r.slug} (${r.items} мэдээ)` : `мэдээ цөөн (${r.items}), үүсгэсэнгүй`;
     },
   },
   {

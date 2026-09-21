@@ -17,6 +17,12 @@ enum RankSource {
   AA_INTELLIGENCE    // artificialanalysis.ai — оюун чадварын индекс
 }
 
+/// Нийтлэлийн төрөл
+enum ArticleKind {
+  NEWS    // нэг эх сурвалжийн мэдээ
+  DIGEST  // долоо хоногийн нэгтгэл
+}
+
 /// Нийтлэлийн төлөв
 enum ArticleStatus {
   RAW        // эх сурвалжаас татсан, agent хараахан боловсруулаагүй
@@ -117,6 +123,7 @@ model Source {
 model Article {
   id          String        @id @default(cuid())
   slug        String        @unique          // URL: /medee/openai-gpt-6-astra-garlaa
+  kind        ArticleKind   @default(NEWS)
   status      ArticleStatus @default(DRAFT)
 
   // Эх сурвалжийн мэдээлэл
@@ -152,6 +159,12 @@ model Article {
   models    AiModel[] @relation("ArticleModels")
   companies Company[] @relation("ArticleCompanies")
 
+  /// Энэ нийтлэл digest бол дотор нь орсон мэдээнүүд
+  digestItems DigestItem[] @relation("DigestParent")
+  /// Энэ мэдээ ямар digest-үүдэд орсон бэ
+  inDigests   DigestItem[] @relation("DigestChild")
+
+  @@index([kind, status, publishedAt])
   @@index([status, publishedAt])
   @@index([status, createdAt])
   @@index([sourceHash])
@@ -229,4 +242,16 @@ model UseCaseTool {
 
   @@id([useCaseId, toolId])
   @@index([useCaseId, rank])
+}
+
+/// Digest ↔ дотор нь орсон мэдээ
+model DigestItem {
+  digestId  String
+  digest    Article @relation("DigestParent", fields: [digestId], references: [id], onDelete: Cascade)
+  articleId String
+  article   Article @relation("DigestChild", fields: [articleId], references: [id], onDelete: Cascade)
+  order     Int
+
+  @@id([digestId, articleId])
+  @@index([digestId, order])
 }

@@ -38,6 +38,8 @@ export interface UseCaseDetail extends UseCaseCard {
 export interface NewsCard {
   slug: string; titleMn: string; summaryMn: string;
   publishedAt: Date | null; sourceName: string; tags: string[];
+  /** DIGEST = долоо хоногийн тойм */
+  kind: "NEWS" | "DIGEST";
 }
 
 export interface NewsDetail extends NewsCard {
@@ -50,13 +52,13 @@ export interface NewsDetail extends NewsCard {
 
 /** PUBLISHED нийтлэлийн нийтлэг select — картны талбарууд */
 const cardSelect = {
-  slug: true, titleMn: true, summaryMn: true, publishedAt: true, tags: true,
+  slug: true, titleMn: true, summaryMn: true, publishedAt: true, tags: true, kind: true,
   source: { select: { name: true } },
 } as const;
 
 type CardRow = {
   slug: string; titleMn: string | null; summaryMn: string | null;
-  publishedAt: Date | null; tags: string[]; source: { name: string };
+  publishedAt: Date | null; tags: string[]; kind: "NEWS" | "DIGEST"; source: { name: string };
 };
 
 function toCard(a: CardRow): NewsCard {
@@ -67,6 +69,7 @@ function toCard(a: CardRow): NewsCard {
     publishedAt: a.publishedAt,
     sourceName: a.source.name,
     tags: a.tags,
+    kind: a.kind,
   };
 }
 
@@ -118,12 +121,24 @@ export async function getNews(page = 1, perPage = 20): Promise<{ items: NewsCard
   return { items: rows.map(toCard), total };
 }
 
+/** Нүүр хуудсанд дээр нь гарах хамгийн сүүлийн долоо хоногийн тойм */
+export async function getLatestDigest(): Promise<NewsCard | null> {
+  if (useFixtures) return null;
+  const { prisma } = await import("@/db");
+  const row = await prisma.article.findFirst({
+    where: { status: "PUBLISHED", kind: "DIGEST" },
+    orderBy: { publishedAt: "desc" },
+    select: cardSelect,
+  });
+  return row ? toCard(row) : null;
+}
+
 /** Нүүр хуудасны "Сүүлийн мэдээ" */
 export async function getLatestNews(limit = 5): Promise<NewsCard[]> {
   if (useFixtures) return [];
   const { prisma } = await import("@/db");
   const rows = await prisma.article.findMany({
-    where: { status: "PUBLISHED" }, orderBy: { publishedAt: "desc" }, take: limit, select: cardSelect,
+    where: { status: "PUBLISHED", kind: "NEWS" }, orderBy: { publishedAt: "desc" }, take: limit, select: cardSelect,
   });
   return rows.map(toCard);
 }

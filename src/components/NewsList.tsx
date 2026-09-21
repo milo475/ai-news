@@ -18,6 +18,11 @@ export function NewsList({ items }: { items: NewsCard[] }) {
     <ul className="divide-y divide-line rounded-lg border border-line">
       {items.map((n) => (
         <li key={n.slug} className="p-4 hover:bg-line/30">
+          {n.kind === "DIGEST" && (
+            <span className="mr-2 text-xs rounded px-1.5 py-0.5 border border-accent/50 text-accent align-middle">
+              Долоо хоног
+            </span>
+          )}
           <Link href={`/medee/${n.slug}`} className="font-medium hover:text-accent">{n.titleMn}</Link>
           <p className="text-sm text-muted mt-1">{n.summaryMn}</p>
           <div className="flex flex-wrap items-center gap-x-3 gap-y-2 mt-2 text-xs text-muted">
