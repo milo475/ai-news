@@ -1,0 +1,3 @@
+-- AlterTable
+ALTER TABLE "JobRun" ADD COLUMN     "attempted" INTEGER NOT NULL DEFAULT 0,
+ADD COLUMN     "failed" INTEGER NOT NULL DEFAULT 0;

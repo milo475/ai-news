@@ -155,6 +155,8 @@ export async function runRss(): Promise<{ items: number; saved: number; sources:
         ok: !allFailed,
         itemsIn: sum("items"),
         itemsOut: sum("saved"),
+        attempted: results.length,
+        failed: failedSources,
         error: allFailed ? `${failedSources}/${results.length} эх сурвалж татагдаагүй` : null,
       },
     });

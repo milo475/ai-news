@@ -9,6 +9,7 @@
   --color-muted: oklch(0.55 0.02 260);
   --color-up: oklch(0.6 0.16 150);
   --color-down: oklch(0.6 0.19 25);
+  --color-warn: oklch(0.68 0.15 75);
   --color-accent: oklch(0.55 0.2 265);
 }
 

@@ -164,6 +164,9 @@ model JobRun {
   ok         Boolean?
   itemsIn    Int      @default(0)
   itemsOut   Int      @default(0)
+  /// Хэдэн нэгж боловсруулахыг оролдсон, тэдгээрээс хэд нь унасан (agent: нийтлэл, rss: эх сурвалж)
+  attempted  Int      @default(0)
+  failed     Int      @default(0)
   error      String?
   pid        Int?                    // ажиллуулсан процесс — /admin-аас эхлүүлсэн үед
   logFile    String?                 // logs/<job>-<timestamp>.log

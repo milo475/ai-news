@@ -332,6 +332,8 @@ export async function runAgent(limit = 20): Promise<{ scored: number; drafted: n
         ok: !allFailed,
         itemsIn: articles.length,
         itemsOut: drafted,
+        attempted: articles.length,
+        failed,
         error: allFailed ? `${failed}/${articles.length} нийтлэл боловсруулагдаагүй` : null,
       },
     });

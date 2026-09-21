@@ -22,6 +22,11 @@ function hhmm(d: Date): string {
   return d.toISOString().slice(11, 16);
 }
 
+/** Оролдсоны талаас илүү нь унасан бол — дууссан ч анхаарал хэрэгтэй */
+function mostlyFailed(run: { attempted: number; failed: number }): boolean {
+  return run.attempted > 0 && run.failed * 2 > run.attempted;
+}
+
 export default async function Admin({
   searchParams,
 }: {
@@ -86,6 +91,11 @@ export default async function Admin({
                 <span className="text-muted">ажиллаагүй</span>
               ) : !run.finishedAt ? (
                 <span className="text-accent">● ажиллаж байна… ({hhmm(run.startedAt)}-д эхэлсэн)</span>
+              ) : run.ok && mostlyFailed(run) ? (
+                <span className="text-warn" title={`${run.failed} / ${run.attempted} нэгж унасан`}>
+                  ⚠ дууссан {hhmm(run.finishedAt)} · {run.itemsIn} → {run.itemsOut} · {run.failed}/
+                  {run.attempted} унасан
+                </span>
               ) : run.ok ? (
                 <span className="text-up">
                   ✓ дууссан {hhmm(run.finishedAt)} · {run.itemsIn} → {run.itemsOut}
