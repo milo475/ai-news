@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { getNewsItem } from "@/data";
 import { Markdown } from "@/components/Markdown";
+import { ShareFacebook } from "@/components/ShareFacebook";
 import { Tags } from "@/components/NewsList";
 import { NewsletterForm } from "@/components/NewsletterForm";
 import { fmtDate } from "@/components/format";
@@ -59,14 +60,7 @@ export default async function NewsPage({ params }: { params: Promise<Params> }) 
           )}
         </p>
         {n.kind === "DIGEST" && (
-          <a
-            href={shareUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-block rounded border border-accent/50 text-accent px-3 py-1.5 text-sm hover:bg-accent/10"
-          >
-            Facebook-д хуваалцах
-          </a>
+          <ShareFacebook slug={slug} href={shareUrl} />
         )}
       </div>
 

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { SearchResults } from "@/lib/search";
+import { analytics } from "@/lib/analytics";
 
 const DEBOUNCE_MS = 200;
 const PLACEHOLDER = "Модель, мэдээ, хэрэгсэл хайх…";
@@ -100,6 +101,12 @@ export function SearchDialog() {
     setResults(null);
   }, []);
 
+  /** Үр дүнгээс шууд сонгосон нь баталсан хайлт. /hailt руу очих замыг тэр хуудас өөрөө бүртгэнэ. */
+  const pick = useCallback(() => {
+    analytics.search(q.trim(), results?.total ?? 0);
+    close();
+  }, [q, results, close]);
+
   function onKeyDown(e: React.KeyboardEvent) {
     if (e.key === "Escape") return close();
     if (e.key === "ArrowDown") {
@@ -111,7 +118,8 @@ export function SearchDialog() {
     } else if (e.key === "Enter") {
       e.preventDefault();
       const hit = flat[active];
-      close();
+      if (hit) pick();
+      else close();
       router.push(hit ? hit.href : `/hailt?q=${encodeURIComponent(q)}`);
     }
   }
@@ -175,7 +183,7 @@ export function SearchDialog() {
                     <Link
                       key={row.href + row.label}
                       href={row.href}
-                      onClick={close}
+                      onClick={pick}
                       className={`block px-3 py-2 ${selected ? "bg-line/50" : "hover:bg-line/30"}`}
                     >
                       <span className="text-sm font-medium">{row.label}</span>

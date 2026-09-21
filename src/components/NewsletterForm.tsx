@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { analytics } from "@/lib/analytics";
 
 export function NewsletterForm() {
   const [email, setEmail] = useState("");
@@ -19,7 +20,10 @@ export function NewsletterForm() {
       });
       const data = (await res.json()) as { ok: boolean; message: string };
       setMsg({ ok: data.ok, text: data.message });
-      if (data.ok) setEmail("");
+      if (data.ok) {
+        setEmail("");
+        analytics.newsletterSubscribe();
+      }
     } catch {
       setMsg({ ok: false, text: "Сүлжээний алдаа. Дахин оролдоно уу." });
     } finally {

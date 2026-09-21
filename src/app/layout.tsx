@@ -3,6 +3,7 @@ import Link from "next/link";
 import { Logo } from "@/components/Logo";
 import { SearchDialog } from "@/components/SearchDialog";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { Umami } from "@/components/Umami";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -53,6 +54,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <p>Мэдээний хураангуйг AI agent бэлтгэж, хүн хянан нийтэлдэг. Эх сурвалж бүрийн холбоосыг нийтлэл дээр заана.</p>
           </div>
         </footer>
+        <Umami />
       </body>
     </html>
   );

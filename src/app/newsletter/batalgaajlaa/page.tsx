@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { TrackEvent } from "@/components/Track";
 
 export const metadata = { title: "Баталгаажлаа" };
 
@@ -6,6 +7,7 @@ export default async function Batalgaajlaa({ searchParams }: { searchParams: Pro
   const failed = (await searchParams).aldaa === "1";
   return (
     <div className="max-w-md space-y-3">
+      {!failed && <TrackEvent event="newsletter_confirm" />}
       <h1 className="text-2xl font-semibold tracking-tight">
         {failed ? "Холбоос хүчингүй байна" : "Баталгаажлаа 🎉"}
       </h1>

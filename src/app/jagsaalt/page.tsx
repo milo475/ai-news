@@ -2,6 +2,7 @@ import Link from "next/link";
 import { getLeaderboard, getSourceNote } from "@/data";
 import { LeaderboardTable } from "@/components/LeaderboardTable";
 import { fmtDate } from "@/components/format";
+import { TrackEvent } from "@/components/Track";
 
 export const revalidate = 3600;
 export const metadata = { title: "Жагсаалт" };
@@ -10,8 +11,8 @@ type Search = { company?: string; open?: string; tab?: string };
 
 /** ?tab=chanar → LMArena Elo, үгүй бол OpenRouter хэрэглээ */
 const TABS = [
-  { key: "", label: "Хэрэглээ", source: "OPENROUTER_USAGE" as const, metric: "tokens" as const },
-  { key: "chanar", label: "Чанар", source: "ARENA_ELO" as const, metric: "elo" as const },
+  { key: "", label: "Хэрэглээ", source: "OPENROUTER_USAGE" as const, metric: "tokens" as const, event: "usage" },
+  { key: "chanar", label: "Чанар", source: "ARENA_ELO" as const, metric: "elo" as const, event: "quality" },
 ];
 
 export default async function Jagsaalt({ searchParams }: { searchParams: Promise<Search> }) {
@@ -43,6 +44,7 @@ export default async function Jagsaalt({ searchParams }: { searchParams: Promise
 
   return (
     <div className="space-y-6">
+      <TrackEvent event="ranking_tab" data={{ tab: tab.event }} />
       <div>
         <p className="text-xs uppercase tracking-widest text-muted">{fmtDate(date)}</p>
         <h1 className="text-2xl font-semibold tracking-tight">

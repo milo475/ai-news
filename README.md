@@ -231,6 +231,7 @@ Cron сервис migration хийхгүй — түүнийг web хариуцн
 | `ADMIN_PASSWORD` | `/admin`-ы Basic auth нууц үг. Хоосон бол `/admin` 503 |
 | `SITE_URL` | нийтийн домэйн, Facebook постын холбоост |
 | `OPENROUTER_API_KEY` | зөвхөн `/admin` дээрх «Дахин бичүүлэх» товчинд |
+| `NEXT_PUBLIC_UMAMI_URL`, `NEXT_PUBLIC_UMAMI_WEBSITE_ID` | analytics — [Analytics (Umami)](#analytics-umami) |
 | `NEXT_TELEMETRY_DISABLED` | `1` |
 
 **cron**
@@ -448,3 +449,64 @@ Resend-ийн batch API-аар нэг дуудлагад 100 хаяг.
 
 **Хуудсууд.** Нүүр ба нийтлэл бүрийн төгсгөлд бүртгэлийн блок. `/newsletter/batalgaajlaa`,
 `/newsletter/hasagdlaa`. `/admin/newsletter` дээр тоо, илгээлтийн түүх, «Тест илгээх», CSV татах.
+
+## Analytics (Umami)
+
+Self-hosted [Umami](https://umami.is) — cookie-гүй, хувийн мэдээлэл цуглуулдаггүй, өгөгдөл нь
+өөрсдийн Postgres дээр үлддэг. Railway дээр **тусдаа service** болж ажиллана.
+
+### Railway дээр umami service үүсгэх
+
+1. Төслийн доторх **New → Docker Image** → `ghcr.io/umami-software/umami:postgresql-latest`
+2. Variables:
+
+   | Хувьсагч | Утга |
+   |---|---|
+   | `DATABASE_URL` | `${{Postgres.DATABASE_URL}}` — одоогийн Postgres-ээ хуваалцана (Umami өөрийн хүснэгтүүдээ үүсгэнэ) |
+   | `APP_SECRET` | санамсаргүй урт мөр: `openssl rand -hex 32` |
+
+3. Settings → Networking → **Generate Domain** (жишээ `umami-production.up.railway.app`)
+4. Тэр хаягаар нэвтэрнэ: `admin` / `umami` → **нууц үгээ шууд солино**
+5. Settings → Websites → **Add website**: Name `AI News`, Domain нь сайтын домэйн
+6. Үүссэн website-ийн **Edit → Website ID**-г хуулж авна
+
+### web service-ийн env
+
+| Хувьсагч | Тайлбар |
+|---|---|
+| `NEXT_PUBLIC_UMAMI_URL` | umami service-ийн домэйн, жишээ `https://umami-production.up.railway.app` |
+| `NEXT_PUBLIC_UMAMI_WEBSITE_ID` | 5-р алхмын website id |
+
+**Хоёул байвал л** tracker рендэрлэнэ — нэг нь дутуу бол (локал dev) юу ч ачаалахгүй.
+Хувьсагчийг `umamiConfig(process.env)`-оор бүтнээр нь уншдаг тул Next үүнийг build үед inline
+хийхгүй: Railway дээр утгыг солиход **дахин build хэрэггүй**, restart хангалттай.
+
+### Юу хэмжигддэг
+
+Tracker (`next/script`, `strategy="afterInteractive"`) хуудасны үзэлтийг автоматаар бүртгэнэ.
+`/admin` доорх хуудсуудад **огт ачаалахгүй** — редакторын ажил статистикийг бохирдуулахгүй.
+`data-exclude-search` тул URL-ийн `?q=…` хадгалагдахгүй (хайлтын үгийг доорх event-ээр авна).
+
+| Event | Өгөгдөл | Хэзээ |
+|---|---|---|
+| `search` | `query`, `resultCount` | `/hailt` хуудас, эсвэл dropdown-оос үр дүн сонгоход |
+| `newsletter_subscribe` | — | имэйл амжилттай илгээгдсэн үед |
+| `newsletter_confirm` | — | `/newsletter/batalgaajlaa` (холбоос хүчинтэй үед) |
+| `ranking_tab` | `tab`: `usage` \| `quality` | `/jagsaalt`-ын аль таб үзэж байгаа |
+| `share_facebook` | `slug` | «Facebook-д хуваалцах» товшилт |
+| `model_view` | `slug` | моделийн хуудас |
+| `usecase_view` | `slug` | хэрэглээний ангиллын хуудас |
+
+Код: `src/lib/analytics.ts` (`analytics.*` туслахууд), `src/components/Track.tsx`
+(серверийн хуудаснаас event илгээх `<TrackEvent>`). `window.umami` байхгүй бол бүх дуудлага
+**no-op** — script ачаалахаас өмнө илгээсэн event-ийг ~6 секунд дахин оролдоод чимээгүй орхино.
+
+### /admin дээрх хайлтын статистик
+
+Umami-гаас **хамааралгүй**, `SearchLog` хүснэгтээс шууд (tracker блоклогдсон ч тоо бүрэн):
+
+- **Сүүлийн 7 хоногийн топ 20 хайлт**
+- **Үр дүнгүй хайлтууд** — ямар контент дутуу байгааг шууд заана
+
+Толгой хэсгийн **«Аналитик →»** холбоос Umami dashboard руу гаргана
+(`NEXT_PUBLIC_UMAMI_URL` тохируулаагүй бол харагдахгүй).

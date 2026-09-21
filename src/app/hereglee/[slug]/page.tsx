@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { getNewsForUseCase, getUseCase, type UseCaseToolRow } from "@/data";
 import { NewsList } from "@/components/NewsList";
 import { UseCaseIcon } from "@/components/UseCaseIcon";
+import { TrackEvent } from "@/components/Track";
 
 export const revalidate = 3600;
 
@@ -27,6 +28,7 @@ export default async function UseCasePage({ params }: { params: Promise<Params> 
 
   return (
     <div className="space-y-8">
+      <TrackEvent event="usecase_view" data={{ slug: u.slug }} />
       <div className="space-y-2 max-w-2xl">
         <Link href="/hereglee" className="text-sm text-muted hover:text-ink">← Хэрэглээ</Link>
         <h1 className="flex items-center gap-2 text-2xl md:text-3xl font-semibold tracking-tight">

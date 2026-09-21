@@ -2,6 +2,7 @@ import Link from "next/link";
 import { getLatestNews } from "@/data";
 import { fmtDate } from "@/components/format";
 import { MIN_QUERY, search } from "@/lib/search";
+import { TrackEvent } from "@/components/Track";
 
 export const dynamic = "force-dynamic";
 
@@ -32,6 +33,7 @@ export default async function Hailt({ searchParams }: { searchParams: Promise<{ 
 
   return (
     <div className="space-y-6 max-w-3xl">
+      {results && <TrackEvent event="search" data={{ query: q, resultCount: results.total }} />}
       <div className="space-y-1">
         <h1 className="text-2xl font-semibold tracking-tight">{q ? `«${q}»` : "Хайлт"}</h1>
         {results && <p className="text-sm text-muted">{results.total} үр дүн</p>}

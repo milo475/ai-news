@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { prisma } from "@/db";
 import { fmtDate } from "@/components/format";
+import { emptySearches, topSearches } from "@/queries/search-stats";
 import { publishArticle, rejectArticle, runJob } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -37,7 +38,9 @@ export default async function Admin({
   const sp = await searchParams;
   const status: Status = TABS.includes(sp.status as Status) ? (sp.status as Status) : "DRAFT";
 
-  const [counts, jobs, articles] = await Promise.all([
+  const umamiUrl = process.env.NEXT_PUBLIC_UMAMI_URL?.trim().replace(/\/+$/, "") || null;
+
+  const [counts, jobs, articles, searches, empties] = await Promise.all([
     prisma.article.groupBy({ by: ["status"], _count: true }),
     Promise.all(
       JOBS.map((job) =>
@@ -53,6 +56,8 @@ export default async function Admin({
         publishedAtSource: true, sourceText: true, reviewedBy: true, source: { select: { name: true } },
       },
     }),
+    topSearches(),
+    emptySearches(),
   ]);
   const countOf = (s: string) => counts.find((c) => c.status === s)?._count ?? 0;
   const anyRunning = jobs.some(({ run }) => run && !run.finishedAt);
@@ -66,6 +71,16 @@ export default async function Admin({
         <span className="flex gap-4">
           <Link href="/admin/hereglee" className="text-sm text-accent hover:underline">Хэрэглээний жагсаалт →</Link>
           <Link href="/admin/newsletter" className="text-sm text-accent hover:underline">Newsletter →</Link>
+          {umamiUrl && (
+            <a
+              href={umamiUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-sm text-accent hover:underline"
+            >
+              Аналитик →
+            </a>
+          )}
         </span>
       </div>
 
@@ -121,6 +136,20 @@ export default async function Admin({
             </p>
           ))}
         </div>
+      </section>
+
+      <section className="grid gap-4 md:grid-cols-2">
+        <SearchStats
+          title="Сүүлийн 7 хоногийн топ 20 хайлт"
+          rows={searches}
+          empty="Хайлт бүртгэгдээгүй байна."
+        />
+        <SearchStats
+          title="Үр дүнгүй хайлтууд (7 хоног)"
+          rows={empties}
+          empty="Бүх хайлт үр дүнтэй байлаа."
+          hint="Эдгээр үгээр контент алга — нийтлэл, хэрэгсэл нэмэх боломж."
+        />
       </section>
 
       <nav className="flex gap-4 text-sm border-b border-line">
@@ -195,6 +224,47 @@ export default async function Admin({
             </tbody>
           </table>
         </div>
+      )}
+    </div>
+  );
+}
+
+/** Хайлтын үгсийн жижиг хүснэгт — DB-ээс шууд, Umami-гаас хамааралгүй */
+function SearchStats({
+  title,
+  rows,
+  empty,
+  hint,
+}: {
+  title: string;
+  rows: { q: string; count: number; lastAt: Date }[];
+  empty: string;
+  hint?: string;
+}) {
+  return (
+    <div className="rounded-lg border border-line p-4 space-y-2">
+      <h2 className="text-sm font-semibold">{title}</h2>
+      {hint && <p className="text-xs text-muted">{hint}</p>}
+      {rows.length === 0 ? (
+        <p className="text-sm text-muted">{empty}</p>
+      ) : (
+        <table className="w-full text-sm">
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.q} className="border-b border-line last:border-0">
+                <td className="py-1 pr-2 break-all">
+                  <Link href={`/hailt?q=${encodeURIComponent(r.q)}`} className="hover:text-accent">
+                    {r.q}
+                  </Link>
+                </td>
+                <td className="py-1 text-right tabular-nums w-12">{r.count}</td>
+                <td className="py-1 text-right tabular-nums text-muted w-24 hidden sm:table-cell">
+                  {fmtDate(r.lastAt)}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       )}
     </div>
   );

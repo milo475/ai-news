@@ -4,6 +4,7 @@ import { getHistory, getModel, getNewsForModel, getSourceNote } from "@/data";
 import { NewsList } from "@/components/NewsList";
 import { RankChart } from "@/components/RankChart";
 import { fmtDate, fmtTokens } from "@/components/format";
+import { TrackEvent } from "@/components/Track";
 
 export const revalidate = 3600;
 
@@ -39,6 +40,7 @@ export default async function ModelPage({ params }: { params: Promise<Params> })
 
   return (
     <div className="space-y-8">
+      <TrackEvent event="model_view" data={{ slug }} />
       <div className="space-y-2">
         <Link href="/jagsaalt" className="text-sm text-muted hover:text-ink">← Жагсаалт</Link>
         <h1 className="text-3xl font-semibold tracking-tight">{m.nameMn ?? m.name}</h1>
