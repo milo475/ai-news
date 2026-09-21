@@ -1,5 +1,6 @@
 @import "tailwindcss";
 
+/* Өдрийн (үндсэн) өнгө */
 @theme {
   --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", sans-serif;
   --color-ink: oklch(0.2 0.02 260);
@@ -11,14 +12,28 @@
   --color-accent: oklch(0.55 0.2 265);
 }
 
+:root { color-scheme: light; }
+
+/* Системийн сонголт — хэрэглэгч гараар "цайвар" гэж сонгоогүй үед */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
     --color-ink: oklch(0.94 0.01 90);
     --color-paper: oklch(0.17 0.015 260);
     --color-line: oklch(0.3 0.015 260);
     --color-muted: oklch(0.68 0.02 260);
     --color-accent: oklch(0.75 0.15 265);
   }
+}
+
+/* Хэрэглэгчийн гар сонголт — системийнхээс давуу */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --color-ink: oklch(0.94 0.01 90);
+  --color-paper: oklch(0.17 0.015 260);
+  --color-line: oklch(0.3 0.015 260);
+  --color-muted: oklch(0.68 0.02 260);
+  --color-accent: oklch(0.75 0.15 265);
 }
 
 html { background: var(--color-paper); color: var(--color-ink); }

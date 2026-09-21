@@ -6,3 +6,5 @@ src/generated
 logs/*
 !logs/.gitkeep
 *.tsbuildinfo
+*.swp
+*.swo
