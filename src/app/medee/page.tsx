@@ -6,20 +6,32 @@ export const revalidate = 600;
 export const metadata = { title: "Мэдээ" };
 
 const PER_PAGE = 20;
+/** Prisma-ийн skip нь int хязгаартай — хэтэрхий том page 500 өгөхөөс сэргийлнэ */
+const MAX_PAGE = 10_000;
+
+function pageNumber(raw: string | undefined): number {
+  const n = Math.floor(Number(raw));
+  if (!Number.isFinite(n) || n < 1) return 1;
+  return Math.min(n, MAX_PAGE);
+}
 
 export default async function Medee({ searchParams }: { searchParams: Promise<{ page?: string }> }) {
-  const page = Math.max(1, Number((await searchParams).page) || 1);
+  const page = pageNumber((await searchParams).page);
   const { items, total } = await getNews(page, PER_PAGE);
-  const pages = Math.ceil(total / PER_PAGE);
+  const pages = Math.max(1, Math.ceil(total / PER_PAGE));
 
   return (
     <div className="space-y-4">
       <h1 className="text-2xl font-semibold tracking-tight">Мэдээ</h1>
 
-      {items.length === 0 ? (
+      {total === 0 ? (
         <div className="rounded-lg border border-dashed border-line p-8 text-sm text-muted">
           Мэдээний хэсэг бэлтгэгдэж байна. Agent эх сурвалжуудаас мэдээ цуглуулж, монгол хэлээр хураангуйлан
           энд нийтлэх болно.
+        </div>
+      ) : items.length === 0 ? (
+        <div className="rounded-lg border border-dashed border-line p-8 text-sm text-muted">
+          Энэ хуудсанд мэдээ алга. <Link href="/medee" className="text-accent hover:underline">Эхний хуудас →</Link>
         </div>
       ) : (
         <>

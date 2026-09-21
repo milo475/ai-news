@@ -15,13 +15,17 @@ export function Trend({ row }: { row: LeaderboardRow }) {
 
 const pctClass = (p: number | null) => (p === null ? "text-muted" : p >= 0 ? "text-up" : "text-down");
 
-export function LeaderboardTable({ rows, compact = false }: { rows: LeaderboardRow[]; compact?: boolean }) {
+export function LeaderboardTable({
+  rows,
+  compact = false,
+  empty = "Жагсаалтын өгөгдөл хараахан бэлэн болоогүй байна.",
+}: {
+  rows: LeaderboardRow[];
+  compact?: boolean;
+  empty?: string;
+}) {
   if (rows.length === 0) {
-    return (
-      <div className="rounded-lg border border-line p-8 text-center text-muted">
-        Өгөгдөл хараахан алга. <code className="text-xs">npm run fetch:openrouter</code> ажиллуулна уу.
-      </div>
-    );
+    return <div className="rounded-lg border border-line p-8 text-center text-sm text-muted">{empty}</div>;
   }
   return (
     <div className="overflow-x-auto rounded-lg border border-line">

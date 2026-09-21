@@ -48,7 +48,10 @@ export default async function Jagsaalt({ searchParams }: { searchParams: Promise
         ))}
       </div>
 
-      <LeaderboardTable rows={filtered} />
+      <LeaderboardTable
+        rows={filtered}
+        empty={rows.length > 0 ? "Энэ шүүлтэд тохирох модель алга." : undefined}
+      />
       <p className="text-xs text-muted">{note} Байр бүтэн жагсаалтын байр (шүүлтээр өөрчлөгдөхгүй).</p>
     </div>
   );
