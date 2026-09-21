@@ -1,0 +1,170 @@
+// AI мэдээний сайт — өгөгдлийн сангийн бүтэц
+// Prisma 7 + PostgreSQL
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+/// Жагсаалтын өгөгдөл хаанаас ирснийг заана
+enum RankSource {
+  OPENROUTER_USAGE   // openrouter.ai/rankings — өдөр тутмын токены хэрэглээ
+  ARENA_ELO          // arena.ai — хүний саналын Elo
+  AA_INTELLIGENCE    // artificialanalysis.ai — оюун чадварын индекс
+}
+
+/// Нийтлэлийн төлөв
+enum ArticleStatus {
+  RAW        // эх сурвалжаас татсан, agent хараахан боловсруулаагүй
+  DRAFT      // agent бэлтгэсэн, хүн шалгаагүй
+  REVIEW     // хүн шалгаж байна
+  PUBLISHED  // сайт дээр гарсан
+  REJECTED   // хаясан
+}
+
+/// AI компани (OpenAI, Anthropic, Google ...)
+model Company {
+  id        String   @id @default(cuid())
+  slug      String   @unique          // "openai", "anthropic"
+  name      String                    // "OpenAI"
+  nameMn    String?                   // "ОпенАИ" (заавал биш)
+  website   String?
+  country   String?
+  logoUrl   String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  models   AiModel[]
+  articles Article[] @relation("ArticleCompanies")
+}
+
+/// Нэг AI модель (GPT-6 Astra, Claude Fable 5.1 ...)
+model AiModel {
+  id             String   @id @default(cuid())
+  slug           String   @unique      // OpenRouter id, URL-д хэрэглэнэ: "openai/gpt-6-astra"
+  orPermaslug    String   @unique      // OpenRouter canonical_slug: "openai/gpt-6-astra-20260903" — rankings-тай тааруулна
+  name           String                // "GPT-6 Astra"
+  nameMn         String?               // монгол нэр/тайлбар (заавал биш)
+  descriptionEn  String?               // эх сурвалжийн тайлбар
+  descriptionMn  String?               // agent-ийн монгол тайлбар
+  companyId      String
+  company        Company  @relation(fields: [companyId], references: [id])
+
+  isOpenWeights  Boolean  @default(false)  // нээлттэй жинтэй эсэх (HF id байвал)
+  contextLength  Int?
+  modality       String?                   // "text+image->text"
+  releasedAt     DateTime?                 // OpenRouter-т нэмэгдсэн огноо
+  /// 1 сая токены үнэ, USD
+  inputPricePerM  Decimal? @db.Decimal(12, 6)
+  outputPricePerM Decimal? @db.Decimal(12, 6)
+
+  isActive   Boolean  @default(true)   // каталогоос алга болвол false
+  lastSeenAt DateTime @default(now())
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  snapshots RankingSnapshot[]
+  articles  Article[]         @relation("ArticleModels")
+
+  @@index([companyId])
+  @@index([isActive])
+}
+
+/// Нэг модель, нэг эх сурвалж, нэг өдрийн байр — өсөлт/уналт эндээс тооцно
+model RankingSnapshot {
+  id        String     @id @default(cuid())
+  modelId   String
+  model     AiModel    @relation(fields: [modelId], references: [id], onDelete: Cascade)
+  source    RankSource
+  date      DateTime   @db.Date      // UTC өдөр
+  rank      Int                      // 1 = хамгийн дээд
+  /// Эх сурвалжийн оноо: токен (OPENROUTER), Elo (ARENA), индекс (AA)
+  score     Decimal    @db.Decimal(20, 4)
+  /// Өмнөх өдөртэй харьцуулсан өөрчлөлт (fetcher тооцно; эхний өдөр null)
+  rankDelta  Int?                    // +2 = 2 байр дээшилсэн
+  scoreDelta Decimal?   @db.Decimal(20, 4)
+  createdAt DateTime   @default(now())
+
+  @@unique([modelId, source, date])
+  @@index([source, date, rank])
+}
+
+/// Мэдээний эх сурвалж (RSS)
+model Source {
+  id        String   @id @default(cuid())
+  name      String                // "TechCrunch AI"
+  url       String   @unique      // сайтын хаяг
+  feedUrl   String?  @unique      // RSS/Atom хаяг
+  language  String   @default("en")
+  weight    Int      @default(5)  // 1–10, эх сурвалжийн найдвартай байдал
+  needsBrowser Boolean @default(false) // JS-ээр зурагддаг сайт — бүтэн текстэд Playwright хэрэгтэй
+  isActive  Boolean  @default(true)
+  lastFetchedAt DateTime?
+  lastError     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  articles Article[]
+}
+
+/// Нийтлэл — эх мэдээ + agent-ийн монгол хураангуй
+model Article {
+  id          String        @id @default(cuid())
+  slug        String        @unique          // URL: /medee/openai-gpt-6-astra-garlaa
+  status      ArticleStatus @default(DRAFT)
+
+  // Эх сурвалжийн мэдээлэл
+  sourceId     String
+  source       Source   @relation(fields: [sourceId], references: [id])
+  sourceUrl    String   @unique             // давхардал шалгах гол түлхүүр
+  sourceTitle  String
+  sourceExcerpt String?                     // RSS-ийн description, HTML-гүй (≤2000 тэмдэгт)
+  sourceText    String?                     // эх хуудаснаас Readability-ээр татсан бүтэн текст (≤8000)
+  sourceAuthor  String?
+  sourceHash   String                       // гарчгийн normalized hash — давхардал
+  publishedAtSource DateTime?
+
+  // Agent-ийн гаргалт (монгол)
+  titleMn      String?                      // RAW үед хоосон — 2-р шатанд agent бөглөнө
+  summaryMn    String?                      // 1–2 өгүүлбэр (жагсаалт, FB пост)
+  bodyMn       String?                      // 150–300 үгийн хураангуй, markdown
+  relevance    Int      @default(0)         // 1–10, agent-ийн үнэлгээ
+  tags         String[] @default([])
+  scoreModel   String?                      // үнэлгээ хийсэн LLM
+  writeModel   String?                      // монголоор бичсэн LLM
+  scoreReason  String?                      // LLM-ийн нэг өгүүлбэр шалтгаан (англиар байж болно)
+  tokensUsed   Int      @default(0)         // тухайн нийтлэлд зарцуулсан нийт токен
+
+  // Хэвлэлт
+  publishedAt  DateTime?
+  fbPostId     String?                      // Facebook-т тавигдсан бол
+  reviewedBy   String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  models    AiModel[] @relation("ArticleModels")
+  companies Company[] @relation("ArticleCompanies")
+
+  @@index([status, publishedAt])
+  @@index([status, createdAt])
+  @@index([sourceHash])
+}
+
+/// Fetcher/agent ажиллалтын лог — эвдэрсэн эсэхийг харах
+model JobRun {
+  id         String   @id @default(cuid())
+  job        String                  // "openrouter", "rss", "agent"
+  startedAt  DateTime @default(now())
+  finishedAt DateTime?
+  ok         Boolean?
+  itemsIn    Int      @default(0)
+  itemsOut   Int      @default(0)
+  error      String?
+
+  @@index([job, startedAt])
+}

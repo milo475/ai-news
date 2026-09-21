@@ -1,0 +1,172 @@
+# AI мэдээ — жагсаалт + мэдээний agent
+
+## Суулгах
+```bash
+npm install
+cp .env.example .env      # DATABASE_URL, OPENROUTER_API_KEY бөглөнө
+npx prisma migrate dev --name init
+npx prisma generate
+npx playwright install chromium   # JS-ээр зурагддаг сайтын бүтэн текстэд
+```
+
+## Ажиллуулах
+```bash
+npx tsx src/fetchers/openrouter.ts --days 60   # анх удаа: 60 хоногийн түүх
+npx tsx src/fetchers/openrouter.ts             # өдөр бүр (cron): сүүлийн 7 хоног
+npx tsx --test src/fetchers/openrouter.test.ts # логикийн тест
+LIVE=1 npx tsx --test src/fetchers/openrouter.test.ts  # + бодит каталог
+```
+
+## Бүтэц
+- `prisma/schema.prisma` — Company, AiModel, RankingSnapshot, Source, Article, JobRun
+- `src/fetchers/openrouter.api.ts` — API дуудлага + цэвэр хувиргалт (DB-гүй, тесттэй)
+- `src/fetchers/openrouter.ts` — каталог + өдөр тутмын жагсаалтыг DB-д бичих
+- `src/queries/leaderboard.ts` — нүүр хуудас/моделийн хуудасны query
+- `src/fetchers/sources.seed.ts` — мэдээний RSS эх сурвалжуудын жагсаалт
+- `src/fetchers/rss.api.ts` — feed татах + цэвэрлэх цэвэр функцууд (DB-гүй, тесттэй)
+- `src/fetchers/rss.ts` — RSS-ээс RAW нийтлэл цуглуулж DB-д бичих
+- `src/fetchers/fulltext.api.ts` — эх хуудаснаас бүтэн текст (Readability + linkedom, JS-сайтад Playwright)
+- `src/fetchers/fulltext.backfill.ts` — sourceText хоосон нийтлэлүүдэд текст нөхөх
+- `src/agent/llm.ts` — OpenRouter chat completions, JSON schema-тай хариу (DB-гүй)
+- `src/agent/glossary.md` — нэр томьёоны толь + хэв маягийн дүрэм (prompt-д шууд ордог)
+- `src/agent/slug.ts` — монгол гарчиг → URL slug (кирилл→латин, тесттэй)
+- `src/agent/process.ts` — RAW → үнэлгээ → монголоор бичих → DRAFT (`processOne` нь нэг нийтлэлд)
+- `src/middleware.ts` — `/admin` замын HTTP Basic auth
+- `src/app/admin/` — редакторын самбар, нийтлэл засах, server action-ууд
+- `src/app/medee/` — нийтийн мэдээний жагсаалт ба нийтлэлийн хуудас
+- `src/publish/facebook.ts` — нийтлэгдсэн мэдээг Facebook хуудсанд постлох
+- `src/pipeline.ts` — бүх шатыг дараалуулан ажиллуулах (cron)
+
+## Ишлэл (заавал)
+OpenRouter-ийн өгөгдөл CC BY 4.0. Сайт дээр:
+"Source: OpenRouter (openrouter.ai/rankings), as of {as_of}."
+
+## Вэб сайт (Next.js 15 + Tailwind 4)
+```bash
+npm run dev                  # http://localhost:3000 — Postgres хэрэгтэй
+USE_FIXTURES=1 npm run dev   # DB-гүй, зохиомол өгөгдлөөр UI харах
+npm run build && npm start
+```
+Хуудсууд: `/` нүүр (топ 10, өсөлт/уналт), `/jagsaalt` (топ 50, шүүлтүүр), `/model/<slug>` (30 хоногийн график, үнэ),
+`/argachlal`, `/medee` (agent нэмэгдэх хүртэл хоосон).
+
+Хуудсууд өгөгдлийг зөвхөн `src/data/index.ts`-ээс авна — DB эсвэл fixture-ийг тэнд сольдог.
+ISR: хуудас 1 цаг тутам дахин үүснэ (`revalidate = 3600`).
+
+## Мэдээний agent — 1-р шат (RSS цуглуулагч)
+LLM дуудахгүй: эх сурвалжаас татаж `Article.status = RAW` нийтлэл болгон хадгална.
+Монгол гарчиг/хураангуй (`titleMn`, `summaryMn`, `bodyMn`) 2-р шатанд бөглөгдөнө.
+
+```bash
+npm run db:seed:sources   # эх сурвалжуудыг Source хүснэгтэд upsert
+npm run fetch:rss         # feed бүрийг дараалан татаж RAW нийтлэл хадгална
+npm test                  # src/fetchers/*.test.ts — сүлжээгүй логикийн тест
+```
+
+Шинэ нийтлэл бүрт эх хуудсыг нь нээж Readability-ээр бүтэн текст татаж `sourceText`-д бичнэ.
+`Source.needsBrowser = true` бол хуудсыг Playwright (chromium)-аар нээж, биет текст зурагдтал хүлээнэ
+(OpenAI Blog ийм). Хуудас нээгдэхгүй бол feed-ийн `content:encoded` (эсвэл `content`) нөөцөд орно;
+тэр ч байхгүй бол `sourceExcerpt`-ээр л ажиллана. Browser нэг ажиллуулалтад нэг л удаа нээгдэнэ. Хүсэлт хоорондоо 500мс завсартай. Хуучин нийтлэлүүдэд нөхөж татах:
+`npx tsx src/fetchers/fulltext.backfill.ts` (Source бүрийн feed-ийг нэг удаа татаж хаягаар тааруулна).
+
+Шүүлтүүр: сүүлийн 7 хоногийн нийтлэл; `sourceUrl` (normalize хийсэн — utm_*/fbclid/ref хассан)
+давхардвал алгасна; сүүлийн 3 хоногт ижил `sourceHash` (гарчгийн normalized sha1) байвал алгасна.
+Тиймээс хоёр дахь удаа ажиллуулахад "шинэ 0" гарна. Cron: 1–2 цаг тутам.
+
+Эх сурвалж тус бүрийн үр дүн `JobRun` (job: `"rss"`) болон `Source.lastFetchedAt` / `Source.lastError`-т үлдэнэ.
+
+Feed-ийн төлөв (2026-09-20):
+- **Anthropic News** — нийтийн RSS/Atom олдсонгүй (`rss.xml`, `feed.xml`, `news/rss.xml` бүгд 404, HTML дотор
+  `<link rel="alternate">` байхгүй). `isActive: false` болгосон — feed гармагц seed дээр асаана.
+- **VentureBeat AI** — feed хаяг зөв боловч bot хамгаалалт HTTP 429 буцаадаг. Идэвхтэй үлдээсэн,
+  алдаа нь `Source.lastError`-т бичигдэж бусад эх сурвалжийг зогсоохгүй.
+- Бусад 8 feed ажиллаж байна.
+
+## Мэдээний agent — 2-р шат (үнэлгээ + монголоор бичих)
+RAW нийтлэлийг хоёр LLM дуудлагаар боловсруулна: эхлээд хямд моделиор 1–10 оноо, дараа нь
+босго давсныг нь монголоор бичиж `DRAFT` болгоно. Босго давахгүй бол `REJECTED`.
+
+```bash
+npm run agent:process -- --limit 10          # default 20
+WRITE_MODEL=anthropic/claude-opus-5 npm run agent:process -- --limit 3   # бичих моделийг солих
+```
+
+`.env` тохиргоо:
+
+| Хувьсагч | Утга |
+|---|---|
+| `SCORE_MODEL` | үнэлгээний модель (maxTokens 300, temperature 0.1) |
+| `WRITE_MODEL` | монголоор бичих модель (maxTokens 4000, temperature 0.4) |
+| `RELEVANCE_THRESHOLD` | үүнээс доош оноотой нийтлэл `REJECTED` (default 7) |
+
+RAW нийтлэлүүдийг `source.weight desc, publishedAtSource desc`-ээр авна — найдвартай эх сурвалж эхэлнэ.
+Prompt-д `sourceText` (бүтэн текст) байвал түүнийг, үгүй бол `sourceExcerpt`-ийг өгнө; бүтэн текст
+олдоогүйг моделд мэдэгдэж, богино (100–150 үг) бичихийг үүрэг болгоно.
+
+Нийтлэл бүрт `relevance`, `scoreReason`, `scoreModel`, `writeModel`, `tokensUsed` хадгалагдана.
+Дурдагдсан компанийг каталогтой тааруулж (alias-тай) `Article.companies`-т, моделийг **зөвхөн яг
+таарах нэрээр** `Article.models`-т холбоно.
+Алдаа гарвал тухайн нийтлэл `RAW` хэвээр үлдэж, дараагийн ажиллалтад дахин орно.
+
+Анхаарах:
+- **OpenRouter кредит `max_tokens`-ийг хязгаарладаг.** Үлдэгдэл бага үед "can only afford N tokens"
+  гэсэн 402 алдаа гарна — ялангуяа үнэтэй бичих модель дээр. `chatJson` энэ тоог уншаад нэг удаа
+  тэр хэмжээгээр дахин оролдоно, гэхдээ жинхэнэ шийдэл нь кредит нэмэх.
+- **OpenAI Blog-ийн хуудсууд JS-ээр зурагддаг**, RSS-д нь `content:encoded` байхгүй (`description`
+  ~150 тэмдэгт). Тиймээс `needsBrowser = true` — Playwright-аар нээж бүтэн текстийг авна.
+  Playwright суугаагүй бол алдаа хэвлээд тухайн нийтлэл хураангуйгаар үргэлжилнэ.
+- **Эдгээр endpoint дээр reasoning-ийг унтраах боломжгүй** ("Reasoning is mandatory for this
+  endpoint"). `chatJson` үүнийг мэдэж, reasoning-гүй дуудлага татгалзвал reasoning-тэйгээр дахин
+  дуудна. Ингэснээр reasoning токен `max_tokens`-оос иддэг тул бичих дуудлагад 4000 өгдөг.
+
+## Редакторын самбар — /admin
+`ADMIN_PASSWORD` тохируулаад `/admin` руу орно (HTTP Basic, хэрэглэгч `admin`). Нууц үг хоосон бол
+хуудас 503 буцаана. Бусад зам нээлттэй.
+
+- Самбар: RAW/DRAFT/PUBLISHED/REJECTED тоо, `openrouter`/`rss`/`agent` ажлуудын сүүлийн ажиллалт.
+- Таб бүр дээр нийтлэлийн жагсаалт: гарчиг, эх сурвалж, оноо, бүтэн текст байгаа эсэх (● / ○), огноо.
+  DRAFT таб дээр мөр бүрт «Нийтлэх» / «Хаях».
+- `/admin/<id>`: зүүн талд гарчиг, хураангуй, үндсэн текст, шошго, slug-ийн форм
+  («Хадгалах», «Хадгалаад нийтлэх»); баруун талд эх мэдээлэл, үнэлгээний шалтгаан, бүтэн текст,
+  «Дахин бичүүлэх» (тухайн нэг нийтлэлийг agent-аар дахин боловсруулна — LLM дуудна, алдаа гарвал
+  хуудсан дээр харагдана).
+- Нийтлэхэд `/`, `/medee`, `/medee/<slug>` болон холбогдсон моделийн хуудсууд шинэчлэгдэнэ.
+
+## Мэдээний хуудсууд
+- `/medee` — нийтлэгдсэн мэдээ, 20-оор хуудаслана (`?page=`), 10 минут тутам шинэчлэгдэнэ.
+- `/medee/<slug>` — гарчиг, хураангуй, markdown биет (`react-markdown`, raw HTML идэвхгүй), шошго,
+  холбогдсон модель/компани, эх сурвалжийн холбоос, AI-аар бэлтгэсэн тухай тэмдэглэл.
+- Нүүр хуудсанд сүүлийн 5 мэдээ, моделийн хуудсанд тухайн моделийг дурдсан сүүлийн 5 мэдээ гарна.
+
+## Facebook
+`.env`-д `FB_PAGE_ID`, `FB_PAGE_ACCESS_TOKEN`, `SITE_URL` бөглөнө. Token хоосон бол алхам алгасагдана.
+
+```bash
+npm run publish:facebook    # PUBLISHED бөгөөд постлоогүй мэдээг постолно
+```
+
+Нэг ажиллуулалтад дээд тал нь 5 пост, хооронд 30 секунд. Пост: гарчиг + хураангуй + сайтын холбоос.
+Facebook-ийн буцаасан id `Article.fbPostId`-д хадгалагдана; `/admin/<id>` дээр «Facebook-т постлох»
+товчоор гараар ч постолж болно.
+
+## Pipeline
+```bash
+npm run pipeline                          # openrouter → rss → agent → facebook
+npm run pipeline -- --skip openrouter      # алхам алгасах (таслалаар олныг)
+```
+Алхам бүр тусдаа try/catch — нэг нь унасан ч дараагийнх ажиллана. Төгсгөлд дүнгийн хүснэгт гарч,
+ямар нэг алхам унасан бол exit 1.
+
+`rss` алхам дээр **эх сурвалж бүр унасан**, `agent` алхам дээр **нийтлэл бүр унасан** бол (жишээ нь
+сүлжээ тасарсан, OpenRouter кредит дууссан) алхмыг унасан гэж үзнэ — cron дээр эвдрэл чимээгүй
+өнгөрөхгүй. `JobRun` мөн `ok = false` болж, /admin дээр улаанаар харагдана. Хэсэг нь амжилттай бол
+алхам «ok» хэвээр.
+
+## Автоматжуулалт (cron)
+Локал (Kali):
+```
+30 3 * * * cd /home/kali/ai-medee && /usr/bin/npm run pipeline >> logs/pipeline.log 2>&1
+```
+UTC 03:30 = Улаанбаатарын цагаар 11:30. `logs/` хавтас git-д ордоггүй (`.gitignore`).
+
+Railway/VPS дээр ижил командыг тухайн платформын cron service-ээр ажиллуулна (дараагийн шатанд).

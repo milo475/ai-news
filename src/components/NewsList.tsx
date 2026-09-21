@@ -1,0 +1,33 @@
+import Link from "next/link";
+import type { NewsCard } from "@/data";
+import { fmtDate } from "./format";
+
+export function Tags({ tags }: { tags: string[] }) {
+  if (tags.length === 0) return null;
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {tags.map((t) => (
+        <span key={t} className="text-xs rounded px-1.5 py-0.5 border border-line text-muted">{t}</span>
+      ))}
+    </div>
+  );
+}
+
+export function NewsList({ items }: { items: NewsCard[] }) {
+  return (
+    <ul className="divide-y divide-line rounded-lg border border-line">
+      {items.map((n) => (
+        <li key={n.slug} className="p-4 hover:bg-line/30">
+          <Link href={`/medee/${n.slug}`} className="font-medium hover:text-accent">{n.titleMn}</Link>
+          <p className="text-sm text-muted mt-1">{n.summaryMn}</p>
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2 mt-2 text-xs text-muted">
+            <span>{fmtDate(n.publishedAt)}</span>
+            <span>·</span>
+            <span>{n.sourceName}</span>
+            <Tags tags={n.tags} />
+          </div>
+        </li>
+      ))}
+    </ul>
+  );
+}
