@@ -1,11 +1,14 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { Logo } from "@/components/Logo";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import "./globals.css";
 
 export const metadata: Metadata = {
   title: { default: "AI News — Дэлхийн AI-ийн жагсаалт, монголоор", template: "%s · AI News" },
   description: "Дэлхийн хамгийн их хэрэглэгддэг AI моделиудын өдөр тутмын жагсаалт, өсөлт уналт, мэдээ — монгол хэлээр.",
+  // Зургийг Next өөрөө src/app/opengraph-image.png-ээс авна
+  openGraph: { siteName: "AI News", locale: "mn_MN", type: "website" },
 };
 
 /** Хуудас зурагдахаас өмнө горимыг тавина — буруу өнгө анивчихгүй */
@@ -27,8 +30,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body className="min-h-dvh flex flex-col">
         <header className="border-b border-line">
           <div className="mx-auto max-w-6xl px-4 h-14 flex items-center justify-between gap-6">
-            <Link href="/" className="font-semibold tracking-tight text-lg">
-              AI <span className="text-accent">News</span>
+            <Link href="/" aria-label="AI News нүүр">
+              <Logo />
             </Link>
             <div className="flex items-center gap-3 min-w-0">
               <nav className="flex gap-4 sm:gap-5 text-sm text-muted overflow-x-auto whitespace-nowrap">

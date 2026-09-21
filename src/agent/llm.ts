@@ -6,8 +6,8 @@
  */
 
 const URL_CHAT = "https://openrouter.ai/api/v1/chat/completions";
-const REFERER = "https://ai-medee.mn";
-const TITLE = "AI Medee";
+const REFERER = "https://ai-news.mn";
+const TITLE = "AI News";
 
 /** Дахин оролдох хүлээлт: 2с, 6с. Гурав дахь удаад алдааг дамжуулна. */
 const BACKOFF_MS = [2_000, 6_000];

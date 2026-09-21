@@ -7,7 +7,7 @@ import { createHash } from "node:crypto";
 import Parser from "rss-parser";
 
 const TIMEOUT_MS = 15_000;
-const USER_AGENT = "Mozilla/5.0 (compatible; ai-medee-bot/1.0; +https://github.com/)";
+const USER_AGENT = "Mozilla/5.0 (compatible; ai-news-bot/1.0; +https://github.com/)";
 
 export interface FeedItem {
   url: string;

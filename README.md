@@ -1,4 +1,4 @@
-# AI мэдээ — жагсаалт + мэдээний agent
+# AI News — жагсаалт + мэдээний agent
 
 ## Суулгах
 ```bash
@@ -34,6 +34,8 @@ LIVE=1 npx tsx --test src/fetchers/openrouter.test.ts  # + бодит катал
 - `src/middleware.ts` — `/admin` замын HTTP Basic auth
 - `src/app/admin/` — редакторын самбар, нийтлэл засах, server action-ууд
 - `src/app/medee/` — нийтийн мэдээний жагсаалт ба нийтлэлийн хуудас
+- `src/components/Logo.tsx` — тэмдэг (`LogoMark`) ба нэртэй лого (`Logo`), inline SVG
+- `scripts/brand.ts` — favicon/OG зургийг үүсгэх скрипт (нэг удаа ажиллуулж, үр дүнг commit хийнэ)
 - `src/publish/facebook.ts` — нийтлэгдсэн мэдээг Facebook хуудсанд постлох
 - `src/pipeline.ts` — бүх шатыг дараалуулан ажиллуулах (cron)
 - `src/jobs/runner.ts` — /admin-аас ажлыг ард нь (detached процесс) эхлүүлэх
@@ -239,8 +241,8 @@ railway run --service cron npm run db:seed:sources
 
 ### Docker локал дээр
 ```bash
-docker build -t ai-medee .
-docker run --rm -p 3000:3000 -e DATABASE_URL=... -e ADMIN_PASSWORD=... ai-medee
+docker build -t ai-news .
+docker run --rm -p 3000:3000 -e DATABASE_URL=... -e ADMIN_PASSWORD=... ai-news
 ```
 Image суурь нь `mcr.microsoft.com/playwright:v1.63.0-noble` — chromium бэлэн байдаг тул
 `npx playwright install` хэрэггүй. **Playwright-ийн хувилбар `package.json`-той яг таарах ёстой**
@@ -257,3 +259,21 @@ Image суурь нь `mcr.microsoft.com/playwright:v1.63.0-noble` — chromium 
 > **Анхааруулга:** эхний 2–4 долоо хоног үүнийг унтраалттай байлгаж, агентын бичсэнийг гараар хянана
 > уу. Гарчиг, тоо, нэр томьёо тогтвортой зөв гарч байгаад итгэсний дараа л асаана. Асаасан ч
 > 9-өөс доош утга тавихыг зөвлөхгүй.
+
+## Брэнд
+Нэр: **AI News**. Тэмдэг нь өсөх багана + дээш заасан сум, өнгө `--color-accent` (`#4f46e5`).
+
+| Файл | Юу вэ |
+|---|---|
+| `src/components/Logo.tsx` | `<LogoMark size={32} />` ба `<Logo />` — inline SVG, сэдвийн өнгийг дагана |
+| `src/app/icon.svg` | favicon. CSS хувьсагч ажиллахгүй тул өнгө нь тогтмол `#4f46e5` |
+| `src/app/apple-icon.png` | 180×180 |
+| `src/app/opengraph-image.png` | 1200×630, `#f7f6f2` дэвсгэр дээр тэмдэг + нэр |
+| `src/app/manifest.ts` | PWA manifest |
+
+PNG-үүдийг дахин үүсгэх:
+```bash
+npx tsx scripts/brand.ts
+```
+`public/brand/` дотор `mark.png` (эсвэл `logo-mark.png`, `icon.png`) байвал түүнээс, байхгүй бол
+`icon.svg`-тэй ижил SVG-ээс зурна. Үр дүнг git-д commit хийнэ — build үед дахин үүсгэдэггүй.
