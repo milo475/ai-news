@@ -173,3 +173,58 @@ model JobRun {
 
   @@index([job, startedAt])
 }
+
+/// AI хэрэгслийн үнийн бодлого
+enum ToolPricing {
+  FREE      // бүрэн үнэгүй
+  FREEMIUM  // үнэгүй хувилбартай, төлбөртэй нь илүү
+  PAID      // зөвхөн төлбөртэй
+}
+
+/// "Ямар ажилд аль AI" — ангилал. Хүн бэлтгэж, /admin-аас засна.
+model UseCase {
+  id            String   @id @default(cuid())
+  slug          String   @unique          // URL: /hereglee/zurag
+  nameMn        String
+  descriptionMn String                    // 1–2 өгүүлбэр
+  icon          String                    // lucide-react дүрсний нэр: "image", "code" ...
+  order         Int      @default(0)      // жагсаалтын дараалал
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  tools UseCaseTool[]
+
+  @@index([isActive, order])
+}
+
+/// Нэг AI хэрэгсэл. Олон ангилалд орж болно.
+model AiTool {
+  id               String      @id @default(cuid())
+  slug             String      @unique
+  name             String
+  vendor           String
+  url              String                        // хоосон = шалгах шаардлагатай
+  descriptionMn    String                        // 1 өгүүлбэр
+  pricing          ToolPricing @default(FREEMIUM)
+  worksInMongolian Boolean     @default(true)
+  logoUrl          String?
+  isActive         Boolean     @default(true)
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+
+  useCases UseCaseTool[]
+}
+
+/// Ангилал ↔ хэрэгсэл, эрэмбэ ба тухайн ангилалд хамаарах тэмдэглэлтэй
+model UseCaseTool {
+  useCaseId String
+  useCase   UseCase @relation(fields: [useCaseId], references: [id], onDelete: Cascade)
+  toolId    String
+  tool      AiTool  @relation(fields: [toolId], references: [id], onDelete: Cascade)
+  rank      Int                              // 1 = шилдэг
+  noteMn    String?                          // зөвхөн энэ ангилалд хамаарах тайлбар
+
+  @@id([useCaseId, toolId])
+  @@index([useCaseId, rank])
+}

@@ -17,6 +17,22 @@ export interface ModelDetail {
 
 export interface HistoryPoint { date: Date; rank: number; score: string }
 
+export interface UseCaseCard {
+  slug: string; nameMn: string; descriptionMn: string; icon: string;
+  /** Карт дээр харуулах эхний 3 хэрэгслийн нэр */
+  topTools: string[];
+}
+
+export interface UseCaseToolRow {
+  rank: number; name: string; vendor: string; url: string;
+  descriptionMn: string; noteMn: string | null;
+  pricing: "FREE" | "FREEMIUM" | "PAID"; worksInMongolian: boolean;
+}
+
+export interface UseCaseDetail extends UseCaseCard {
+  tools: UseCaseToolRow[];
+}
+
 export interface NewsCard {
   slug: string; titleMn: string; summaryMn: string;
   publishedAt: Date | null; sourceName: string; tags: string[];
@@ -134,6 +150,63 @@ export async function getNewsItem(slug: string): Promise<NewsDetail | null> {
     models: a.models,
     companies: a.companies,
   };
+}
+
+/** Идэвхтэй ангиллууд, карт дээрх топ 3 хэрэгслийн хамт */
+export async function getUseCases(limit?: number): Promise<UseCaseCard[]> {
+  if (useFixtures) return (await import("./usecases.fixture")).fixtureUseCases.slice(0, limit);
+  const { prisma } = await import("@/db");
+  const rows = await prisma.useCase.findMany({
+    where: { isActive: true },
+    orderBy: { order: "asc" },
+    take: limit,
+    select: {
+      slug: true, nameMn: true, descriptionMn: true, icon: true,
+      tools: {
+        where: { tool: { isActive: true } },
+        orderBy: { rank: "asc" },
+        take: 3,
+        select: { tool: { select: { name: true } } },
+      },
+    },
+  });
+  return rows.map((u) => ({ ...u, topTools: u.tools.map((t) => t.tool.name) }));
+}
+
+export async function getUseCase(slug: string): Promise<UseCaseDetail | null> {
+  if (useFixtures) return (await import("./usecases.fixture")).fixtureUseCase(slug);
+  const { prisma } = await import("@/db");
+  const u = await prisma.useCase.findUnique({
+    where: { slug },
+    select: {
+      slug: true, nameMn: true, descriptionMn: true, icon: true, isActive: true,
+      tools: {
+        where: { tool: { isActive: true } },
+        orderBy: { rank: "asc" },
+        select: {
+          rank: true, noteMn: true,
+          tool: { select: { name: true, vendor: true, url: true, descriptionMn: true, pricing: true, worksInMongolian: true } },
+        },
+      },
+    },
+  });
+  if (!u || !u.isActive) return null;
+  return {
+    slug: u.slug, nameMn: u.nameMn, descriptionMn: u.descriptionMn, icon: u.icon,
+    topTools: u.tools.slice(0, 3).map((t) => t.tool.name),
+    tools: u.tools.map((t) => ({ rank: t.rank, noteMn: t.noteMn, ...t.tool })),
+  };
+}
+
+/** Тухайн ангиллын slug эсвэл нэрийг шошгондоо агуулсан нийтлэгдсэн мэдээ */
+export async function getNewsForUseCase(slug: string, nameMn: string, limit = 5): Promise<NewsCard[]> {
+  if (useFixtures) return [];
+  const { prisma } = await import("@/db");
+  const rows = await prisma.article.findMany({
+    where: { status: "PUBLISHED", tags: { hasSome: [slug, nameMn.toLowerCase()] } },
+    orderBy: { publishedAt: "desc" }, take: limit, select: cardSelect,
+  });
+  return rows.map(toCard);
 }
 
 export async function getSourceNote(): Promise<string> {

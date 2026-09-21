@@ -17,6 +17,7 @@ const THEME_SCRIPT = `try{var t=localStorage.getItem("theme");if(t==="dark"||t==
 const NAV = [
   { href: "/", label: "Нүүр" },
   { href: "/jagsaalt", label: "Жагсаалт" },
+  { href: "/hereglee", label: "Хэрэглээ" },
   { href: "/medee", label: "Мэдээ" },
   { href: "/argachlal", label: "Аргачлал" },
 ];

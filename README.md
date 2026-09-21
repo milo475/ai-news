@@ -18,7 +18,7 @@ LIVE=1 npx tsx --test src/fetchers/openrouter.test.ts  # + бодит катал
 ```
 
 ## Бүтэц
-- `prisma/schema.prisma` — Company, AiModel, RankingSnapshot, Source, Article, JobRun
+- `prisma/schema.prisma` — Company, AiModel, RankingSnapshot, Source, Article, JobRun, UseCase, AiTool
 - `src/fetchers/openrouter.api.ts` — API дуудлага + цэвэр хувиргалт (DB-гүй, тесттэй)
 - `src/fetchers/openrouter.ts` — каталог + өдөр тутмын жагсаалтыг DB-д бичих
 - `src/queries/leaderboard.ts` — нүүр хуудас/моделийн хуудасны query
@@ -34,6 +34,8 @@ LIVE=1 npx tsx --test src/fetchers/openrouter.test.ts  # + бодит катал
 - `src/middleware.ts` — `/admin` замын HTTP Basic auth
 - `src/app/admin/` — редакторын самбар, нийтлэл засах, server action-ууд
 - `src/app/medee/` — нийтийн мэдээний жагсаалт ба нийтлэлийн хуудас
+- `src/app/hereglee/` — «Ямар ажилд аль AI» ангилал, хэрэгслүүд
+- `src/seed/usecases.seed.ts` — ангилал, хэрэгслийн эхний өгөгдөл
 - `src/components/Logo.tsx` — тэмдэг (`LogoMark`) ба нэртэй лого (`Logo`), inline SVG
 - `scripts/brand.ts` — favicon/OG зургийг үүсгэх скрипт (нэг удаа ажиллуулж, үр дүнг commit хийнэ)
 - `src/publish/facebook.ts` — нийтлэгдсэн мэдээг Facebook хуудсанд постлох
@@ -54,7 +56,7 @@ USE_FIXTURES=1 npm run dev   # DB-гүй, зохиомол өгөгдлөөр UI
 npm run build && npm start
 ```
 Хуудсууд: `/` нүүр (топ 10, өсөлт/уналт), `/jagsaalt` (топ 50, шүүлтүүр), `/model/<slug>` (30 хоногийн график, үнэ),
-`/argachlal`, `/medee` (agent нэмэгдэх хүртэл хоосон).
+`/hereglee` (ямар ажилд аль AI), `/argachlal`, `/medee`.
 
 Хуудсууд өгөгдлийг зөвхөн `src/data/index.ts`-ээс авна — DB эсвэл fixture-ийг тэнд сольдог.
 Нүүр хуудас request тутам шинэчлэгдэнэ (`force-dynamic`) — build үед DB байдаггүй, мөн deploy хийсэн
@@ -277,3 +279,30 @@ npx tsx scripts/brand.ts
 ```
 `public/brand/` дотор `mark.png` (эсвэл `logo-mark.png`, `icon.png`) байвал түүнээс, байхгүй бол
 `icon.svg`-тэй ижил SVG-ээс зурна. Үр дүнг git-д commit хийнэ — build үед дахин үүсгэдэггүй.
+
+## Хэрэглээ — «Ямар ажилд аль AI?»
+AI-г сайн мэдэхгүй хүнд зориулсан хэсэг: хийх ажлаа сонгоод тохирох хэрэгслүүдийг харна.
+Өгөгдөл нь **хүний бэлтгэсэн** — agent биш — `/admin/hereglee` дээрээс засна.
+
+```bash
+npm run db:seed:usecases   # эхний өгөгдөл. Байгаа мөрийг дарж бичихгүй, зөвхөн шинийг нэмнэ
+```
+
+- `/hereglee` — 13 ангилал (карт: дүрс, нэр, тайлбар, топ 3 хэрэгсэл)
+- `/hereglee/<slug>` — хэрэгслүүд эрэмбээрээ: #, нэр, гаргагч, тайлбар, тэмдэглэл,
+  үнийн шошго (Үнэгүй / Үнэгүй + төлбөртэй / Төлбөртэй), «монголоор ажилладаг» шошго, «Нээх →».
+  Доор нь тухайн ангиллын slug эсвэл нэрийг шошгондоо агуулсан нийтлэгдсэн мэдээ.
+- Нүүр хуудсанд «AI-г юунд ашиглах вэ?» блок (эхний 6 ангилал), nav-д «Хэрэглээ».
+
+Загвар: `UseCase` (ангилал) ↔ `UseCaseTool` (эрэмбэ + тухайн ангилалд хамаарах тэмдэглэл) ↔ `AiTool`
+(хэрэгсэл — олон ангилалд орж болно). Дүрс нь `lucide-react`-ийн нэр, `src/components/UseCaseIcon.tsx`
+дотор гараар буулгасан (бүх сангаа bundle-д оруулахгүйн тулд).
+
+> «Монголоор ажилладаг» тэмдэг нь **редакторын үнэлгээ** — тухайн хэрэгсэл монгол хэлээр асуухад
+> ойлгож, монголоор хариулдаг эсэх. Хэрэгслүүдийн чанар байнга өөрчлөгддөг тул хуудсан дээр
+> «өөрөө туршиж үзэхийг зөвлөе» гэж бичсэн.
+
+### /admin/hereglee
+Ангилал бүр задардаг: нэр/тайлбар/дараалал/идэвх засах, хэрэгслийн эрэмбэ/тэмдэглэл/идэвх засах,
+ангиллаас салгах, байгаа хэрэгслийг холбох, шинэ хэрэгсэл үүсгэж шууд холбох. Хадгалахад нүүр,
+`/hereglee`, тухайн ангиллын хуудас шинэчлэгдэнэ.

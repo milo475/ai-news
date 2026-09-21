@@ -59,7 +59,10 @@ export default async function Admin({
     <div className="space-y-6">
       {/* Ажиллаж байгаа зүйл байвал л шинэчилнэ */}
       {anyRunning && <meta httpEquiv="refresh" content="10" />}
-      <h1 className="text-2xl font-semibold tracking-tight">Админ</h1>
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h1 className="text-2xl font-semibold tracking-tight">Админ</h1>
+        <Link href="/admin/hereglee" className="text-sm text-accent hover:underline">Хэрэглээний жагсаалт →</Link>
+      </div>
 
       <section className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         {TABS.map((s) => (

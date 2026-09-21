@@ -17,6 +17,7 @@
     "test": "tsx --test src/fetchers/*.test.ts src/agent/*.test.ts",
     "db:migrate": "prisma migrate dev",
     "db:seed:sources": "tsx src/fetchers/sources.seed.ts",
+    "db:seed:usecases": "tsx src/seed/usecases.seed.ts",
     "db:generate": "prisma generate"
   },
   "keywords": [],
@@ -40,6 +41,7 @@
     "@prisma/client": "^7.10.0",
     "dotenv": "^18.0.1",
     "linkedom": "^0.18.13",
+    "lucide-react": "^1.47.0",
     "next": "^15.5.25",
     "pg": "^8.23.0",
     "react": "^19.3.0",
