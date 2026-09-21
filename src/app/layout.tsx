@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Logo } from "@/components/Logo";
+import { SearchDialog } from "@/components/SearchDialog";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import "./globals.css";
 
@@ -40,6 +41,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                   <Link key={n.href} href={n.href} className="hover:text-ink">{n.label}</Link>
                 ))}
               </nav>
+              <SearchDialog />
               <ThemeToggle />
             </div>
           </div>

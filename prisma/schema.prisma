@@ -78,8 +78,12 @@ model AiModel {
   snapshots RankingSnapshot[]
   articles  Article[]         @relation("ArticleModels")
 
+  /// Хайлтын индекс — нэр + slug (компанийн угтвар slug дотор байдаг)
+  searchVector Unsupported("tsvector")?
+
   @@index([companyId])
   @@index([isActive])
+  @@index([searchVector], type: Gin)
 }
 
 /// Нэг модель, нэг эх сурвалж, нэг өдрийн байр — өсөлт/уналт эндээс тооцно
@@ -164,7 +168,11 @@ model Article {
   /// Энэ мэдээ ямар digest-үүдэд орсон бэ
   inDigests   DigestItem[] @relation("DigestChild")
 
+  /// Хайлтын индекс — migration дотор GENERATED ALWAYS AS ... STORED
+  searchVector Unsupported("tsvector")?
+
   @@index([kind, status, publishedAt])
+  @@index([searchVector], type: Gin)
   @@index([status, publishedAt])
   @@index([status, createdAt])
   @@index([sourceHash])
@@ -210,7 +218,11 @@ model UseCase {
 
   tools UseCaseTool[]
 
+  /// Хайлтын индекс — нэр + тайлбар
+  searchVector Unsupported("tsvector")?
+
   @@index([isActive, order])
+  @@index([searchVector], type: Gin)
 }
 
 /// Нэг AI хэрэгсэл. Олон ангилалд орж болно.
@@ -229,6 +241,11 @@ model AiTool {
   updatedAt        DateTime    @updatedAt
 
   useCases UseCaseTool[]
+
+  /// Хайлтын индекс — нэр + гаргагч + тайлбар
+  searchVector Unsupported("tsvector")?
+
+  @@index([searchVector], type: Gin)
 }
 
 /// Ангилал ↔ хэрэгсэл, эрэмбэ ба тухайн ангилалд хамаарах тэмдэглэлтэй
@@ -254,4 +271,14 @@ model DigestItem {
 
   @@id([digestId, articleId])
   @@index([digestId, order])
+}
+
+/// Хайлтын бүртгэл — юу хайгдаж байгааг харахад. Хувийн мэдээлэл хадгалахгүй.
+model SearchLog {
+  id          String   @id @default(cuid())
+  q           String
+  resultCount Int
+  createdAt   DateTime @default(now())
+
+  @@index([createdAt])
 }

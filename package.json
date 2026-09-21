@@ -16,7 +16,7 @@
     "agent:digest": "tsx src/agent/digest.ts",
     "publish:facebook": "tsx src/publish/facebook.ts",
     "pipeline": "tsx src/pipeline.ts",
-    "test": "tsx --test src/fetchers/*.test.ts src/agent/*.test.ts",
+    "test": "tsx --test src/fetchers/*.test.ts src/agent/*.test.ts src/lib/*.test.ts",
     "db:migrate": "prisma migrate dev",
     "db:seed:sources": "tsx src/fetchers/sources.seed.ts",
     "db:seed:usecases": "tsx src/seed/usecases.seed.ts",
