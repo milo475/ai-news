@@ -17,6 +17,7 @@ import { openRouterKey } from "./env";
 import { runArena } from "./fetchers/arena";
 import { runOpenRouter } from "./fetchers/openrouter";
 import { runRss } from "./fetchers/rss";
+import { runNewsletter } from "./newsletter/send";
 import { postPending } from "./publish/facebook";
 
 interface Step {
@@ -66,6 +67,15 @@ const STEPS: Step[] = [
       if (!isDigestDay(new Date())) return "Ням гараг биш, алгасав";
       const r = await runDigest(true);
       return r.created ? `"${r.title}" → /medee/${r.slug} (${r.items} мэдээ)` : `мэдээ цөөн (${r.items}), үүсгэсэнгүй`;
+    },
+  },
+  {
+    name: "newsletter",
+    run: async () => {
+      // Зөвхөн Ням гарагт — тухайн өдөр гарсан digest-ийг илгээнэ
+      if (!isDigestDay(new Date())) return "Ням гараг биш, алгасав";
+      const r = await runNewsletter();
+      return r.skipped ? (r.reason ?? "алгасав") : `${r.sent} хаяг руу илгээв (алдаа ${r.failed})`;
     },
   },
   {

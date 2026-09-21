@@ -38,6 +38,7 @@ LIVE=1 npx tsx --test src/fetchers/openrouter.test.ts  # + бодит катал
 - `src/agent/digest.ts` — долоо хоногийн тойм (`digest.api.ts` нь цэвэр хэсэг, тесттэй)
 - `src/app/api/og/[slug]/` — нийтлэлийн og:image (1200×630, next/og)
 - `src/lib/search.ts` — сайтын хайлт (`search-query.ts` нь цэвэр хэсэг, тесттэй)
+- `src/newsletter/` — имэйл бүртгэл ба долоо хоногийн захиа (Resend)
 - `src/middleware.ts` — `/admin` замын HTTP Basic auth
 - `src/app/admin/` — редакторын самбар, нийтлэл засах, server action-ууд
 - `src/app/medee/` — нийтийн мэдээний жагсаалт ба нийтлэлийн хуудас
@@ -189,7 +190,7 @@ Facebook-ийн буцаасан id `Article.fbPostId`-д хадгалагдан
 
 ## Pipeline
 ```bash
-npm run pipeline                          # openrouter → arena → rss → agent → digest → facebook
+npm run pipeline                          # openrouter → arena → rss → agent → digest → newsletter → facebook
 npm run pipeline -- --skip openrouter      # алхам алгасах (таслалаар олныг)
 ```
 Алхам бүр тусдаа try/catch — нэг нь унасан ч дараагийнх ажиллана. Төгсгөлд дүнгийн хүснэгт гарч,
@@ -417,3 +418,33 @@ Postgres-ийн өөрийн full-text search — нэмэлт сан, гада�
 байгааг харахад. Хувийн мэдээлэл хадгалахгүй.
 
 > `npm test` дэх хайлтын интеграцийн тест `DATABASE_URL` байвал ажиллана, үгүй бол алгасна.
+
+## Newsletter
+Долоо хоногийн тоймыг имэйлээр илгээнэ. **Double opt-in** — бүртгүүлэхэд баталгаажуулах захиа очиж,
+холбоос дарсны дараа л `ACTIVE` болно.
+
+```bash
+npm run newsletter:send                      # сүүлийн digest-ийг ACTIVE бүгдэд
+npm run newsletter:send -- --dry-run         # хэнд явахыг л хэвлэнэ, илгээхгүй
+npm run newsletter:send -- --test=me@mail.mn # зөвхөн тэр хаяг руу (бүртгэл үлдээхгүй)
+npm run pipeline -- --only newsletter        # зөвхөн Ням гарагт ажиллана
+```
+
+`.env`: `RESEND_API_KEY`, `NEWSLETTER_FROM` (default `AI News <noreply@ainews.mn>`),
+`NEWSLETTER_REPLY_TO`. **`RESEND_API_KEY` хоосон бол илгээх алхам алдаа заахгүй, логд бичээд
+алгасна** — хөгжүүлэлтийн үед баталгаажуулах холбоос лог дээр хэвлэгдэнэ.
+
+Нэг digest **хоёр удаа илгээгдэхгүй** (`NewsletterSend.digestArticleId` нь unique).
+Resend-ийн batch API-аар нэг дуудлагад 100 хаяг.
+
+**Имэйл.** React Email биш — inline-CSS HTML (имэйл клиентүүд гадаад CSS-ийг хасдаг) + текст
+хувилбар. Лого, гарчиг, lead, тоймын 4 хүртэл сэдэв (гарчиг + эхний догол мөр), «Бүтнээр унших →»
+товч, доод талд **unsubscribe холбоос заавал**. «Жагсаалтын өөрчлөлт», «Энэ digest-д орсон мэдээ»
+хэсгүүдийг имэйлд оруулахгүй — сайт дээр уншина.
+
+**Хамгаалалт.** Имэйлийг `zod`-оор шалгана. Нэг IP цагт 5 удаа (in-memory). Бүртгэлтэй имэйл
+дахин бүртгүүлэхэд **алдаа заахгүй** — «холбоос дахин илгээлээ» гэж хариулна (аль хаяг бүртгэлтэй
+болохыг гадуур мэдэхээс сэргийлнэ).
+
+**Хуудсууд.** Нүүр ба нийтлэл бүрийн төгсгөлд бүртгэлийн блок. `/newsletter/batalgaajlaa`,
+`/newsletter/hasagdlaa`. `/admin/newsletter` дээр тоо, илгээлтийн түүх, «Тест илгээх», CSV татах.

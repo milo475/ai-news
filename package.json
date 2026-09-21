@@ -15,8 +15,9 @@
     "agent:process": "tsx src/agent/process.ts",
     "agent:digest": "tsx src/agent/digest.ts",
     "publish:facebook": "tsx src/publish/facebook.ts",
+    "newsletter:send": "tsx src/newsletter/send.ts",
     "pipeline": "tsx src/pipeline.ts",
-    "test": "tsx --test src/fetchers/*.test.ts src/agent/*.test.ts src/lib/*.test.ts",
+    "test": "tsx --test src/fetchers/*.test.ts src/agent/*.test.ts src/lib/*.test.ts src/newsletter/*.test.ts",
     "db:migrate": "prisma migrate dev",
     "db:seed:sources": "tsx src/fetchers/sources.seed.ts",
     "db:seed:usecases": "tsx src/seed/usecases.seed.ts",
@@ -49,7 +50,9 @@
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "react-markdown": "^10.1.0",
-    "rss-parser": "^3.13.0"
+    "resend": "^6.28.1",
+    "rss-parser": "^3.13.0",
+    "zod": "^4.6.5"
   },
   "type": "module"
 }

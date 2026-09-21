@@ -79,7 +79,7 @@ model AiModel {
   articles  Article[]         @relation("ArticleModels")
 
   /// Хайлтын индекс — нэр + slug (компанийн угтвар slug дотор байдаг)
-  searchVector Unsupported("tsvector")?
+  searchVector Unsupported("tsvector")? @default(dbgenerated())
 
   @@index([companyId])
   @@index([isActive])
@@ -169,7 +169,7 @@ model Article {
   inDigests   DigestItem[] @relation("DigestChild")
 
   /// Хайлтын индекс — migration дотор GENERATED ALWAYS AS ... STORED
-  searchVector Unsupported("tsvector")?
+  searchVector Unsupported("tsvector")? @default(dbgenerated())
 
   @@index([kind, status, publishedAt])
   @@index([searchVector], type: Gin)
@@ -219,7 +219,7 @@ model UseCase {
   tools UseCaseTool[]
 
   /// Хайлтын индекс — нэр + тайлбар
-  searchVector Unsupported("tsvector")?
+  searchVector Unsupported("tsvector")? @default(dbgenerated())
 
   @@index([isActive, order])
   @@index([searchVector], type: Gin)
@@ -243,7 +243,7 @@ model AiTool {
   useCases UseCaseTool[]
 
   /// Хайлтын индекс — нэр + гаргагч + тайлбар
-  searchVector Unsupported("tsvector")?
+  searchVector Unsupported("tsvector")? @default(dbgenerated())
 
   @@index([searchVector], type: Gin)
 }
@@ -281,4 +281,35 @@ model SearchLog {
   createdAt   DateTime @default(now())
 
   @@index([createdAt])
+}
+
+/// Имэйл бүртгэлийн төлөв
+enum SubscriberStatus {
+  PENDING       // баталгаажуулах имэйл илгээсэн, хараахан дараагүй
+  ACTIVE        // баталгаажсан — имэйл хүлээн авна
+  UNSUBSCRIBED  // гарсан
+}
+
+/// Newsletter-ийн бүртгэл (double opt-in)
+model Subscriber {
+  id                String           @id @default(cuid())
+  email             String           @unique
+  status            SubscriberStatus @default(PENDING)
+  /// Баталгаажуулах холбоосын токен — баталгаажсаны дараа null
+  confirmToken      String?          @unique
+  /// Бүртгэлээс гарах холбоосын токен — имэйл бүрт явна
+  unsubscribeToken  String           @unique
+  createdAt         DateTime         @default(now())
+  confirmedAt       DateTime?
+
+  @@index([status])
+}
+
+/// Нэг digest-ийг нэг л удаа илгээхийн тулд
+model NewsletterSend {
+  id              String   @id @default(cuid())
+  digestArticleId String   @unique
+  sentCount       Int      @default(0)
+  failedCount     Int      @default(0)
+  createdAt       DateTime @default(now())
 }

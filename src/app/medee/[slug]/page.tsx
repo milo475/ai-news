@@ -3,6 +3,7 @@ import Link from "next/link";
 import { getNewsItem } from "@/data";
 import { Markdown } from "@/components/Markdown";
 import { Tags } from "@/components/NewsList";
+import { NewsletterForm } from "@/components/NewsletterForm";
 import { fmtDate } from "@/components/format";
 
 export const revalidate = 3600;
@@ -92,6 +93,8 @@ export default async function NewsPage({ params }: { params: Promise<Params> }) 
           </div>
         </section>
       )}
+
+      <NewsletterForm />
 
       {n.kind === "DIGEST" ? (
         <p className="text-xs text-muted border-t border-line pt-4">

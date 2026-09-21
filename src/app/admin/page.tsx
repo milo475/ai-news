@@ -63,7 +63,10 @@ export default async function Admin({
       {anyRunning && <meta httpEquiv="refresh" content="10" />}
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <h1 className="text-2xl font-semibold tracking-tight">Админ</h1>
-        <Link href="/admin/hereglee" className="text-sm text-accent hover:underline">Хэрэглээний жагсаалт →</Link>
+        <span className="flex gap-4">
+          <Link href="/admin/hereglee" className="text-sm text-accent hover:underline">Хэрэглээний жагсаалт →</Link>
+          <Link href="/admin/newsletter" className="text-sm text-accent hover:underline">Newsletter →</Link>
+        </span>
       </div>
 
       <section className="grid grid-cols-2 sm:grid-cols-4 gap-3">

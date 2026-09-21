@@ -2,6 +2,7 @@ import Link from "next/link";
 import { getLatestDigest, getLatestNews, getLeaderboard, getSourceNote, getUseCases } from "@/data";
 import { LeaderboardTable } from "@/components/LeaderboardTable";
 import { NewsList } from "@/components/NewsList";
+import { NewsletterForm } from "@/components/NewsletterForm";
 import { UseCaseIcon } from "@/components/UseCaseIcon";
 import { fmtDate } from "@/components/format";
 
@@ -135,6 +136,8 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ t
           <NewsList items={news} />
         )}
       </section>
+
+      <NewsletterForm />
     </div>
   );
 }
