@@ -63,6 +63,8 @@ model AiModel {
   outputPricePerM Decimal? @db.Decimal(12, 6)
 
   isActive   Boolean  @default(true)   // каталогоос алга болвол false
+  /// Зөвхөн LMArena-д байдаг, OpenRouter-т байхгүй модель — хэрэглээний жагсаалтад орохгүй
+  arenaOnly  Boolean  @default(false)
   lastSeenAt DateTime @default(now())
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt

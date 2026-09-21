@@ -34,7 +34,7 @@ const STEPS: Step[] = [
     name: "arena",
     run: async () => {
       const r = await runArena();
-      return `${r.matched} модель таарав (таараагүй ${r.unmatched}), ${r.date}`;
+      return `${r.matched} модель (шинэ ${r.created}), ${r.date}`;
     },
   },
   {

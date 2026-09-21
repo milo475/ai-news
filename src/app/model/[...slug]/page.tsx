@@ -28,6 +28,7 @@ export default async function ModelPage({ params }: { params: Promise<Params> })
   ]);
   const last = history[history.length - 1];
   const best = history.length ? Math.min(...history.map((h) => h.rank)) : null;
+  const lastArena = arenaHistory[arenaHistory.length - 1];
 
   const fact = (k: string, v: React.ReactNode) => (
     <div className="rounded-lg border border-line p-3">
@@ -42,14 +43,22 @@ export default async function ModelPage({ params }: { params: Promise<Params> })
         <Link href="/jagsaalt" className="text-sm text-muted hover:text-ink">← Жагсаалт</Link>
         <h1 className="text-3xl font-semibold tracking-tight">{m.nameMn ?? m.name}</h1>
         <p className="text-muted">
-          {m.company.name} · {m.isOpenWeights ? "нээлттэй жин" : "хаалттай"} · нэмэгдсэн {fmtDate(m.releasedAt)}
+          {m.company.name} · {m.isOpenWeights ? "нээлттэй жин" : "хаалттай"}
+          {!m.arenaOnly && <> · нэмэгдсэн {fmtDate(m.releasedAt)}</>}
         </p>
+        {m.arenaOnly && (
+          <p className="text-xs text-muted">
+            Энэ модель зөвхөн LMArena-д байдаг — OpenRouter-ээр хэрэглээний өгөгдөл байхгүй.
+          </p>
+        )}
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        {fact("Өнөөдрийн байр", last ? `#${last.rank}` : "—")}
-        {fact("30 хоногийн шилдэг", best ? `#${best}` : "—")}
-        {fact("Токен / өдөр", last ? fmtTokens(last.score) : "—")}
+        {!m.arenaOnly && fact("Өнөөдрийн байр", last ? `#${last.rank}` : "—")}
+        {!m.arenaOnly && fact("30 хоногийн шилдэг", best ? `#${best}` : "—")}
+        {!m.arenaOnly && fact("Токен / өдөр", last ? fmtTokens(last.score) : "—")}
+        {lastArena && fact("Чанарын байр", `#${lastArena.rank}`)}
+        {lastArena && fact("Elo", Math.round(Number(lastArena.score)).toString())}
         {fact("Context", m.contextLength ? `${Math.round(m.contextLength / 1000)}K` : "—")}
       </div>
 
@@ -59,7 +68,7 @@ export default async function ModelPage({ params }: { params: Promise<Params> })
           <RankChart points={history} arena={arenaHistory} />
         </div>
         <p className="text-xs text-muted">
-          {note}
+          {!m.arenaOnly && note}
           {arenaHistory.length > 0 && <> {arenaNote}</>}
         </p>
       </section>

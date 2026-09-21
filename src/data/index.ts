@@ -11,6 +11,7 @@ export interface ModelDetail {
   slug: string; name: string; nameMn: string | null;
   descriptionEn: string | null; descriptionMn: string | null;
   isOpenWeights: boolean; contextLength: number | null; modality: string | null;
+  arenaOnly: boolean;
   releasedAt: Date | null;
   inputPricePerM: string | null; outputPricePerM: string | null;
   company: { slug: string; name: string };

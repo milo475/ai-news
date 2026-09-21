@@ -3,6 +3,7 @@
  */
 import { prisma } from "../db";
 import type { RankSource } from "../generated/prisma/enums";
+import { leaderboardWhere } from "./rank-filter";
 
 export interface LeaderboardRow {
   rank: number;
@@ -20,15 +21,16 @@ export async function getLatestLeaderboard(
   source: RankSource = "OPENROUTER_USAGE",
   limit = 50,
 ): Promise<{ date: Date | null; rows: LeaderboardRow[] }> {
+  const where = leaderboardWhere(source);
   const latest = await prisma.rankingSnapshot.findFirst({
-    where: { source },
+    where,
     orderBy: { date: "desc" },
     select: { date: true },
   });
   if (!latest) return { date: null, rows: [] };
 
   const snaps = await prisma.rankingSnapshot.findMany({
-    where: { source, date: latest.date },
+    where: { ...where, date: latest.date },
     orderBy: { rank: "asc" },
     take: limit,
     include: { model: { include: { company: true } } },

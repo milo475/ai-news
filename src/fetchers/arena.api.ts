@@ -79,26 +79,47 @@ const SUFFIXES = [
   "-beta", "-reasoning", "-32k", "-64k", "-128k", "-256k",
 ];
 
-/** Огноо/хувилбарын сүүл: -20260913, -26-02-10, -0309, -beta2 */
-const TRAILING = /-(20\d{6}|\d{2}-\d{2}-\d{2}|\d{4}|beta\d+)$/;
+/** Огноо/хувилбарын сүүл: -20260913, -26-02-10, -02-24, -0309, -beta2 */
+const TRAILING = /-(20\d{6}|\d{2}-\d{2}-\d{2}|\d{2}-\d{2}|\d{4}|beta\d+)$/;
 
 /**
- * "claude-opus-5-high" → "claudeopus5", "Mistral Medium 3.5" → "mistralmedium35".
- * Жижиг үсэг, хаалтан доторх тайлбар, хувилбарын суффикс, огноо, зай/дэфисийг арилгана.
+ * Харуулах нэрэнд тайрах суффикс — тааруулахынхаас нарийн.
+ * "-max", "-chat", "-instruct" нь зарим загварт жинхэнэ нэрийн хэсэг
+ * (qwen3.5-max, longcat-flash-chat) тул харуулахдаа үлдээнэ.
  */
-export function normalizeModelName(name: string): string {
+const DISPLAY_SUFFIXES = SUFFIXES.filter((s) => !["-max", "-chat", "-instruct", "-it"].includes(s));
+
+/**
+ * Хувилбарын суффикс, огноог хасна — цэг, дэфисийг нь үлдээнэ.
+ * "claude-opus-5-high" → "claude-opus-5", "muse-spark-1.2 (xHigh)" → "muse-spark-1.2".
+ * Каталогт байхгүй моделийн харуулах нэрийг эндээс авна.
+ */
+export function stripVariants(name: string, suffixes: string[] = SUFFIXES): string {
   let x = name.toLowerCase().trim();
   x = x.replace(/\s*\([^)]*\)/g, "");   // "muse-spark-1.2 (xHigh)"
   x = x.replace(/[@:]\S+$/, "");         // "model:free", "model@date"
   for (let changed = true; changed; ) {
     changed = false;
-    for (const suf of SUFFIXES) {
+    for (const suf of suffixes) {
       if (x.endsWith(suf)) { x = x.slice(0, -suf.length); changed = true; }
     }
     const m = TRAILING.exec(x);
     if (m) { x = x.slice(0, -m[0].length); changed = true; }
   }
-  return x.replace(/[^a-z0-9]/g, "");
+  return x.trim();
+}
+
+/** Каталогт шинээр үүсгэх моделийн харуулах нэр */
+export function displayName(name: string): string {
+  return stripVariants(name, DISPLAY_SUFFIXES);
+}
+
+/**
+ * "claude-opus-5-high" → "claudeopus5", "Mistral Medium 3.5" → "mistralmedium35".
+ * Тааруулахад хэрэглэнэ — зай, дэфис, цэгийг бүгдийг арилгана.
+ */
+export function normalizeModelName(name: string): string {
+  return stripVariants(name).replace(/[^a-z0-9]/g, "");
 }
 
 export interface CatalogModel {
@@ -128,37 +149,46 @@ export function matchArenaModel(
   return index.get(key) ?? aliases[key] ?? null;
 }
 
-export interface RankedArena {
+export interface ArenaEntry {
+  /** Каталогийн slug. Шинэ бол normalize хийсэн Arena нэр. */
   slug: string;
   rating: number;
   rank: number;
+  /** Каталогт байхгүй — arenaOnly болж шинээр үүснэ */
+  isNew: boolean;
+  /** Шинэ модельд харуулах нэр (хувилбарын суффиксгүй) */
+  name: string;
+  /** Arena-гийн organization — шинэ модельд компани болно */
+  organization: string;
 }
 
 /**
- * Нэг каталог модельд Arena-гийн хэд хэдэн хувилбар таарч болно
- * ("claude-opus-5-max" ба "-high" хоёр). Хамгийн өндөр Elo-тайг нь авч,
- * дараа нь 1..N гэж шинээр эрэмбэлнэ (бидний таарсан багц доторх байр).
+ * Нэг модельд Arena-гийн хэд хэдэн хувилбар таарч болно ("claude-opus-5-max" ба "-high").
+ * Хамгийн өндөр Elo-тайг нь авч, дараа нь 1..N гэж шинээр эрэмбэлнэ.
+ * Каталогт таараагүй нэрс `isNew: true` болж буцна — дуудагч нь AiModel үүсгэнэ.
  */
 export function rankArena(
   rows: ArenaRow[],
   index: Map<string, string>,
   aliases: Record<string, string> = MODEL_ALIASES,
-): {
-  ranked: RankedArena[];
-  unmatched: { name: string; key: string; organization: string }[];
-} {
-  const best = new Map<string, number>();
-  const unmatched: { name: string; key: string; organization: string }[] = [];
+): ArenaEntry[] {
+  const best = new Map<string, ArenaEntry>();
   for (const r of rows) {
-    const slug = matchArenaModel(r.modelName, index, aliases);
-    if (!slug) {
-      unmatched.push({ name: r.modelName, key: normalizeModelName(r.modelName), organization: r.organization });
-      continue;
-    }
-    if (!best.has(slug) || r.rating > best.get(slug)!) best.set(slug, r.rating);
+    const matched = matchArenaModel(r.modelName, index, aliases);
+    const slug = matched ?? normalizeModelName(r.modelName);
+    if (!slug) continue;
+    const prev = best.get(slug);
+    if (prev && prev.rating >= r.rating) continue;
+    best.set(slug, {
+      slug,
+      rating: r.rating,
+      rank: 0,
+      isNew: !matched,
+      name: displayName(r.modelName),
+      organization: r.organization,
+    });
   }
-  const ranked = [...best.entries()]
-    .sort(([sa, a], [sb, b]) => (a === b ? sa.localeCompare(sb) : b - a))
-    .map(([slug, rating], i) => ({ slug, rating, rank: i + 1 }));
-  return { ranked, unmatched };
+  return [...best.values()]
+    .sort((a, b) => (a.rating === b.rating ? a.slug.localeCompare(b.slug) : b.rating - a.rating))
+    .map((e, i) => ({ ...e, rank: i + 1 }));
 }

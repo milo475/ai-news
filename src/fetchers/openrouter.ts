@@ -66,9 +66,10 @@ export async function syncCatalog(): Promise<{ companies: number; models: number
     seen.push(m.canonical_slug);
   }
 
-  // Каталогоос алга болсон моделиудыг идэвхгүй болгоно (устгахгүй — түүх хэрэгтэй)
+  // Каталогоос алга болсон моделиудыг идэвхгүй болгоно (устгахгүй — түүх хэрэгтэй).
+  // arenaOnly моделиуд OpenRouter-т угаасаа байхгүй тул хамрахгүй.
   await prisma.aiModel.updateMany({
-    where: { orPermaslug: { notIn: seen }, isActive: true },
+    where: { orPermaslug: { notIn: seen }, isActive: true, arenaOnly: false },
     data: { isActive: false },
   });
 

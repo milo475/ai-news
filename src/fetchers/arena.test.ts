@@ -1,9 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  buildCatalogIndex, matchArenaModel, normalizeModelName, parseArenaRows, rankArena,
+  buildCatalogIndex, displayName, matchArenaModel, normalizeModelName, parseArenaRows, rankArena,
   type ArenaRow,
 } from "./arena.api";
+import { leaderboardWhere } from "../queries/rank-filter";
 
 test("normalizeModelName: суффикс, огноо, зай", () => {
   assert.equal(normalizeModelName("claude-opus-5-high"), "claudeopus5");
@@ -45,20 +46,66 @@ test("rankArena: хувилбаруудыг нэгтгэж дахин эрэмб
     { slug: "anthropic/claude-opus-5", name: "Claude Opus 5" },
     { slug: "google/gemini-3.8-flash", name: "Gemini 3.8 Flash" },
   ]);
-  const { ranked, unmatched } = rankArena(
+  const entries = rankArena(
     [
       row("claude-opus-5-max", 1505, 1),
       row("claude-opus-5-high", 1500, 2),   // ижил модель — өндөр Elo нь үлдэнэ
       row("gemini-3.8-flash-high", 1494, 3),
-      row("ernie-5.1", 1480, 4),            // каталогт алга
     ],
     index,
   );
-  assert.deepEqual(ranked, [
-    { slug: "anthropic/claude-opus-5", rating: 1505, rank: 1 },
-    { slug: "google/gemini-3.8-flash", rating: 1494, rank: 2 },
-  ]);
-  assert.deepEqual(unmatched.map((u) => u.key), ["ernie51"]);
+  assert.deepEqual(
+    entries.map((e) => [e.slug, e.rating, e.rank, e.isNew]),
+    [
+      ["anthropic/claude-opus-5", 1505, 1, false],
+      ["google/gemini-3.8-flash", 1494, 2, false],
+    ],
+  );
+});
+
+test("rankArena: каталогт байхгүй нэр arenaOnly болж шинээр үүснэ", () => {
+  const index = buildCatalogIndex([{ slug: "anthropic/claude-opus-5", name: "Claude Opus 5" }]);
+  const entries = rankArena(
+    [
+      row("claude-opus-5-high", 1505, 1),
+      { ...row("ernie-5.0-preview-1203", 1480, 2), organization: "baidu" },
+      { ...row("ernie-5.0-0110", 1470, 3), organization: "baidu" },   // ижил модель, бага Elo
+      { ...row("mimo-v2-pro", 1465, 4), organization: "xiaomi" },
+    ],
+    index,
+  );
+  const fresh = entries.filter((e) => e.isNew);
+  assert.deepEqual(
+    fresh.map((e) => [e.slug, e.name, e.organization, e.rating]),
+    [
+      ["ernie50", "ernie-5.0", "baidu", 1480],   // хувилбарууд нэгтгэгдэж, өндөр Elo нь үлдэв
+      ["mimov2pro", "mimo-v2-pro", "xiaomi", 1465],
+    ],
+  );
+  // Эрэмбэ нь бүх моделийн дунд нэгдсэн байна
+  assert.deepEqual(entries.map((e) => e.rank), [1, 2, 3]);
+});
+
+test("arenaOnly модель хэрэглээний жагсаалтад орохгүй", () => {
+  assert.deepEqual(leaderboardWhere("OPENROUTER_USAGE"), {
+    source: "OPENROUTER_USAGE",
+    model: { arenaOnly: false },
+  });
+  // Чанарын жагсаалтад бүгд орно
+  assert.deepEqual(leaderboardWhere("ARENA_ELO"), { source: "ARENA_ELO" });
+});
+
+test("displayName: огноо, бодох хүчийг тайрч, загварын нэрийг үлдээнэ", () => {
+  assert.equal(displayName("ernie-5.0-preview-1203"), "ernie-5.0");
+  assert.equal(displayName("grok-4.1-thinking"), "grok-4.1");
+  assert.equal(displayName("grok-3-preview-02-24"), "grok-3");
+  assert.equal(displayName("muse-spark-1.2 (xHigh)"), "muse-spark-1.2");
+  assert.equal(displayName("chatgpt-4o-latest-20250326"), "chatgpt-4o");
+  // "-max", "-chat" нь жинхэнэ нэрийн хэсэг тул харуулахдаа үлдэнэ
+  assert.equal(displayName("qwen3.5-max-preview"), "qwen3.5-max");
+  assert.equal(displayName("longcat-flash-chat-2602-exp"), "longcat-flash-chat");
+  // Харин тааруулахдаа тайрна — Claude-ийн "-max" нь бодох хүчний тэмдэг
+  assert.equal(normalizeModelName("qwen3.5-max-preview"), "qwen35");
 });
 
 test("parseArenaRows: зөвхөн overall, дутуу мөрийг алгасна", () => {
