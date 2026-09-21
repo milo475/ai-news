@@ -8,6 +8,7 @@
  */
 import "dotenv/config";
 import { prisma } from "../db";
+import { jobRunMeta } from "../jobs/meta";
 import {
   companySlugOf,
   fetchModels,
@@ -127,7 +128,7 @@ export async function syncUsageRankings(days: number): Promise<{ days: number; r
 
 /** Pipeline болон CLI хоёулаа үүнийг дуудна */
 export async function runOpenRouter(days = 7): Promise<{ models: number; rows: number }> {
-  const run = await prisma.jobRun.create({ data: { job: "openrouter" } });
+  const run = await prisma.jobRun.create({ data: { job: "openrouter", ...jobRunMeta() } });
   try {
     const cat = await syncCatalog();
     console.log("Каталог:", cat);

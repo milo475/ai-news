@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { prisma } from "@/db";
 import { slugify } from "@/agent/slug";
+import { JOB_NAMES, startJob, type JobName } from "@/jobs/runner";
 
 /** Нийтлэгдсэн мэдээ харагддаг бүх хуудсыг шинэчилнэ */
 async function revalidateArticle(articleId: string) {
@@ -128,4 +129,14 @@ export async function postArticleToFacebook(formData: FormData) {
 
   revalidatePath(`/admin/${id}`);
   redirect(error ? `/admin/${id}?err=${encodeURIComponent(error)}` : `/admin/${id}`);
+}
+
+/** /admin дээрх «Мэдээ татах» / «Агент бичүүлэх» / «Бүгд» товчнууд */
+export async function runJob(formData: FormData) {
+  const name = String(formData.get("job"));
+  if (!JOB_NAMES.includes(name as JobName)) redirect("/admin?msg=" + encodeURIComponent("танигдахгүй ажил"));
+
+  const { started, reason } = await startJob(name as JobName);
+  revalidatePath("/admin");
+  redirect(`/admin?msg=${encodeURIComponent(started ? `${name}: эхэллээ` : `${name}: ${reason}`)}`);
 }

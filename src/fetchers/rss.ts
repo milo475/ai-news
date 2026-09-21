@@ -9,6 +9,7 @@
 import "dotenv/config";
 import { randomBytes } from "node:crypto";
 import { prisma } from "../db";
+import { jobRunMeta } from "../jobs/meta";
 import { closeBrowser, fetchFullText, textFromFeedHtml } from "./fulltext.api";
 import { fetchFeed, normalizeUrl, titleHash, type FeedItem } from "./rss.api";
 
@@ -120,7 +121,7 @@ export async function fetchAllSources(): Promise<SourceResult[]> {
 
 /** Pipeline болон CLI хоёулаа үүнийг дуудна */
 export async function runRss(): Promise<{ items: number; saved: number; sources: number; failedSources: number }> {
-  const run = await prisma.jobRun.create({ data: { job: "rss" } });
+  const run = await prisma.jobRun.create({ data: { job: "rss", ...jobRunMeta() } });
   try {
     const results = await fetchAllSources();
     const sum = (k: keyof SourceResult) => results.reduce((a, r) => a + (r[k] as number), 0);

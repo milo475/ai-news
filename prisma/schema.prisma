@@ -165,6 +165,8 @@ model JobRun {
   itemsIn    Int      @default(0)
   itemsOut   Int      @default(0)
   error      String?
+  pid        Int?                    // ажиллуулсан процесс — /admin-аас эхлүүлсэн үед
+  logFile    String?                 // logs/<job>-<timestamp>.log
 
   @@index([job, startedAt])
 }

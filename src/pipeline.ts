@@ -3,6 +3,7 @@
  *
  *   npx tsx src/pipeline.ts
  *   npx tsx src/pipeline.ts --skip openrouter,facebook
+ *   npx tsx src/pipeline.ts --only rss          # зөвхөн нэг алхам ("pipeline" = бүгд)
  *
  * Нэг алхам унасан ч дараагийнх нь ажиллана; төгсгөлд дүнг хүснэгтээр хэвлээд,
  * ямар нэг алхам унасан бол exit 1.
@@ -73,16 +74,26 @@ async function main() {
   const skip = new Set(
     (skipArg > -1 ? (process.argv[skipArg + 1] ?? "") : "").split(",").map((s) => s.trim()).filter(Boolean),
   );
+  const onlyArg = process.argv.indexOf("--only");
+  const only = onlyArg > -1 ? (process.argv[onlyArg + 1] ?? "").trim() : "";
+  // --only pipeline = бүх алхам
+  const selected = only && only !== "pipeline" ? new Set([only]) : null;
+  const willRun = (name: string) => !skip.has(name) && (!selected || selected.has(name));
 
   // LLM шаардлагатай алхам ажиллах гэж байвал түлхүүрийг эхлэхэд нь шалгана
-  if (!skip.has("openrouter") || !skip.has("agent")) openRouterKey();
+  if (willRun("openrouter") || willRun("agent")) openRouterKey();
 
   const rows: Row[] = [];
   let failed = false;
 
   for (const step of STEPS) {
-    if (skip.has(step.name)) {
-      rows.push({ Алхам: step.name, Төлөв: "алгасав", "Үр дүн": "--skip", Хугацаа: "—" });
+    if (!willRun(step.name)) {
+      rows.push({
+        Алхам: step.name,
+        Төлөв: "алгасав",
+        "Үр дүн": skip.has(step.name) ? "--skip" : `--only ${only}`,
+        Хугацаа: "—",
+      });
       continue;
     }
     console.log(`\n──── ${step.name} ────`);

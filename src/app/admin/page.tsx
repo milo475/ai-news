@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { prisma } from "@/db";
 import { fmtDate } from "@/components/format";
-import { publishArticle, rejectArticle } from "./actions";
+import { publishArticle, rejectArticle, runJob } from "./actions";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -12,9 +12,23 @@ type Status = (typeof TABS)[number];
 
 const JOBS = ["openrouter", "rss", "agent"] as const;
 
-export default async function Admin({ searchParams }: { searchParams: Promise<{ status?: string }> }) {
-  const asked = (await searchParams).status;
-  const status: Status = TABS.includes(asked as Status) ? (asked as Status) : "DRAFT";
+const RUN_BUTTONS = [
+  { job: "rss", label: "Мэдээ татах" },
+  { job: "agent", label: "Агент бичүүлэх" },
+  { job: "pipeline", label: "Бүгд" },
+] as const;
+
+function hhmm(d: Date): string {
+  return d.toISOString().slice(11, 16);
+}
+
+export default async function Admin({
+  searchParams,
+}: {
+  searchParams: Promise<{ status?: string; msg?: string }>;
+}) {
+  const sp = await searchParams;
+  const status: Status = TABS.includes(sp.status as Status) ? (sp.status as Status) : "DRAFT";
 
   const [counts, jobs, articles] = await Promise.all([
     prisma.article.groupBy({ by: ["status"], _count: true }),
@@ -29,14 +43,17 @@ export default async function Admin({ searchParams }: { searchParams: Promise<{ 
       take: 100,
       select: {
         id: true, titleMn: true, sourceTitle: true, relevance: true, createdAt: true,
-        publishedAtSource: true, sourceText: true, source: { select: { name: true } },
+        publishedAtSource: true, sourceText: true, reviewedBy: true, source: { select: { name: true } },
       },
     }),
   ]);
   const countOf = (s: string) => counts.find((c) => c.status === s)?._count ?? 0;
+  const anyRunning = jobs.some(({ run }) => run && !run.finishedAt);
 
   return (
     <div className="space-y-6">
+      {/* Ажиллаж байгаа зүйл байвал л шинэчилнэ */}
+      {anyRunning && <meta httpEquiv="refresh" content="10" />}
       <h1 className="text-2xl font-semibold tracking-tight">Админ</h1>
 
       <section className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -48,23 +65,44 @@ export default async function Admin({ searchParams }: { searchParams: Promise<{ 
         ))}
       </section>
 
-      <section className="grid sm:grid-cols-3 gap-3 text-sm">
-        {jobs.map(({ job, run }) => (
-          <div key={job} className="rounded-lg border border-line p-3 space-y-1">
-            <p className="text-xs text-muted">{job}</p>
-            {run ? (
-              <>
-                <p className="tabular-nums">{run.startedAt.toISOString().slice(0, 16).replace("T", " ")}</p>
-                <p className={run.ok === false ? "text-down" : run.ok ? "text-up" : "text-muted"}>
-                  {run.ok === false ? "алдаа" : run.ok ? `ok · ${run.itemsIn} → ${run.itemsOut}` : "явцад"}
-                </p>
-                {run.error && <p className="text-xs text-down break-words">{run.error.slice(0, 160)}</p>}
-              </>
-            ) : (
-              <p className="text-muted">ажиллаагүй</p>
-            )}
-          </div>
-        ))}
+      <section className="rounded-lg border border-line p-4 space-y-3">
+        <div className="flex flex-wrap items-center gap-2">
+          {RUN_BUTTONS.map((b) => (
+            <form key={b.job} action={runJob}>
+              <input type="hidden" name="job" value={b.job} />
+              <button className="rounded border border-line px-3 py-1.5 text-sm hover:bg-line/40">
+                {b.label}
+              </button>
+            </form>
+          ))}
+          {sp.msg && <span className="text-xs text-muted">{sp.msg}</span>}
+        </div>
+
+        <div className="space-y-1 text-sm">
+          {jobs.map(({ job, run }) => (
+            <p key={job} className="flex flex-wrap items-baseline gap-2">
+              <span className="text-muted w-24 shrink-0">{job}</span>
+              {!run ? (
+                <span className="text-muted">ажиллаагүй</span>
+              ) : !run.finishedAt ? (
+                <span className="text-accent">● ажиллаж байна… ({hhmm(run.startedAt)}-д эхэлсэн)</span>
+              ) : run.ok ? (
+                <span className="text-up">
+                  ✓ дууссан {hhmm(run.finishedAt)} · {run.itemsIn} → {run.itemsOut}
+                </span>
+              ) : (
+                <span className="text-down" title={run.error ?? ""}>
+                  ✗ {(run.error ?? "алдаа").slice(0, 120)}
+                </span>
+              )}
+              {run?.logFile && (
+                <Link href={`/admin/logs/${run.id}`} className="text-xs text-accent hover:underline">
+                  лог
+                </Link>
+              )}
+            </p>
+          ))}
+        </div>
       </section>
 
       <nav className="flex gap-4 text-sm border-b border-line">
@@ -102,6 +140,11 @@ export default async function Admin({ searchParams }: { searchParams: Promise<{ 
                     <Link href={`/admin/${a.id}`} className="font-medium hover:text-accent">
                       {a.titleMn ?? a.sourceTitle}
                     </Link>
+                    {a.reviewedBy === "auto" && (
+                      <span className="ml-2 text-xs rounded px-1.5 py-0.5 border border-accent/50 text-accent">
+                        авто
+                      </span>
+                    )}
                     {a.titleMn && <span className="block text-xs text-muted">{a.sourceTitle}</span>}
                   </td>
                   <td className="px-3 py-2 text-muted hidden sm:table-cell">{a.source.name}</td>

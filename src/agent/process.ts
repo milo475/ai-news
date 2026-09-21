@@ -9,6 +9,7 @@ import "dotenv/config";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { prisma } from "../db";
+import { jobRunMeta } from "../jobs/meta";
 import { closeBrowser, fetchFullText } from "../fetchers/fulltext.api";
 import { chatJson } from "./llm";
 import { slugify } from "./slug";
@@ -136,8 +137,16 @@ export async function loadCatalog(): Promise<Catalog> {
   return { companies, models };
 }
 
+/** Хоосон бол унтраалттай. Тоо бол тэр оноо давсан, бүтэн тексттэй нийтлэлийг шууд нийтэлнэ. */
+function autoPublishMinScore(): number | null {
+  const raw = process.env.AUTO_PUBLISH_MIN_SCORE?.trim();
+  if (!raw) return null;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : null;
+}
+
 export interface ProcessResult {
-  status: "DRAFT" | "REJECTED";
+  status: "DRAFT" | "PUBLISHED" | "REJECTED";
   /** Үнэлгээг алгассан бол false */
   scored: boolean;
   score: number;
@@ -234,10 +243,15 @@ export async function processOne(
   const modelIds = matchModels(write.data.mentionedModels, models);
   const slug = await uniqueSlug(slugify(write.data.titleMn) || a.slug, a.id);
 
+  // Авто нийтлэх: өндөр оноотой БӨГӨӨД бүтэн тексттэй нийтлэлийг л (хураангуйгаар бичсэнийг үгүй)
+  const minScore = autoPublishMinScore();
+  const auto = minScore !== null && scoreValue >= minScore && Boolean(a.sourceText);
+
   await prisma.article.update({
     where: { id: a.id },
     data: {
-      status: "DRAFT",
+      status: auto ? "PUBLISHED" : "DRAFT",
+      ...(auto ? { publishedAt: new Date(), reviewedBy: "auto" } : {}),
       slug,
       titleMn: write.data.titleMn,
       summaryMn: write.data.summaryMn,
@@ -251,7 +265,7 @@ export async function processOne(
   });
 
   return {
-    status: "DRAFT", scored: !opts.skipScore, score: scoreValue, reason: scoreReason,
+    status: auto ? "PUBLISHED" : "DRAFT", scored: !opts.skipScore, score: scoreValue, reason: scoreReason,
     titleMn: write.data.titleMn, slug,
     companies: companyIds.length, models: modelIds.length,
     hadText: Boolean(a.sourceText), tokens: scoreTokens + write.tokens,
@@ -260,7 +274,7 @@ export async function processOne(
 
 /** Pipeline болон CLI хоёулаа үүнийг дуудна */
 export async function runAgent(limit = 20): Promise<{ scored: number; drafted: number; failed: number }> {
-  const run = await prisma.jobRun.create({ data: { job: "agent" } });
+  const run = await prisma.jobRun.create({ data: { job: "agent", ...jobRunMeta() } });
   const tokensByModel = new Map<string, number>();
   const onTokens = (model: string, n: number) => tokensByModel.set(model, (tokensByModel.get(model) ?? 0) + n);
 
@@ -285,7 +299,7 @@ export async function runAgent(limit = 20): Promise<{ scored: number; drafted: n
         } else {
           drafted++;
           console.log(
-            `${head} score=${r.score} → DRAFT "${r.titleMn}" slug=${r.slug} ` +
+            `${head} score=${r.score} → ${r.status} "${r.titleMn}" slug=${r.slug} ` +
               `companies=${r.companies} models=${r.models} ` +
               `text=${r.hadText ? "бүтэн" : "хураангуй"} (${r.tokens} tok)`,
           );
