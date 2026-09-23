@@ -1,8 +1,11 @@
 import Link from "next/link";
 import { prisma } from "@/db";
+import { publishedToday } from "@/agent/quota";
+import { dailyPublishLimit } from "@/agent/quota.api";
 import { fmtDate } from "@/components/format";
+import { MAX_ATTEMPTS, postsPerRun } from "@/publish/facebook.api";
 import { emptySearches, topSearches } from "@/queries/search-stats";
-import { publishArticle, rejectArticle, runJob } from "./actions";
+import { postArticleToFacebookFromList, publishArticle, rejectArticle, runJob } from "./actions";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -40,7 +43,7 @@ export default async function Admin({
 
   const umamiUrl = process.env.NEXT_PUBLIC_UMAMI_URL?.trim().replace(/\/+$/, "") || null;
 
-  const [counts, jobs, articles, searches, empties] = await Promise.all([
+  const [counts, jobs, articles, searches, empties, todayCount, fbQueue] = await Promise.all([
     prisma.article.groupBy({ by: ["status"], _count: true }),
     Promise.all(
       JOBS.map((job) =>
@@ -54,13 +57,21 @@ export default async function Admin({
       select: {
         id: true, titleMn: true, sourceTitle: true, relevance: true, createdAt: true,
         publishedAtSource: true, sourceText: true, reviewedBy: true, source: { select: { name: true } },
+        fbPostId: true, fbPostedAt: true, fbAttempts: true, fbError: true,
       },
     }),
     topSearches(),
     emptySearches(),
+    publishedToday(),
+    prisma.article.count({
+      where: {
+        status: "PUBLISHED", fbPostedAt: null, fbPostId: null, fbAttempts: { lt: MAX_ATTEMPTS },
+      },
+    }),
   ]);
   const countOf = (s: string) => counts.find((c) => c.status === s)?._count ?? 0;
   const anyRunning = jobs.some(({ run }) => run && !run.finishedAt);
+  const dailyLimit = dailyPublishLimit();
 
   return (
     <div className="space-y-6">
@@ -91,6 +102,24 @@ export default async function Admin({
             <p className="text-2xl font-semibold tabular-nums">{countOf(s)}</p>
           </div>
         ))}
+      </section>
+
+      <section className="grid grid-cols-2 gap-3">
+        <div className="rounded-lg border border-line p-3">
+          <p className="text-xs text-muted">Өнөөдөр нийтэлсэн (УБ цагаар)</p>
+          <p className="text-2xl font-semibold tabular-nums">
+            {todayCount}
+            <span className="text-muted">/{dailyLimit}</span>
+          </p>
+          {todayCount >= dailyLimit && dailyLimit > 0 && (
+            <p className="text-xs text-muted">квот дүүрсэн — агент өнөөдөр нэмж нийтлэхгүй</p>
+          )}
+        </div>
+        <div className="rounded-lg border border-line p-3">
+          <p className="text-xs text-muted">FB дараалалд</p>
+          <p className="text-2xl font-semibold tabular-nums">{fbQueue}</p>
+          <p className="text-xs text-muted">run бүрт {postsPerRun()} пост (өдөрт 3 run)</p>
+        </div>
       </section>
 
       <section className="rounded-lg border border-line p-4 space-y-3">
@@ -177,6 +206,7 @@ export default async function Admin({
                 <th className="text-center px-3 py-2 w-14">Текст</th>
                 <th className="text-left px-3 py-2 w-28 hidden md:table-cell">Нийтлэгдсэн</th>
                 <th className="text-left px-3 py-2 w-28 hidden md:table-cell">Татсан</th>
+                {status === "PUBLISHED" && <th className="text-left px-3 py-2 w-56">Facebook</th>}
                 {status === "DRAFT" && <th className="text-right px-3 py-2 w-44">Үйлдэл</th>}
               </tr>
             </thead>
@@ -201,6 +231,11 @@ export default async function Admin({
                   </td>
                   <td className="px-3 py-2 text-muted tabular-nums hidden md:table-cell">{fmtDate(a.publishedAtSource)}</td>
                   <td className="px-3 py-2 text-muted tabular-nums hidden md:table-cell">{fmtDate(a.createdAt)}</td>
+                  {status === "PUBLISHED" && (
+                    <td className="px-3 py-2">
+                      <FbCell article={a} />
+                    </td>
+                  )}
                   {status === "DRAFT" && (
                     <td className="px-3 py-2">
                       <div className="flex gap-2 justify-end">
@@ -225,6 +260,47 @@ export default async function Admin({
           </table>
         </div>
       )}
+    </div>
+  );
+}
+
+/** Нэг нийтлэлийн Facebook төлөв + гараар постлох товч */
+function FbCell({
+  article,
+}: {
+  article: { id: string; fbPostId: string | null; fbPostedAt: Date | null; fbAttempts: number; fbError: string | null };
+}) {
+  if (article.fbPostedAt || article.fbPostId) {
+    return (
+      <span className="text-xs text-up">
+        ✓ {article.fbPostedAt ? fmtDate(article.fbPostedAt) : "постлосон"}
+        {article.fbPostId && (
+          <a
+            href={`https://facebook.com/${article.fbPostId}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="ml-2 text-accent hover:underline"
+          >
+            пост →
+          </a>
+        )}
+      </span>
+    );
+  }
+
+  const stuck = article.fbAttempts >= MAX_ATTEMPTS;
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <span className={`text-xs ${stuck ? "text-down" : "text-muted"}`} title={article.fbError ?? ""}>
+        {stuck ? `✗ ${MAX_ATTEMPTS} удаа алдаа` : "хүлээгдэж байна"}
+        {!stuck && article.fbAttempts > 0 && ` (${article.fbAttempts} алдаа)`}
+      </span>
+      <form action={postArticleToFacebookFromList}>
+        <input type="hidden" name="id" value={article.id} />
+        <button className="text-xs rounded border border-accent/50 text-accent px-2 py-1 hover:bg-accent/10">
+          Одоо FB-д постлох
+        </button>
+      </form>
     </div>
   );
 }

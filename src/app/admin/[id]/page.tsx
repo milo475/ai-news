@@ -107,23 +107,40 @@ export default async function Edit({
             )}
           </section>
 
-          {a.fbPostId && (
-            <a
-              href={`https://facebook.com/${a.fbPostId}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="block text-xs text-accent hover:underline"
-            >
-              Facebook пост →
-            </a>
-          )}
+          <section className="rounded-lg border border-line p-3 space-y-1">
+            <p className="text-xs text-muted">Facebook</p>
+            {a.fbPostedAt || a.fbPostId ? (
+              <p className="text-xs text-up">
+                ✓ {a.fbPostedAt ? fmtDate(a.fbPostedAt) : "постлосон"}
+                {a.fbPostId && (
+                  <a
+                    href={`https://facebook.com/${a.fbPostId}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="ml-2 text-accent hover:underline"
+                  >
+                    пост →
+                  </a>
+                )}
+              </p>
+            ) : a.status === "PUBLISHED" ? (
+              <p className="text-xs text-muted">хүлээгдэж байна (дараалалд)</p>
+            ) : (
+              <p className="text-xs text-muted">нийтлэгдсэний дараа дараалалд орно</p>
+            )}
+            {a.fbAttempts > 0 && (
+              <p className="text-xs text-down break-words">
+                {a.fbAttempts} удаа алдаа{a.fbError ? `: ${a.fbError}` : ""}
+              </p>
+            )}
+          </section>
 
           <div className="flex flex-wrap gap-2">
-            {a.status === "PUBLISHED" && !a.fbPostId && (
+            {a.status === "PUBLISHED" && !a.fbPostId && !a.fbPostedAt && (
               <form action={postArticleToFacebook}>
                 <input type="hidden" name="id" value={a.id} />
                 <button className="rounded border border-accent/50 text-accent px-3 py-2 text-sm hover:bg-accent/10">
-                  Facebook-т постлох
+                  Одоо FB-д постлох
                 </button>
               </form>
             )}

@@ -12,6 +12,7 @@ import { prisma } from "../db";
 import { jobRunMeta } from "../jobs/meta";
 import { closeBrowser, fetchFullText } from "../fetchers/fulltext.api";
 import { chatJson } from "./llm";
+import { runAutoPublish } from "./quota";
 import { slugify } from "./slug";
 
 const SCORE_MODEL = process.env.SCORE_MODEL ?? "deepseek/deepseek-v4.1-flash";
@@ -137,16 +138,9 @@ export async function loadCatalog(): Promise<Catalog> {
   return { companies, models };
 }
 
-/** Хоосон бол унтраалттай. Тоо бол тэр оноо давсан, бүтэн тексттэй нийтлэлийг шууд нийтэлнэ. */
-function autoPublishMinScore(): number | null {
-  const raw = process.env.AUTO_PUBLISH_MIN_SCORE?.trim();
-  if (!raw) return null;
-  const n = Number(raw);
-  return Number.isFinite(n) ? n : null;
-}
-
 export interface ProcessResult {
-  status: "DRAFT" | "PUBLISHED" | "REJECTED";
+  /** Нийтлэх шийдвэр энд гарахгүй — квотын алхам (quota.ts) DRAFT-уудаас сонгоно */
+  status: "DRAFT" | "REJECTED";
   /** Үнэлгээг алгассан бол false */
   scored: boolean;
   score: number;
@@ -243,15 +237,10 @@ export async function processOne(
   const modelIds = matchModels(write.data.mentionedModels, models);
   const slug = await uniqueSlug(slugify(write.data.titleMn) || a.slug, a.id);
 
-  // Авто нийтлэх: өндөр оноотой БӨГӨӨД бүтэн тексттэй нийтлэлийг л (хураангуйгаар бичсэнийг үгүй)
-  const minScore = autoPublishMinScore();
-  const auto = minScore !== null && scoreValue >= minScore && Boolean(a.sourceText);
-
   await prisma.article.update({
     where: { id: a.id },
     data: {
-      status: auto ? "PUBLISHED" : "DRAFT",
-      ...(auto ? { publishedAt: new Date(), reviewedBy: "auto" } : {}),
+      status: "DRAFT",
       slug,
       titleMn: write.data.titleMn,
       summaryMn: write.data.summaryMn,
@@ -265,7 +254,7 @@ export async function processOne(
   });
 
   return {
-    status: auto ? "PUBLISHED" : "DRAFT", scored: !opts.skipScore, score: scoreValue, reason: scoreReason,
+    status: "DRAFT", scored: !opts.skipScore, score: scoreValue, reason: scoreReason,
     titleMn: write.data.titleMn, slug,
     companies: companyIds.length, models: modelIds.length,
     hadText: Boolean(a.sourceText), tokens: scoreTokens + write.tokens,
@@ -273,7 +262,9 @@ export async function processOne(
 }
 
 /** Pipeline болон CLI хоёулаа үүнийг дуудна */
-export async function runAgent(limit = 20): Promise<{ scored: number; drafted: number; failed: number }> {
+export async function runAgent(
+  limit = 20,
+): Promise<{ scored: number; drafted: number; failed: number; published: number }> {
   const run = await prisma.jobRun.create({ data: { job: "agent", ...jobRunMeta() } });
   const tokensByModel = new Map<string, number>();
   const onTokens = (model: string, n: number) => tokensByModel.set(model, (tokensByModel.get(model) ?? 0) + n);
@@ -323,6 +314,10 @@ export async function runAgent(limit = 20): Promise<{ scored: number; drafted: n
         `(бүх токеныг output гэж тооцсон).`,
     );
 
+    // Өдрийн квотын дагуу DRAFT-уудаас сонгож нийтэлнэ — бүх нийтлэл унасан үед ч
+    // өмнөх ажиллалтын DRAFT-ууд хүлээж байж болох тул алгасахгүй
+    const auto = await runAutoPublish();
+
     // Нийтлэл бүр унасан бол лог дээр ч ногоон харагдах ёсгүй
     const allFailed = articles.length > 0 && failed === articles.length;
     await prisma.jobRun.update({
@@ -337,7 +332,7 @@ export async function runAgent(limit = 20): Promise<{ scored: number; drafted: n
         error: allFailed ? `${failed}/${articles.length} нийтлэл боловсруулагдаагүй` : null,
       },
     });
-    return { scored: articles.length, drafted, failed };
+    return { scored: articles.length, drafted, failed, published: auto.published.length };
   } catch (e) {
     await prisma.jobRun.update({
       where: { id: run.id },

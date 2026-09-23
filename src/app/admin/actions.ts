@@ -106,29 +106,44 @@ export async function rewriteArticle(formData: FormData) {
   redirect(error ? `/admin/${id}?err=${encodeURIComponent(error)}` : `/admin/${id}`);
 }
 
-/** Нэг нийтлэлийг Facebook хуудсанд постолно. Алдааг ?err=-ээр хуудсан дээр харуулна. */
-export async function postArticleToFacebook(formData: FormData) {
-  const id = String(formData.get("id"));
+/** Нэг нийтлэлийг Facebook-т постолж, алдаа гарвал түүнийг буцаана (хоосон = амжилттай) */
+async function postOne(id: string): Promise<string> {
+  const { POSTABLE_SELECT, markFailed, markPosted, postToFacebook } = await import("@/publish/facebook");
   const a = await prisma.article.findUniqueOrThrow({
     where: { id },
-    select: { id: true, slug: true, titleMn: true, summaryMn: true, status: true, fbPostId: true },
+    select: { ...POSTABLE_SELECT, status: true, fbPostId: true, fbPostedAt: true },
   });
 
-  let error = "";
-  if (a.status !== "PUBLISHED") error = "Зөвхөн нийтлэгдсэн мэдээг постолно.";
-  else if (a.fbPostId) error = "Энэ нийтлэл аль хэдийн постлогдсон.";
-  else {
-    try {
-      const { postToFacebook } = await import("@/publish/facebook");
-      const fbPostId = await postToFacebook(a);
-      await prisma.article.update({ where: { id }, data: { fbPostId } });
-    } catch (e) {
-      error = (e as Error).message;
-    }
-  }
+  if (a.status !== "PUBLISHED") return "Зөвхөн нийтлэгдсэн мэдээг постолно.";
+  if (a.fbPostId || a.fbPostedAt) return "Энэ нийтлэл аль хэдийн постлогдсон.";
 
+  try {
+    await markPosted(a.id, await postToFacebook(a));
+    return "";
+  } catch (e) {
+    const message = (e as Error).message;
+    await markFailed(a.id, message);
+    return message;
+  }
+}
+
+/** /admin/<id> дээрх «Facebook-т постлох». Алдааг ?err=-ээр хуудсан дээр харуулна. */
+export async function postArticleToFacebook(formData: FormData) {
+  const id = String(formData.get("id"));
+  const error = await postOne(id);
+
+  revalidatePath("/admin");
   revalidatePath(`/admin/${id}`);
   redirect(error ? `/admin/${id}?err=${encodeURIComponent(error)}` : `/admin/${id}`);
+}
+
+/** Жагсаалтын мөрөн дээрх «Одоо FB-д постлох» — буцаад жагсаалт руугаа очно */
+export async function postArticleToFacebookFromList(formData: FormData) {
+  const id = String(formData.get("id"));
+  const error = await postOne(id);
+
+  revalidatePath("/admin");
+  redirect(`/admin?status=PUBLISHED&msg=${encodeURIComponent(error ? `FB: ${error}` : "FB: постлолоо")}`);
 }
 
 /** /admin дээрх «Мэдээ татах» / «Агент бичүүлэх» / «Бүгд» товчнууд */

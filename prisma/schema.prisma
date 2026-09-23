@@ -155,6 +155,9 @@ model Article {
   // Хэвлэлт
   publishedAt  DateTime?
   fbPostId     String?                      // Facebook-т тавигдсан бол
+  fbPostedAt   DateTime?                    // хэзээ постлогдсон — хоосон = дараалалд байна
+  fbAttempts   Int      @default(0)         // амжилтгүй оролдлогын тоо (3 болбол алгасна)
+  fbError      String?                      // сүүлийн алдааны мессеж
   reviewedBy   String?
 
   createdAt DateTime @default(now())
@@ -172,6 +175,7 @@ model Article {
   searchVector Unsupported("tsvector")? @default(dbgenerated())
 
   @@index([kind, status, publishedAt])
+  @@index([status, fbPostedAt])
   @@index([searchVector], type: Gin)
   @@index([status, publishedAt])
   @@index([status, createdAt])

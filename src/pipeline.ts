@@ -7,6 +7,10 @@
  *
  * Нэг алхам унасан ч дараагийнх нь ажиллана; төгсгөлд дүнг хүснэгтээр хэвлээд,
  * ямар нэг алхам унасан бол exit 1.
+ *
+ * Өдөрт 3 удаа ажиллана (Railway cron `0 1,5,11 * * *` UTC = УБ 09:00, 13:00, 19:00).
+ * `oncePerDay` алхмууд (openrouter, arena, digest, newsletter) УБ цагаар тухайн өдөр
+ * амжилттай ажилласан бол дахин ажиллахгүй. `--only <алхам>` гэж нэрлэвэл албадана.
  */
 import "dotenv/config";
 import { runDigest } from "./agent/digest";
@@ -14,6 +18,7 @@ import { isDigestDay } from "./agent/digest.api";
 import { runAgent } from "./agent/process";
 import { prisma } from "./db";
 import { openRouterKey } from "./env";
+import { ubDayRange } from "./jobs/day";
 import { runArena } from "./fetchers/arena";
 import { runOpenRouter } from "./fetchers/openrouter";
 import { runRss } from "./fetchers/rss";
@@ -23,11 +28,24 @@ import { postPending } from "./publish/facebook";
 interface Step {
   name: string;
   run: () => Promise<string>;
+  /** УБ цагаар өдөрт нэг л удаа — өмнө нь амжилттай ажилласан бол алгасна */
+  oncePerDay?: boolean;
+}
+
+/** Тухайн ажил УБ цагаар өнөөдөр амжилттай ажилласан уу */
+async function ranToday(job: string, now = new Date()): Promise<boolean> {
+  const { start, end } = ubDayRange(now);
+  const run = await prisma.jobRun.findFirst({
+    where: { job, ok: true, startedAt: { gte: start, lt: end } },
+    select: { id: true },
+  });
+  return run !== null;
 }
 
 const STEPS: Step[] = [
   {
     name: "openrouter",
+    oncePerDay: true,
     run: async () => {
       const r = await runOpenRouter(7);
       return `${r.models} модель, ${r.rows} мөр`;
@@ -35,6 +53,7 @@ const STEPS: Step[] = [
   },
   {
     name: "arena",
+    oncePerDay: true,
     run: async () => {
       const r = await runArena();
       return `${r.matched} модель (шинэ ${r.created}), ${r.date}`;
@@ -54,7 +73,7 @@ const STEPS: Step[] = [
     name: "agent",
     run: async () => {
       const r = await runAgent(30);
-      const summary = `${r.scored} үнэлсэн → ${r.drafted} DRAFT, алдаа ${r.failed}`;
+      const summary = `${r.scored} үнэлсэн → ${r.drafted} DRAFT, ${r.published} нийтэлсэн, алдаа ${r.failed}`;
       // Нийтлэл бүр унасан бол алхам өөрөө унасан гэж үзнэ — cron дээр эвдрэл нуугдахгүй
       if (r.scored > 0 && r.failed === r.scored) throw new Error(`бүх нийтлэл унасан — ${summary}`);
       return summary;
@@ -62,6 +81,7 @@ const STEPS: Step[] = [
   },
   {
     name: "digest",
+    oncePerDay: true,
     run: async () => {
       // Долоо хоногийн тойм — зөвхөн Ням гарагт (UTC)
       if (!isDigestDay(new Date())) return "Ням гараг биш, алгасав";
@@ -71,6 +91,7 @@ const STEPS: Step[] = [
   },
   {
     name: "newsletter",
+    oncePerDay: true,
     run: async () => {
       // Зөвхөн Ням гарагт — тухайн өдөр гарсан digest-ийг илгээнэ
       if (!isDigestDay(new Date())) return "Ням гараг биш, алгасав";
@@ -82,7 +103,9 @@ const STEPS: Step[] = [
     name: "facebook",
     run: async () => {
       const r = await postPending();
-      return r.skipped ? "тохируулаагүй, алгасав" : `${r.posted} постлосон, алдаа ${r.failed}`;
+      return r.skipped
+        ? "тохируулаагүй, алгасав"
+        : `${r.posted} постлосон, алдаа ${r.failed}, дараалалд ${r.queue}`;
     },
   },
 ];
@@ -125,6 +148,13 @@ async function main() {
       });
       continue;
     }
+    // Өдөрт нэг удаагийн алхам — гараар «--only <алхам>» гэж дуудвал албадана
+    if (step.oncePerDay && !selected?.has(step.name) && (await ranToday(step.name))) {
+      console.log(`\n──── ${step.name} ──── өнөөдөр ажилласан, алгасав`);
+      rows.push({ Алхам: step.name, Төлөв: "алгасав", "Үр дүн": "өнөөдөр ажилласан", Хугацаа: "—" });
+      continue;
+    }
+
     console.log(`\n──── ${step.name} ────`);
     const t0 = Date.now();
     try {
