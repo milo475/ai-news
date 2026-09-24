@@ -191,3 +191,24 @@ test("dailyPublishLimit / autoPublishMinScore: env, анхдагч утга", ()
   assert.equal(autoPublishMinScore({ AUTO_PUBLISH_MIN_SCORE: "9" }), 9);
   assert.equal(autoPublishMinScore({ AUTO_PUBLISH_MIN_SCORE: "" }), 7);
 });
+
+test("selectForPublish: avoidTopics нь ангиллын тоололд орохгүй, сэдвийг л хаана", () => {
+  const pool = [
+    draft("news-new", 9, { category: "NEWS", companySlugs: ["google"], tags: ["үүлэн"] }),
+    draft("risk-new", 8, { category: "RISK", companySlugs: ["openai"], tags: ["аюул", "агент"] }),
+  ];
+  // Өнөөдөр 2 NEWS, 2 RISK нийтлэгдсэн — ирээдүйн буферт эдгээр нь хязгаар болох ёсгүй
+  const today = [
+    draft("t1", 9, { category: "NEWS" }),
+    draft("t2", 9, { category: "NEWS" }),
+    draft("t3", 9, { category: "RISK", companySlugs: ["openai"], tags: ["аюул", "агент"] }),
+    draft("t4", 9, { category: "RISK" }),
+  ];
+
+  // alreadyToday болгож өгвөл бүгд хаагдана (ангилал 2/2)
+  assert.deepEqual(selectForPublish(pool, 2, today), []);
+
+  // avoidTopics болгож өгвөл ангиллын хязгаар идэгдэхгүй, харин ижил сэдэв (t3) хаагдана
+  const picked = selectForPublish(pool, 2, [], [], { avoidTopics: today });
+  assert.deepEqual(picked.map((p) => p.id), ["news-new"]);
+});

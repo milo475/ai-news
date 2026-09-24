@@ -9,6 +9,7 @@
 import { prisma } from "../db";
 import type { ArticleCategory } from "../generated/prisma/enums";
 import { ubDayRange } from "../jobs/day";
+import { upcomingSlots } from "../publish/slot.api";
 import {
   autoPublishMinScore,
   dailyPublishLimit,
@@ -139,8 +140,23 @@ export async function pickForPrepare(need: number, now = new Date()): Promise<st
     }),
   ])) as [ArticleRow[], ArticleRow[], ArticleRow[]];
 
-  const taken = [...todayRows, ...readyRows].map(toCandidate);
-  return selectForPublish(pool.map(toCandidate), need, taken).map((c) => c.id);
+  // Буфер нь ирээдүйн slot-уудынх: ангилал/эх сурвалжийн хязгаарыг зөвхөн буферээр тооцно,
+  // өнөөдөр нийтлэгдсэнийг зөвхөн сэдвийн давхардал шалгахад хэрэглэнэ.
+  const taken = readyRows.map(toCandidate);
+  const avoidTopics = todayRows.map(toCandidate);
+  let left = pool.map(toCandidate);
+  const ids: string[] = [];
+
+  // Дараагийн slot-уудын ангиллаар нэг нэгээр нь сонгоно — оройн slot (PROJECT/HOWTO/BUSINESS)
+  // хоосон үлдэхгүйн тулд. Тухайн ангилалд нэр дэвшигч байхгүй бол хамгийн сайныг нь авна.
+  for (const slot of upcomingSlots(now, need)) {
+    const picked = selectForPublish(left, 1, taken, slot.categories, { avoidTopics })[0];
+    if (!picked) break;
+    ids.push(picked.id);
+    taken.push(picked);
+    left = left.filter((c) => c.id !== picked.id);
+  }
+  return ids;
 }
 
 /** Өдрийн квотын үлдэгдэл */

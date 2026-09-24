@@ -33,6 +33,8 @@ export interface ImproveResult {
   ready: number;
   /** Энэ ажиллалтад бэлдсэн */
   prepared: { id: string; titleMn: string | null; hasImage: boolean }[];
+  /** Бэлэн байсан ч зураггүй байсан нийтлэлд нөхөж үүсгэсэн зургийн тоо */
+  imagesAdded: number;
   costUsd: number;
 }
 
@@ -84,14 +86,54 @@ export async function readyCount(): Promise<number> {
   return prisma.article.count({ where: { status: "DRAFT", readyAt: { not: null } } });
 }
 
-/** Бэлэн нийтлэлийн тоог зорилтот хэмжээнд хүргэнэ */
+/** Зураггүй бэлэн нийтлэлийн тоо */
+async function missingImageCount(): Promise<number> {
+  return prisma.article.count({ where: { status: "DRAFT", readyAt: { not: null }, fbImageData: null } });
+}
+
+/**
+ * Бэлэн боловч зураггүй нийтлэлүүдэд зураг нөхнө.
+ *
+ * Буфер дүүрэн үед (шинэ нийтлэл бэлдэхгүй) ч ажиллана: өдрийн зургийн хязгаар дүүрсэн
+ * үед бэлдсэн нийтлэлүүд зураггүй үлддэг, маргааш квот сэргэхэд эндээс нөхөгдөнө.
+ * Эс бөгөөс slot дээр зургаа үүсгэж 25 секунд алддаг.
+ */
+export async function topUpImages(max = IMAGE_AHEAD): Promise<{ added: number; costUsd: number }> {
+  const imageLimit = imageDailyLimit();
+  let added = 0;
+  let costUsd = 0;
+
+  const rows = await prisma.article.findMany({
+    where: { status: "DRAFT", readyAt: { not: null }, fbImageData: null },
+    orderBy: [{ relevance: "desc" }, { readyAt: "asc" }],
+    take: max,
+    select: { id: true, titleMn: true },
+  });
+
+  for (const r of rows) {
+    if ((await imagesToday()) >= imageLimit) {
+      console.log(`  өдрийн зургийн хязгаар дүүрсэн — ${rows.length - added} нийтлэл зураггүй хүлээнэ`);
+      break;
+    }
+    const image = await imageForArticle(r.id);
+    if (!image) continue;
+    await saveImage(r.id, image);
+    added++;
+    costUsd += image.costUsd;
+    console.log(`  ✓ зураг нөхөв: ${r.titleMn} ($${image.costUsd.toFixed(3)})`);
+  }
+  return { added, costUsd };
+}
+
+/** Бэлэн нийтлэлийн тоог зорилтот хэмжээнд хүргэж, зураггүйд нь зураг нөхнө */
 export async function runImprove(limit?: number): Promise<ImproveResult> {
   const target = readyTarget();
   const ready = await readyCount();
   const need = Math.min(limit ?? target, Math.max(0, target - ready));
-  if (need === 0) {
-    console.log(`Бэлэн нийтлэл ${ready}/${target} — нэмж бэлдэх шаардлагагүй`);
-    return { ready, prepared: [], costUsd: 0 };
+  const missingImages = await missingImageCount();
+  if (need === 0 && missingImages === 0) {
+    console.log(`Бэлэн нийтлэл ${ready}/${target}, бүгд зурагтай — хийх зүйл алга`);
+    return { ready, prepared: [], imagesAdded: 0, costUsd: 0 };
   }
 
   const run = await prisma.jobRun.create({ data: { job: "improve", ...jobRunMeta() } });
@@ -100,7 +142,7 @@ export async function runImprove(limit?: number): Promise<ImproveResult> {
 
   try {
     // Нийтлэх үеийнхтэй ижил дүрмээр — нэг үйл явдлыг гурван эх сурвалжаас бэлдэхгүй
-    const ids = await pickForPrepare(need);
+    const ids = need > 0 ? await pickForPrepare(need) : [];
     const rows = await prisma.article.findMany({
       where: { id: { in: ids } },
       select: { id: true, titleMn: true, fbText: true, fbImageData: true },
@@ -146,6 +188,10 @@ export async function runImprove(limit?: number): Promise<ImproveResult> {
       }
     }
 
+    // Буфер дүүрэн байсан ч зураггүй бэлэн нийтлэлүүдэд зураг нөхнө
+    const images = await topUpImages();
+    costUsd += images.costUsd;
+
     await prisma.jobRun.update({
       where: { id: run.id },
       data: {
@@ -155,7 +201,7 @@ export async function runImprove(limit?: number): Promise<ImproveResult> {
         costUsd,
       },
     });
-    return { ready: await readyCount(), prepared, costUsd };
+    return { ready: await readyCount(), prepared, imagesAdded: images.added, costUsd };
   } catch (e) {
     await prisma.jobRun.update({
       where: { id: run.id },
@@ -169,7 +215,12 @@ if (process.argv[1]?.endsWith("improve.ts")) {
   const limitArg = process.argv.indexOf("--limit");
   const limit = limitArg > -1 ? Number(process.argv[limitArg + 1]) : undefined;
   runImprove(limit)
-    .then((r) => console.log(`Бэлэн ${r.ready}, шинээр ${r.prepared.length}, зардал $${r.costUsd.toFixed(4)}`))
+    .then((r) =>
+      console.log(
+        `Бэлэн ${r.ready}, шинээр ${r.prepared.length}, зураг нөхсөн ${r.imagesAdded}, ` +
+          `зардал $${r.costUsd.toFixed(4)}`,
+      ),
+    )
     .catch((e) => { console.error(e); process.exitCode = 1; })
     .finally(() => prisma.$disconnect());
 }

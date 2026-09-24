@@ -9,6 +9,7 @@
  */
 import type { ArticleCategory } from "../generated/prisma/enums";
 import { UB_OFFSET_MS } from "../jobs/day";
+import { nextPublishAt, publishHours } from "../jobs/mode.api";
 
 export type Slot = "morning" | "noon" | "evening";
 
@@ -56,4 +57,32 @@ export function slotPlan(now: Date): SlotPlan {
     ranking: slot === "noon" && RANKING_WEEKDAYS.includes(ubWeekday(now)),
     categories: SLOT_CATEGORIES[slot],
   };
+}
+
+export interface UpcomingSlot extends SlotPlan {
+  /** Хэзээ болох вэ (UTC) */
+  at: Date;
+  /** УБ цагийн цаг */
+  hour: number;
+}
+
+/**
+ * Дараагийн N нийтлэх slot — БЭЛТГЭХ горимд аль ангиллын нийтлэл бэлдэхийг мэдэхэд.
+ * Жагсаалтын карт тавих slot-д нийтлэл хэрэггүй тул алгасна.
+ */
+export function upcomingSlots(
+  now: Date,
+  count: number,
+  hours = publishHours(),
+): UpcomingSlot[] {
+  const out: UpcomingSlot[] = [];
+  let cursor = now;
+  // Нэг долоо хоногоос цааш хайхгүй — хамгаалалт
+  for (let guard = 0; guard < 7 * hours.length && out.length < count; guard++) {
+    const next = nextPublishAt(cursor, hours);
+    const plan = slotPlan(next.at);
+    if (!plan.ranking) out.push({ ...plan, at: next.at, hour: next.hour });
+    cursor = new Date(next.at.getTime() + 60_000);
+  }
+  return out;
 }

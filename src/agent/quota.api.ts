@@ -120,6 +120,14 @@ export function selectForPublish(
   alreadyToday: PublishCandidate[] = [],
   /** Slot-ын ангилал — эдгээр нь оноо багатай ч түрүүлнэ */
   prefer: ArticleCategory[] = [],
+  opts: {
+    /**
+     * Сэдвийн давхардлыг л шалгах жагсаалт (эх сурвалж/ангиллын тоололд орохгүй).
+     * БЭЛТГЭХ горимд: буфер нь ирээдүйн өдрийнх тул өнөөдөр нийтлэгдсэн нь ангиллын
+     * хязгаарыг идэх ёсгүй, гэхдээ ижил үйл явдлыг дахин бэлдэх ч хэрэггүй.
+     */
+    avoidTopics?: PublishCandidate[];
+  } = {},
 ): PublishCandidate[] {
   if (quota <= 0) return [];
 
@@ -131,7 +139,7 @@ export function selectForPublish(
   const bySource = count(alreadyToday, (c) => c.sourceId);
   const byCategory = count(alreadyToday, (c) => c.category);
 
-  const taken = [...alreadyToday];
+  const taken = [...alreadyToday, ...(opts.avoidTopics ?? [])];
   const picked: PublishCandidate[] = [];
 
   const fits = (c: PublishCandidate) =>

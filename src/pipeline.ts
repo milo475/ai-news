@@ -113,7 +113,9 @@ const STEPS: Step[] = [
     mode: "prepare",
     run: async () => {
       const r = await runImprove();
-      return `бэлэн ${r.ready}, шинээр ${r.prepared.length}` + (r.costUsd > 0 ? ` ($${r.costUsd.toFixed(3)})` : "");
+      return `бэлэн ${r.ready}, шинээр ${r.prepared.length}` +
+        (r.imagesAdded > 0 ? `, зураг +${r.imagesAdded}` : "") +
+        (r.costUsd > 0 ? ` ($${r.costUsd.toFixed(3)})` : "");
     },
   },
   {
