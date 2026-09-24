@@ -8,7 +8,7 @@
     "build": "next build",
     "start": "next start",
     "start:web": "prisma migrate deploy && next start -p ${PORT:-3000}",
-    "start:cron": "tsx src/pipeline.ts",
+    "start:cron": "prisma migrate deploy && npm run seed:sources && tsx src/pipeline.ts",
     "fetch:openrouter": "tsx src/fetchers/openrouter.ts",
     "fetch:arena": "tsx src/fetchers/arena.ts",
     "fetch:rss": "tsx src/fetchers/rss.ts",
@@ -19,7 +19,8 @@
     "pipeline": "tsx src/pipeline.ts",
     "test": "tsx --test src/fetchers/*.test.ts src/agent/*.test.ts src/jobs/*.test.ts src/lib/*.test.ts src/newsletter/*.test.ts src/publish/*.test.ts",
     "db:migrate": "prisma migrate dev",
-    "db:seed:sources": "tsx src/fetchers/sources.seed.ts",
+    "seed:sources": "tsx src/fetchers/sources.seed.ts",
+    "db:seed:sources": "npm run seed:sources",
     "db:seed:usecases": "tsx src/seed/usecases.seed.ts",
     "db:generate": "prisma generate"
   },

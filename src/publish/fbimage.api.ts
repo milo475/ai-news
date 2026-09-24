@@ -43,33 +43,103 @@ export const IMAGE_PROMPT_PREFIX =
 /** LLM-ээс нэг өгүүлбэрийн дүрслэл авах system prompt */
 export const SCENE_SYSTEM = `You turn a news article into a short scene description for an editorial stock photograph.
 
+FIRST decide the concrete subject: the specific object, place or action the article is actually about,
+then describe a scene built around it. Examples:
+- text-to-speech model → a studio microphone with a waveform on the screen behind it
+- border surveillance cameras → a lone watchtower with a camera mast in the desert
+- chip factory investment → a wafer being handled with tweezers in a cleanroom
+- copyright lawsuit → a stack of printed documents and a gavel on a courtroom bench
+- delivery robots → a small wheeled robot waiting at a pedestrian crossing
+
+BANNED (too generic — never use unless the article is literally about it):
+"an office", "a modern office", "people at computers", "a person at a laptop", "a team in a meeting
+room", "a business handshake", "a boardroom", "generic server racks", "a glowing AI brain",
+"a humanoid robot", "abstract digital background", "hands typing on a keyboard".
+
 Rules:
 - One sentence, English, under 200 characters.
-- Describe a real-world, everyday scene that illustrates the topic (people at work, devices, places, objects).
-- No brand names, no company logos, no product names, no text or signage in the scene.
+- Real-world, photographable scene — objects and places first, people only if they belong there.
+- No brand names, no logos, no product names, no text or signage in the scene.
 - No recognisable real people, no faces in close-up; people seen from behind, from the side, or in soft focus.
-- No charts, no user interfaces with readable text, no abstract "AI brain" or glowing-robot clichés.
+- No charts, no user interfaces with readable text.
 - Add one photographic detail (shallow depth of field, wide shot, overhead view, morning light).
+- If recent scenes are listed, pick a different subject and camera angle from all of them.
 
 Return JSON only.`;
 
 export const SCENE_SCHEMA = {
   type: "object",
   properties: {
+    subject: { type: "string", description: "The concrete object, place or action, 2–6 English words" },
     scene: { type: "string", description: "One English sentence, under 200 characters" },
   },
-  required: ["scene"],
+  required: ["subject", "scene"],
   additionalProperties: false,
 };
 
-/** Ангилал бүрийн дүрслэлийн чиглэл — LLM-д санаа өгнө */
+/** Сүүлийн постуудын prompt-ыг LLM-д харуулж давхардлаас сэргийлнэ */
+export function recentScenesBlock(prompts: string[]): string {
+  const scenes = prompts
+    .map((p) => p.replace(`${IMAGE_PROMPT_PREFIX}: `, "").trim())
+    .filter(Boolean)
+    .slice(0, RECENT_SCENES);
+  if (scenes.length === 0) return "";
+  return ["Recent scenes (do not repeat these subjects or angles):", ...scenes.map((s) => `- ${s}`)].join("\n");
+}
+
+/** Хэдэн постын зургийг давхардлын шалгалтад харгалзах вэ */
+export const RECENT_SCENES = 10;
+
+/** Хориглосон ерөнхий дүрслэлүүд — эдгээр таарвал нэг удаа дахин гаргуулна */
+const GENERIC_PATTERNS: RegExp[] = [
+  /\b(a |an |the )?(modern |bright |busy |open[- ]plan )?office\b/i,
+  /\b(co-?working|workspace|cubicle|boardroom|meeting room|conference room)\b/i,
+  /\bpeople (at|in front of|around) (a |the )?(computer|laptop|desk|screen|monitor)/i,
+  /\b(a |an |the )?(person|man|woman|developer|analyst|employee|worker)\b[^.]{0,30}\b(at|on|in front of) (a|the|their|two|multiple) (laptop|computer|desk|monitor|screen)/i,
+  /\b(hands? typing|typing on a keyboard)\b/i,
+  /\b(handshake|shaking hands|team (meeting|collaborating))\b/i,
+  /\b(server (racks?|room)|data cent(er|re))\b/i,
+  /\b(glowing|digital|abstract) (brain|network|background|interface)\b/i,
+  /\bhumanoid robot\b/i,
+];
+
+/** Дүрслэл хэт ерөнхий үү (оффис, компьютерийн ард хүн гэх мэт) */
+export function isGenericScene(scene: string): boolean {
+  return GENERIC_PATTERNS.some((re) => re.test(scene));
+}
+
+/** Үгээр харьцуулсан ижил төстэй байдал (Jaccard), 0–1 */
+function similarity(a: string, b: string): number {
+  const words = (t: string) =>
+    new Set(
+      t.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, " ").split(/\s+/)
+        .filter((w) => w.length > 3 && !STOP_WORDS.has(w)),
+    );
+  const [x, y] = [words(a), words(b)];
+  if (x.size === 0 || y.size === 0) return 0;
+  const shared = [...x].filter((w) => y.has(w)).length;
+  return shared / (x.size + y.size - shared);
+}
+
+const STOP_WORDS = new Set([
+  "with", "from", "that", "this", "seen", "shot", "view", "light", "depth", "field", "shallow",
+  "focus", "photograph", "photorealistic", "editorial", "scene", "real", "world", "composition",
+  "natural", "square", "close", "wide", "background", "foreground",
+]);
+
+/** Сүүлийн постуудын аль нэгтэй хэт төстэй үү */
+export function sceneTooSimilar(scene: string, recent: string[], threshold = 0.35): boolean {
+  return recent.some((r) => similarity(scene, r) > threshold);
+}
+
+/** Ангилал бүрийн өнцөг — сэдвийн объектыг аль талаас нь харуулах вэ */
 export const CATEGORY_SCENE_HINT: Record<ArticleCategory, string> = {
-  NEWS: "an office, newsroom or data centre scene",
-  PROJECT: "someone building or demonstrating something at a desk or workshop",
-  BUSINESS: "a small business, shop or freelancer at work",
-  FACT: "a laboratory, research or measurement scene",
-  RISK: "a calm security, legal or oversight scene (no alarm, no fear)",
-  HOWTO: "hands using a laptop or phone, a practical step-by-step scene",
+  NEWS: "show the thing the news is about (the device, building, vehicle, material, place)",
+  PROJECT: "show the thing that was built and the tools or workbench around it",
+  BUSINESS: "show where the money is made: the shop floor, the goods, the machine, the counter",
+  FACT: "show the object being measured, tested or counted, and the instrument doing it",
+  RISK: "show the calm, concrete detail at stake (a lock, a camera, a document, a fence) — no alarm, no fear",
+  HOWTO: "show the tool or material in use, close, from the user's point of view",
 };
 
 /** Бүтэн prompt: тогтмол хэсэг + LLM-ийн дүрслэл */

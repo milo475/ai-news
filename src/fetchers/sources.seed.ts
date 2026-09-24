@@ -1,10 +1,14 @@
 /**
  * Мэдээний эх сурвалжуудыг Source хүснэгтэд бичнэ.
  *
- *   npm run db:seed:sources
+ *   npm run seed:sources
  *
- * url-аар unique. Байгаа эх сурвалж дээр зөвхөн name/feedUrl-ийг шинэчилнэ —
- * гараар тохируулсан isActive/weight-ийг дарж бичихгүй.
+ * Idempotent: `url`-аар upsert хийнэ. Байгаа эх сурвалж дээр зөвхөн name/feedUrl/
+ * defaultCategory/needsBrowser-ийг шинэчилнэ — гараар тохируулсан `isActive`, `weight`-ийг
+ * хэзээ ч дарж бичихгүй (гараар унтраасан feed автоматаар асахгүй).
+ *
+ * `start:cron` дээр `prisma migrate deploy`-ийн дараа автоматаар ажиллана — шинэ эх сурвалж
+ * нэмэхэд deploy хийхэд л хангалттай, гараар seed хийх шаардлагагүй.
  */
 import "dotenv/config";
 import { prisma } from "../db";
@@ -58,8 +62,14 @@ export const SOURCES: SeedSource[] = [
   { name: "AI Incident Database", url: "https://incidentdatabase.ai", feedUrl: "https://incidentdatabase.ai/rss.xml", weight: 7, category: "RISK" },
 ];
 
-async function main() {
+/** SOURCES-ийг DB-тэй тааруулна. Шинэ/шинэчилсэн тоог буцаана. */
+export async function seedSources(): Promise<{ created: number; updated: number; active: number }> {
+  let created = 0;
+  let updated = 0;
+  let active = 0;
+
   for (const s of SOURCES) {
+    const existing = await prisma.source.findUnique({ where: { url: s.url }, select: { id: true } });
     const row = await prisma.source.upsert({
       where: { url: s.url },
       create: {
@@ -71,12 +81,20 @@ async function main() {
       update: { name: s.name, feedUrl: s.feedUrl, defaultCategory: s.category ?? "NEWS", needsBrowser: s.needsBrowser ?? false },
       select: { isActive: true, weight: true, defaultCategory: true },
     });
-    console.log(`${row.isActive ? "✓" : "·"} ${s.name} (жин ${row.weight}, ${row.defaultCategory})`);
+    if (existing) updated++;
+    else created++;
+    if (row.isActive) active++;
+    console.log(
+      `${existing ? " " : "+"} ${row.isActive ? "✓" : "·"} ${s.name} (жин ${row.weight}, ${row.defaultCategory})`,
+    );
   }
-  console.log(`Нийт ${SOURCES.length} эх сурвалж.`);
-  await prisma.$disconnect();
+
+  console.log(`Эх сурвалж: нийт ${SOURCES.length} (шинэ ${created}, шинэчилсэн ${updated}), идэвхтэй ${active}.`);
+  return { created, updated, active };
 }
 
 if (process.argv[1]?.endsWith("sources.seed.ts")) {
-  main().catch((e) => { console.error(e); process.exit(1); });
+  seedSources()
+    .catch((e) => { console.error(e); process.exit(1); })
+    .finally(() => prisma.$disconnect());
 }

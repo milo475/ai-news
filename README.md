@@ -76,7 +76,7 @@ LLM дуудахгүй: эх сурвалжаас татаж `Article.status = R
 Монгол гарчиг/хураангуй (`titleMn`, `summaryMn`, `bodyMn`) 2-р шатанд бөглөгдөнө.
 
 ```bash
-npm run db:seed:sources   # эх сурвалжуудыг Source хүснэгтэд upsert
+npm run seed:sources      # эх сурвалжуудыг Source хүснэгтэд upsert (idempotent)
 npm run fetch:rss         # feed бүрийг дараалан татаж RAW нийтлэл хадгална
 npm test                  # src/fetchers/*.test.ts — сүлжээгүй логикийн тест
 ```
@@ -98,8 +98,15 @@ npm test                  # src/fetchers/*.test.ts — сүлжээгүй лог
 
 ### Эх сурвалжууд (20, идэвхтэй 17)
 `SOURCES` жагсаалт `src/fetchers/sources.seed.ts` дотор. Бүр дээр `weight` (найдвартай байдал) ба
-`defaultCategory` (LLM өөрөөр шийдвэл түүнийг нь авна) байна. Seed нь idempotent: `url`-аар upsert
-хийж, гараар тохируулсан `isActive`/`weight`-ийг дарж бичихгүй.
+`defaultCategory` (LLM өөрөөр шийдвэл түүнийг нь авна) байна.
+
+Seed нь **idempotent**: `url`-аар upsert хийж, байгаа мөр дээр зөвхөн `name`, `feedUrl`,
+`defaultCategory`, `needsBrowser`-ийг шинэчилнэ. Гараар тохируулсан `isActive`, `weight`-ийг
+**хэзээ ч дарж бичихгүй** — /admin-аас унтраасан feed автоматаар асахгүй.
+
+`start:cron` дээр `prisma migrate deploy`-ийн дараа seed автоматаар ажиллана
+(`prisma migrate deploy && npm run seed:sources && tsx src/pipeline.ts`), тиймээс шинэ эх сурвалж
+нэмэхэд **deploy хийхэд л хангалттай** — гараар seed хийх шаардлагагүй.
 
 | Бүлэг | Эх сурвалж |
 |---|---|
@@ -292,6 +299,16 @@ FACT — гайхшрал, RISK — тайван, айлгахгүй, HOWTO — 
 1. **ai** (үндсэн) — нийтлэлээс LLM нэг өгүүлбэрийн дүрслэл гаргаж, зургийн модельд өгнө. Prompt:
    `photorealistic editorial photograph, natural light, real-world scene, no text, no logos, no watermark, 1:1`.
    Хүний нүүр, компанийн лого, текст зурахгүй (AI текстийг буруу гаргадаг).
+
+   **Сэдэвт ойр байх.** LLM эхлээд нийтлэлийн гол объект/үйлдлийг (`subject`) нэрлээд түүнийг тойруулж
+   дүрслэл бичнэ: TTS модель → студийн микрофон, дэлгэц дээрх дууны долгион; хилийн камер → цөлд
+   байрлах хяналтын цамхаг; чипийн үйлдвэр → цэвэр өрөөнд хямсаагаар барьсан wafer. «Орчин үеийн
+   оффис», «компьютерийн ард хүн», «гар гар гар барих», «server rack», «гэрэлтсэн тархи» зэрэг
+   ерөнхий дүрслэл **хориотой** (`isGenericScene`) — таарвал шалтгааныг нь хэлж нэг удаа дахин
+   гаргуулна.
+
+   **Давхардахгүй.** Сүүлийн 10 постын дүрслэлийг prompt-д харуулж өөр өнцөг сонгуулна; шинэ дүрслэл
+   тэдгээрийн аль нэгтэй хэт төстэй бол (`sceneTooSimilar`) мөн дахин гаргуулна.
 2. **source** — `FB_USE_SOURCE_IMAGE=true` үед эх нийтлэлийн `og:image` + доод буланд
    «Зураг: &lt;эх сурвалж&gt;» credit (sharp). `og:image` байхгүй бол AI зураг руу шилжинэ.
 3. **ranking** — өдрийн slot дээрх жагсаалтын брэндийн карт: топ 5, өсөлт/уналт, AI News лого
@@ -356,9 +373,10 @@ UTC 01:00, 05:00, 11:00 = **Улаанбаатарын цагаар 09:00, 13:00
 | Сервис | Start command | Тайлбар |
 |---|---|---|
 | web | `npm run start:web` | `prisma migrate deploy` хийгээд `next start`. Health: `/api/health` |
-| cron | `npm run start:cron` | `src/pipeline.ts`. Schedule: `0 1,5,11 * * *` (UTC = УБ 09:00, 13:00, 19:00) |
+| cron | `npm run start:cron` | `migrate deploy` → `seed:sources` → `src/pipeline.ts`. Schedule: `0 1,5,11 * * *` (UTC = УБ 09:00, 13:00, 19:00) |
 
-Cron сервис migration хийхгүй — түүнийг web хариуцна.
+Cron сервис ажиллах бүрдээ `prisma migrate deploy` (advisory lock-той тул web-тэй зэрэг ажиллаж
+болно) ба эх сурвалжийн seed-ийг хийгээд pipeline-ээ эхлүүлнэ.
 
 ### Env хувьсагчид
 
@@ -388,9 +406,9 @@ Cron сервис migration хийхгүй — түүнийг web хариуцн
 | `IMAGE_MODEL`, `FB_IMAGE_DAILY_LIMIT`, `FB_USE_SOURCE_IMAGE` | FB постын зураг — [Facebook](#facebook--өдөрт-3-пост) |
 
 ### Эхний удаад
-Deploy хийсний дараа эх сурвалжуудыг нэг удаа seed хийнэ:
+Эх сурвалжууд `start:cron` дотор автоматаар seed хийгддэг. Хүсвэл гараар шууд ажиллуулж болно:
 ```bash
-railway run --service cron npm run db:seed:sources
+railway run --service cron npm run seed:sources
 ```
 
 ### Docker локал дээр

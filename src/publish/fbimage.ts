@@ -22,8 +22,9 @@ import { ubDateLabel, ubDayRange } from "../jobs/day";
 import { getLatestLeaderboard } from "../queries/leaderboard";
 import {
   buildImagePrompt, CATEGORY_SCENE_HINT, creditSvg, creditText, FALLBACK_IMAGE_MODEL,
-  imageDailyLimit, imageModel, IMAGE_SIZE, rankingCardSvg, SCENE_SCHEMA, SCENE_SYSTEM,
-  useSourceImage, type RankingRow,
+  imageDailyLimit, imageModel, IMAGE_SIZE, isGenericScene, rankingCardSvg, RECENT_SCENES,
+  recentScenesBlock, SCENE_SCHEMA, SCENE_SYSTEM, sceneTooSimilar, useSourceImage,
+  type RankingRow,
 } from "./fbimage.api";
 
 const JPEG_QUALITY = 82;
@@ -73,29 +74,68 @@ interface ArticleForImage {
   source: { name: string };
 }
 
-/** Нийтлэлээс зургийн дүрслэл гаргуулж, зураг үүсгэнэ */
+/** Сүүлийн постуудын зургийн prompt — давхардахгүй байх */
+export async function recentImagePrompts(limit = RECENT_SCENES): Promise<string[]> {
+  const rows = await prisma.article.findMany({
+    where: { fbImagePrompt: { not: null }, fbImageKind: "ai" },
+    orderBy: { fbImageAt: "desc" },
+    take: limit,
+    select: { fbImagePrompt: true },
+  });
+  return rows.map((r) => r.fbImagePrompt!).filter(Boolean);
+}
+
+/**
+ * Нийтлэлээс зургийн дүрслэл гаргуулж, зураг үүсгэнэ.
+ * Дүрслэл хэт ерөнхий (оффис, компьютерийн ард хүн) эсвэл сүүлийн постуудтай давхарсан бол
+ * шалтгааныг нь хэлж нэг удаа дахин гаргуулна.
+ */
 export async function generateAiImage(
   a: ArticleForImage,
-  opts: { chat?: Chat; image?: ImageCall } = {},
+  opts: { chat?: Chat; image?: ImageCall; recentPrompts?: string[] } = {},
 ): Promise<ImageResult> {
   const chat = opts.chat ?? chatJson;
   const image = opts.image ?? chatImage;
+  const recent = opts.recentPrompts ?? [];
 
-  const scene = await chat<{ scene: string }>({
-    model: process.env.SCORE_MODEL ?? "deepseek/deepseek-v4.1-flash",
-    system: SCENE_SYSTEM,
-    user: [
-      `Category: ${a.category} (${CATEGORY_LABEL[a.category]}) — prefer ${CATEGORY_SCENE_HINT[a.category]}.`,
-      `Headline: ${a.titleMn ?? ""}`,
-      `Summary: ${a.summaryMn ?? ""}`,
-    ].join("\n"),
-    schema: SCENE_SCHEMA,
-    maxTokens: 400,
-    temperature: 0.6,
-    reasoning: false,
-  });
+  const base = [
+    `Category: ${a.category} (${CATEGORY_LABEL[a.category]}) — ${CATEGORY_SCENE_HINT[a.category]}.`,
+    `Headline: ${a.titleMn ?? ""}`,
+    `Summary: ${a.summaryMn ?? ""}`,
+    recentScenesBlock(recent),
+  ].filter(Boolean);
 
-  const prompt = buildImagePrompt(scene.data.scene);
+  let scene = "";
+  let subject = "";
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const out = await chat<{ subject: string; scene: string }>({
+      model: process.env.SCORE_MODEL ?? "deepseek/deepseek-v4.1-flash",
+      system: SCENE_SYSTEM,
+      user: [
+        ...base,
+        ...(attempt === 0
+          ? []
+          : [
+              "",
+              `The previous answer was rejected: "${scene}".`,
+              isGenericScene(scene)
+                ? "It was too generic. Name the concrete object or place from the article itself."
+                : "It was too close to a recent scene. Pick a different subject and camera angle.",
+            ]),
+      ].join("\n"),
+      schema: SCENE_SCHEMA,
+      maxTokens: 400,
+      temperature: attempt === 0 ? 0.6 : 0.9,
+      reasoning: false,
+    });
+    scene = out.data.scene;
+    subject = out.data.subject;
+    if (!isGenericScene(scene) && !sceneTooSimilar(scene, recent)) break;
+    console.warn(`  ⚠ дүрслэл ${isGenericScene(scene) ? "хэт ерөнхий" : "өмнөх зурагтай төстэй"}: ${scene}`);
+  }
+  console.log(`  зургийн сэдэв: ${subject}`);
+
+  const prompt = buildImagePrompt(scene);
   const model = imageModel();
   let out;
   try {
@@ -163,7 +203,7 @@ export async function saveImage(articleId: string, r: ImageResult): Promise<stri
  */
 export async function imageForArticle(
   articleId: string,
-  opts: { chat?: Chat; image?: ImageCall; now?: Date; force?: boolean } = {},
+  opts: { chat?: Chat; image?: ImageCall; now?: Date; force?: boolean; recentPrompts?: string[] } = {},
 ): Promise<ImageResult | null> {
   const now = opts.now ?? new Date();
   const a = (await prisma.article.findUniqueOrThrow({
@@ -188,7 +228,7 @@ export async function imageForArticle(
   }
 
   try {
-    return await generateAiImage(a, opts);
+    return await generateAiImage(a, { ...opts, recentPrompts: opts.recentPrompts ?? (await recentImagePrompts()) });
   } catch (e) {
     console.warn(`  ⚠ зураг үүссэнгүй: ${(e as Error).message.slice(0, 150)}`);
     return null;
