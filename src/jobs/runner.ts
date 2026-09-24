@@ -10,7 +10,8 @@ import { join } from "node:path";
 import { prisma } from "../db";
 
 export const JOB_NAMES = [
-  "rss", "agent", "improve", "publish", "openrouter", "arena", "digest", "newsletter", "pipeline",
+  "rss", "agent", "improve", "publish", "instagram", "openrouter", "arena", "digest", "newsletter",
+  "pipeline",
 ] as const;
 export type JobName = (typeof JOB_NAMES)[number];
 
@@ -20,11 +21,15 @@ const JOB_ROWS: Record<JobName, string[]> = {
   agent: ["agent"],
   improve: ["improve"],
   publish: ["publish"],
+  instagram: ["instagram"],
   openrouter: ["openrouter"],
   arena: ["arena"],
   digest: ["digest"],
   newsletter: ["newsletter"],
-  pipeline: ["pipeline", "openrouter", "arena", "rss", "agent", "improve", "publish", "digest", "newsletter"],
+  pipeline: [
+    "pipeline", "openrouter", "arena", "rss", "agent", "improve", "publish", "instagram",
+    "digest", "newsletter",
+  ],
 };
 
 /** Үүнээс удвал процесс нь үхсэн гэж үзнэ */

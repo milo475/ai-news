@@ -21,8 +21,9 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
     headers: {
       "Content-Type": "image/jpeg",
       "Content-Length": String(a.fbImageData.length),
-      // Зураг дахин үүсгэвэл шинэчлэгдэх тул богино кэш
-      "Cache-Control": "private, max-age=60",
+      // Нийтийн зураг: Instagram-ийн сервер энэ хаягаар татдаг тул public байх ёстой.
+      // /admin дээр ?v=<fbImageAt> параметрээр кэш шинэчлэгддэг.
+      "Cache-Control": "public, max-age=3600",
       "Last-Modified": (a.fbImageAt ?? new Date()).toUTCString(),
     },
   });

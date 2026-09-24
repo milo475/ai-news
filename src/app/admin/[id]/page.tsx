@@ -3,9 +3,10 @@ import { notFound } from "next/navigation";
 import { prisma } from "@/db";
 import { fmtDate } from "@/components/format";
 import { CATEGORY_LABEL } from "@/agent/category";
+import { MAX_IG_ATTEMPTS } from "@/publish/instagram.api";
 import {
-  postArticleToFacebook, regenerateFbImage, regenerateFbText, rejectArticle, rewriteArticle,
-  saveAndPublishArticle, saveArticle, saveFbText,
+  postArticleToFacebook, postArticleToInstagram, regenerateFbImage, regenerateFbText, rejectArticle,
+  rewriteArticle, saveAndPublishArticle, saveArticle, saveFbText,
 } from "../actions";
 
 export const dynamic = "force-dynamic";
@@ -199,6 +200,35 @@ export default async function Edit({
                 <summary className="text-xs text-accent cursor-pointer">Нөөц хувилбар (A/B)</summary>
                 <p className="text-xs whitespace-pre-wrap pt-1">{a.fbTextAlt}</p>
               </details>
+            )}
+          </section>
+
+          <section className="rounded-lg border border-line p-3 space-y-2">
+            <p className="text-xs text-muted">Instagram</p>
+            {a.igPostedAt || a.igMediaId ? (
+              <p className="text-xs text-up">
+                ✓ {a.igPostedAt ? fmtDate(a.igPostedAt) : "постлосон"}
+                {a.igMediaId && <span className="ml-2 text-muted font-mono">{a.igMediaId}</span>}
+              </p>
+            ) : !a.fbImageUrl ? (
+              <p className="text-xs text-muted">зураггүй — IG зураггүй пост дэмждэггүй</p>
+            ) : a.status === "PUBLISHED" ? (
+              <p className="text-xs text-muted">хүлээгдэж байна (дараалалд)</p>
+            ) : (
+              <p className="text-xs text-muted">нийтлэгдсэний дараа дараалалд орно</p>
+            )}
+            {a.igAttempts > 0 && (
+              <p className="text-xs text-down break-words">
+                {a.igAttempts}/{MAX_IG_ATTEMPTS} оролдлого{a.igError ? `: ${a.igError}` : ""}
+              </p>
+            )}
+            {a.status === "PUBLISHED" && !a.igMediaId && !a.igPostedAt && a.fbImageUrl && (
+              <form action={postArticleToInstagram}>
+                <input type="hidden" name="id" value={a.id} />
+                <button className="text-xs rounded border border-accent/50 text-accent px-2 py-1 hover:bg-accent/10">
+                  IG-д постлох
+                </button>
+              </form>
             )}
           </section>
 

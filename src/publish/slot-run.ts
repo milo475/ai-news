@@ -20,6 +20,8 @@ import {
   markFailed, markPosted, postPending, postRankingCard, publishArticleToFacebook, queueSize,
   rankingPostedToday,
 } from "./facebook";
+import { igUserId } from "./instagram.api";
+import { markIgFailed, markIgPosted, publishArticleToInstagram } from "./instagram";
 import { slotPlan } from "./slot.api";
 
 export interface SlotResult {
@@ -28,6 +30,8 @@ export interface SlotResult {
   action: "ranking" | "article" | "queue" | "none";
   detail: string;
   costUsd: number;
+  /** Instagram-д амжилттай постлосон эсэх */
+  instagram?: boolean;
 }
 
 /** Нэг slot-ын ажил */
@@ -95,19 +99,50 @@ export async function runPublishSlot(now = new Date()): Promise<SlotResult> {
   );
 
   // 4. Тэр дор нь FB-д
+  let fbNote = "";
+  let fbOk = true;
   try {
     const out = await publishArticleToFacebook(article.id, { now });
     costUsd += out.costUsd;
     await markPosted(article.id, out.fbPostId);
+    fbNote = `FB ${out.kind}`;
     console.log(`✓ FB: ${out.fbPostId} (${out.kind})`);
-    return finish({ action: "article", detail: `${article.titleMn} → FB ${out.kind}` });
   } catch (e) {
     const message = (e as Error).message;
     await markFailed(article.id, message);
+    fbOk = false;
+    fbNote = `FB алдаа: ${message}`;
     console.error(`✗ FB: ${message}`);
     // Нийтлэл сайтад гарсан — FB нь дараалалд үлдэж дараагийн slot-д дахин оролдоно
-    return finish({ action: "article", detail: `${article.titleMn} нийтлэгдсэн, FB алдаа: ${message}` }, false);
   }
+
+  // 5. Дараа нь Instagram (зурагтай бол). Алдаа гарсан ч нийтлэл, FB пост хэвээр үлдэнэ.
+  let instagram = false;
+  let igNote = "";
+  if (igUserId()) {
+    try {
+      const ig = await publishArticleToInstagram(article.id);
+      if (ig) {
+        await markIgPosted(article.id, ig.igMediaId);
+        instagram = true;
+        igNote = ", IG ✓";
+        console.log(`✓ IG: ${ig.igMediaId}`);
+      } else {
+        igNote = ", IG зураггүй";
+      }
+    } catch (e) {
+      const message = (e as Error).message;
+      await markIgFailed(article.id, message);
+      igNote = `, IG алдаа: ${message.slice(0, 80)}`;
+      console.error(`✗ IG: ${message}`);
+      // Дараагийн slot-д дахин оролдоно (3 удаа хүртэл)
+    }
+  }
+
+  return finish(
+    { action: "article", detail: `${article.titleMn} → ${fbNote}${igNote}`, instagram },
+    fbOk,
+  );
 }
 
 if (process.argv[1]?.endsWith("slot-run.ts")) {

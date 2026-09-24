@@ -352,6 +352,42 @@ FACT — гайхшрал, RISK — тайван, айлгахгүй, HOWTO — 
 `FB_IMAGE_DAILY_LIMIT` (default 5) хэтэрвэл тухайн өдөр зураггүй (link) постоор явна.
 Зургийн зардал `JobRun.costUsd`-д бичигдэнэ (job: `facebook`).
 
+## Instagram
+`.env`-д `IG_USER_ID` (Instagram business account id) нэмнэ. Token нь FB-тэйгээ **ижил**
+`FB_PAGE_ACCESS_TOKEN` — зөвхөн `instagram_content_publish` эрх нэмж авна. `IG_USER_ID` хоосон бол
+алхам бүхэлдээ алгасагдана.
+
+```bash
+npx tsx src/publish/instagram.ts        # дараалалд хүлээж буйг постлоно
+npm run pipeline -- --only instagram    # ижил зүйл, pipeline-аар
+```
+
+**Зураг заавал хэрэгтэй.** Instagram зураггүй пост дэмждэггүй бөгөөд зургийг URL-аар нь өөрөө
+татдаг тул `SITE_URL/api/fb-image/<id>` (1080×1080 JPEG, `Cache-Control: public, max-age=3600`,
+auth-гүй — middleware зөвхөн `/admin`-ыг хамгаалдаг) хаягийг өгнө. `SITE_URL` нь нийтэд нээлттэй
+домэйн байх ёстой; зураггүй нийтлэл IG-д орохгүй.
+
+**Хоёр алхамт нийтлэлт** (`postToInstagram`):
+1. `POST /{ig-user-id}/media` `{ image_url, caption }` → `creation_id`
+2. `GET /{creation_id}?fields=status_code` — `FINISHED` болтол 3 секунд тутам, дээд тал нь 60 секунд
+   (`ERROR`/`EXPIRED` бол шууд алдаа)
+3. `POST /{ig-user-id}/media_publish` `{ creation_id }` → `igMediaId`
+
+**Caption** — FB текстээс үүснэ (`buildCaption`): IG дээр холбоос дарагддаггүй тул
+«Дэлгэрэнгүй: <url>» мөрийг **«Дэлгэрэнгүй холбоос bio-д.»** болгож солино, hashtag-ийг 5–8 болгож
+өргөтгөнө (`#AI #ХиймэлОюун #Монгол #технологи` + сэдвийн 2–4: модель, компани, шошго),
+2200 тэмдэгтэд багтаана, emoji байхгүй хэвээр. Хэт урт бол биетийн сүүлээс хасна — bio мөр ба
+hashtag үргэлж үлдэнэ.
+
+**Хэзээ постлогддог:** НИЙТЛЭХ slot дээр нийтлэл FB-д орсны **дараа шууд**. Алдвал `igPostedAt`
+хоосон үлдэж дараагийн slot-д дахин оролдоно (`instagram` алхам); `igAttempts` 3 хүрвэл зогсоно,
+алдаа нь `igError`-т үлдэнэ. Өдөрт `DAILY_PUBLISH_LIMIT`-ээс (3) илүүгүй. FB эсвэл IG-ийн аль нэг
+нь унасан ч нөгөө нь, сайт дээрх нийтлэл нь хэвээр үлдэнэ.
+
+`/admin`-ы PUBLISHED таб дээр Instagram багана (төлөв + «IG-д постлох»), `/admin/<id>` дээр
+Instagram хэсэг: постлосон огноо/media id, оролдлогын тоо, **API-ийн алдааны текст**, гараар
+постлох товч.
+
 ### Дараалал
 `status = PUBLISHED` бөгөөд `fbPostedAt` хоосон нийтлэлүүд дараалалд байна. Амжилттай бол
 `fbPostId`, `fbPostedAt` бичигдэнэ. Алдаа гарвал `fbPostedAt` хоосон үлдэж **дараагийн run-д дахин
@@ -372,14 +408,16 @@ npm run pipeline -- --skip arena
 ```
 
 ### НИЙТЛЭХ горим (publish) — УБ 07:00, 15:00, 19:00
-`PUBLISH_HOURS_UB="7,15,19"`. Нэг л алхам ажиллана — `publish`:
+`PUBLISH_HOURS_UB="7,15,19"`. Хоёр алхам ажиллана — `publish` ба `instagram`:
 
 1. Жагсаалтын картын өдөр (Мягмар/Пүрэв/Ням, өдрийн slot) бол картаа FB-д тавиад дуусна.
 2. Өдрийн квот дүүрээгүй бол **бэлэн (`readyAt`) DRAFT**-уудаас slot-ын ангилал ба квотын дүрмээр
    1 нийтлэл сонгож `PUBLISHED` болгоно. Бэлэн нийтлэл байхгүй бол ердийн DRAFT-аас сонгоно.
 3. Тэр нийтлэлийг **шууд FB-д постлоно** — урьдчилан бэлтгэсэн `fbText` ба `fbImageData`-г
    ашиглана, байхгүй бол тэр дор нь үүсгэнэ.
-4. Нийтлэх юм байхгүй бол FB дараалалд хүлээж буй постоор slot-оо дүүргэнэ.
+4. Тэр нийтлэлийг **Instagram-д** постлоно (зурагтай бол) — [Instagram](#instagram).
+5. Нийтлэх юм байхгүй бол FB дараалалд хүлээж буй постоор slot-оо дүүргэнэ.
+6. `instagram` алхам өмнө нь унасан IG постуудыг дахин оролдоно.
 
 RSS, үнэлгээ хийхгүй тул ихэвчлэн нэг минутын дотор дуусна.
 
@@ -476,8 +514,9 @@ Cron сервис ажиллах бүрдээ `prisma migrate deploy` (advisory 
 | `DAILY_PUBLISH_LIMIT`, `AUTO_PUBLISH_MIN_SCORE` | өдрийн нийтлэлийн квот (default 3, оноо ≥ 7) |
 | `PUBLISH_HOURS_UB`, `DAILY_HOUR_UB` | нийтлэх цагууд (УБ) ба өдөрт нэг удаагийн алхмуудын цаг |
 | `AGENT_BATCH`, `AGENT_DAILY_BUDGET_USD`, `PREPARE_READY_TARGET` | БЭЛТГЭХ горимын хязгаарууд |
-| `SITE_URL` | Facebook постын холбоост |
+| `SITE_URL` | Facebook/Instagram постын холбоос, зургийн нийтийн хаяг |
 | `FB_PAGE_ID`, `FB_PAGE_ACCESS_TOKEN` | хоосон бол Facebook алхам алгасагдана |
+| `IG_USER_ID` | Instagram business account id — хоосон бол IG алхам алгасагдана |
 | `FB_POSTS_PER_RUN` | нэг run-д хэдэн пост (default 1 → өдөрт 3) |
 | `FB_COPY_MODEL` | FB текстийн модель (хоосон бол `WRITE_MODEL`) |
 | `IMAGE_MODEL`, `FB_IMAGE_DAILY_LIMIT`, `FB_USE_SOURCE_IMAGE` | FB постын зураг — [Facebook](#facebook--өдөрт-3-пост) |

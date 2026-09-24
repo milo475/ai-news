@@ -30,6 +30,7 @@ import { runArena } from "./fetchers/arena";
 import { runOpenRouter } from "./fetchers/openrouter";
 import { runRss } from "./fetchers/rss";
 import { runNewsletter } from "./newsletter/send";
+import { postPendingInstagram } from "./publish/instagram";
 import { runPublishSlot } from "./publish/slot-run";
 import { ubHour } from "./publish/slot.api";
 
@@ -63,6 +64,18 @@ const STEPS: Step[] = [
     run: async () => {
       const r = await runPublishSlot();
       return `${r.slot}: ${r.action} — ${r.detail}` + (r.costUsd > 0 ? ` ($${r.costUsd.toFixed(3)})` : "");
+    },
+  },
+
+  {
+    // Өмнөх slot-д унасан IG постуудыг дахин оролдоно (slot дээрх шинэ нийтлэл аль хэдийн явсан)
+    name: "instagram",
+    mode: "publish",
+    run: async () => {
+      const r = await postPendingInstagram();
+      return r.skipped
+        ? (r.reason ?? "тохируулаагүй, алгасав")
+        : `${r.posted} постлосон, алдаа ${r.failed}, дараалалд ${r.queue}`;
     },
   },
 

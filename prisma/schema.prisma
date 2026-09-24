@@ -189,6 +189,12 @@ model Article {
   fbImageAt    DateTime?
   /// AI зургийн англи prompt — /admin дээр харах, дахин үүсгэхэд
   fbImagePrompt String?
+  // Instagram — FB-тэй ижил Page token, зураггүй нийтлэл IG-д орохгүй
+  igPostedAt   DateTime?
+  igMediaId    String?
+  igAttempts   Int      @default(0)
+  igError      String?
+
   /// Текстийг нэг удаа сайжруулсан огноо (БЭЛТГЭХ горим) — дахин засахгүйн тулд
   improvedAt   DateTime?
   /// Нийтлэхэд бүрэн бэлэн болсон огноо: текст сайжирсан + fbText бичигдсэн
@@ -213,6 +219,7 @@ model Article {
   @@index([status, fbPostedAt])
   @@index([status, category, publishedAt])
   @@index([status, readyAt])
+  @@index([status, igPostedAt])
   @@index([searchVector], type: Gin)
   @@index([status, publishedAt])
   @@index([status, createdAt])

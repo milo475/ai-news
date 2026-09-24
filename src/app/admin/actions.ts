@@ -129,6 +129,51 @@ async function postOne(id: string): Promise<string> {
   }
 }
 
+/** Нэг нийтлэлийг Instagram-д постолж, алдаа гарвал түүнийг буцаана */
+async function postOneInstagram(id: string): Promise<string> {
+  const { MAX_IG_ATTEMPTS } = await import("@/publish/instagram.api");
+  const { markIgFailed, markIgPosted, publishArticleToInstagram } = await import("@/publish/instagram");
+  const a = await prisma.article.findUniqueOrThrow({
+    where: { id },
+    select: { id: true, status: true, igMediaId: true, igPostedAt: true, igAttempts: true, fbImageData: true },
+  });
+
+  if (a.status !== "PUBLISHED") return "Зөвхөн нийтлэгдсэн мэдээг постолно.";
+  if (a.igMediaId || a.igPostedAt) return "Энэ нийтлэл аль хэдийн Instagram-д орсон.";
+  if (!a.fbImageData) return "Зураг байхгүй — Instagram зураггүй пост дэмждэггүй.";
+  if (a.igAttempts >= MAX_IG_ATTEMPTS) return `${MAX_IG_ATTEMPTS} удаа амжилтгүй болсон — алдааг засна уу.`;
+
+  try {
+    const out = await publishArticleToInstagram(a.id);
+    if (!out) return "Зураг байхгүй тул постлогдсонгүй.";
+    await markIgPosted(a.id, out.igMediaId);
+    return "";
+  } catch (e) {
+    const message = (e as Error).message;
+    await markIgFailed(a.id, message);
+    return message;
+  }
+}
+
+/** /admin/<id> дээрх «IG-д постлох» */
+export async function postArticleToInstagram(formData: FormData) {
+  const id = String(formData.get("id"));
+  const error = await postOneInstagram(id);
+
+  revalidatePath("/admin");
+  revalidatePath(`/admin/${id}`);
+  redirect(error ? `/admin/${id}?err=${encodeURIComponent(error)}` : `/admin/${id}`);
+}
+
+/** Жагсаалтын мөрөн дээрх «IG-д постлох» */
+export async function postArticleToInstagramFromList(formData: FormData) {
+  const id = String(formData.get("id"));
+  const error = await postOneInstagram(id);
+
+  revalidatePath("/admin");
+  redirect(`/admin?status=PUBLISHED&msg=${encodeURIComponent(error ? `IG: ${error}` : "IG: постлолоо")}`);
+}
+
 /** /admin дээрээс FB текстийг дахин бичүүлэх */
 export async function regenerateFbText(formData: FormData) {
   const id = String(formData.get("id"));

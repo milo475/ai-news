@@ -6,8 +6,11 @@ import { publishedToday } from "@/agent/quota";
 import { dailyPublishLimit } from "@/agent/quota.api";
 import { fmtDate } from "@/components/format";
 import { MAX_ATTEMPTS, postsPerRun } from "@/publish/facebook.api";
+import { igUserId, MAX_IG_ATTEMPTS } from "@/publish/instagram.api";
 import { emptySearches, topSearches } from "@/queries/search-stats";
-import { postArticleToFacebookFromList, publishArticle, rejectArticle, runJob } from "./actions";
+import {
+  postArticleToFacebookFromList, postArticleToInstagramFromList, publishArticle, rejectArticle, runJob,
+} from "./actions";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -62,6 +65,7 @@ export default async function Admin({
         id: true, titleMn: true, sourceTitle: true, relevance: true, createdAt: true, category: true,
         publishedAtSource: true, sourceText: true, reviewedBy: true, source: { select: { name: true } },
         fbPostId: true, fbPostedAt: true, fbAttempts: true, fbError: true,
+        fbImageUrl: true, igPostedAt: true, igMediaId: true, igAttempts: true, igError: true,
       },
     }),
     topSearches(),
@@ -78,6 +82,7 @@ export default async function Admin({
   const countOf = (s: string) => counts.find((c) => c.status === s)?._count ?? 0;
   const anyRunning = jobs.some(({ run }) => run && !run.finishedAt);
   const dailyLimit = dailyPublishLimit();
+  const igOn = igUserId() !== null;
 
   return (
     <div className="space-y-6">
@@ -225,6 +230,7 @@ export default async function Admin({
                 <th className="text-left px-3 py-2 w-28 hidden md:table-cell">Нийтлэгдсэн</th>
                 <th className="text-left px-3 py-2 w-28 hidden md:table-cell">Татсан</th>
                 {status === "PUBLISHED" && <th className="text-left px-3 py-2 w-56">Facebook</th>}
+                {status === "PUBLISHED" && igOn && <th className="text-left px-3 py-2 w-48">Instagram</th>}
                 {status === "DRAFT" && <th className="text-right px-3 py-2 w-44">Үйлдэл</th>}
               </tr>
             </thead>
@@ -255,6 +261,11 @@ export default async function Admin({
                   {status === "PUBLISHED" && (
                     <td className="px-3 py-2">
                       <FbCell article={a} />
+                    </td>
+                  )}
+                  {status === "PUBLISHED" && igOn && (
+                    <td className="px-3 py-2">
+                      <IgCell article={a} />
                     </td>
                   )}
                   {status === "DRAFT" && (
@@ -320,6 +331,37 @@ function FbCell({
         <input type="hidden" name="id" value={article.id} />
         <button className="text-xs rounded border border-accent/50 text-accent px-2 py-1 hover:bg-accent/10">
           Одоо FB-д постлох
+        </button>
+      </form>
+    </div>
+  );
+}
+
+/** Нэг нийтлэлийн Instagram төлөв + гараар постлох товч */
+function IgCell({
+  article,
+}: {
+  article: {
+    id: string; igMediaId: string | null; igPostedAt: Date | null; igAttempts: number;
+    igError: string | null; fbImageUrl: string | null;
+  };
+}) {
+  if (article.igPostedAt || article.igMediaId) {
+    return <span className="text-xs text-up">✓ {article.igPostedAt ? fmtDate(article.igPostedAt) : "постлосон"}</span>;
+  }
+  if (!article.fbImageUrl) return <span className="text-xs text-muted">зураггүй</span>;
+
+  const stuck = article.igAttempts >= MAX_IG_ATTEMPTS;
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <span className={`text-xs ${stuck ? "text-down" : "text-muted"}`} title={article.igError ?? ""}>
+        {stuck ? `✗ ${MAX_IG_ATTEMPTS} удаа алдаа` : "хүлээгдэж байна"}
+        {!stuck && article.igAttempts > 0 && ` (${article.igAttempts})`}
+      </span>
+      <form action={postArticleToInstagramFromList}>
+        <input type="hidden" name="id" value={article.id} />
+        <button className="text-xs rounded border border-accent/50 text-accent px-2 py-1 hover:bg-accent/10">
+          IG-д постлох
         </button>
       </form>
     </div>
