@@ -9,6 +9,7 @@
  *      NEWS-ээс бусад ангилал орно (зөвхөн моделийн мэдээний хуудас болохгүйн тулд).
  *   4. Ижил сэдэв/модель давхардуулахгүй — sameTopic-ийг үз.
  */
+import { CATEGORIES } from "./category";
 import type { ArticleCategory } from "../generated/prisma/enums";
 
 /** Нэг эх сурвалжаас өдөрт авах дээд тоо */
@@ -59,6 +60,39 @@ export function dailyPublishLimit(env: Env = process.env): number {
 /** AUTO_PUBLISH_MIN_SCORE — үүнээс доош оноотой нийтлэл авто нийтлэгдэхгүй */
 export function autoPublishMinScore(env: Env = process.env): number {
   return positiveInt(env.AUTO_PUBLISH_MIN_SCORE, DEFAULT_MIN_SCORE);
+}
+
+/**
+ * Ангилал тус бүрийн доод оноо. PROJECT/HOWTO контент нь жин багатай эх сурвалжаас
+ * (Product Hunt, TLDR, Simon Willison ...) ирдэг бөгөөд үнэлгээний модель тэдгээрт ховор
+ * 7+ өгдөг тул оройн slot хоосон үлддэг байв — тэдэнд нэгээр доогуур босго тавина.
+ */
+export const CATEGORY_MIN_SCORE: Partial<Record<ArticleCategory, number>> = {
+  PROJECT: 6,
+  HOWTO: 6,
+};
+
+/**
+ * Ангиллын сулруулсан босго — ерөнхий босгоос хэзээ ч өндөр болохгүй.
+ * Agent-ийн REJECTED босго болон нийтлэх босго хоёулаа үүгээр дамжина.
+ */
+export function relaxedScore(base: number, category: ArticleCategory): number {
+  return Math.min(base, CATEGORY_MIN_SCORE[category] ?? base);
+}
+
+/** Тухайн ангиллын нийтлэх доод оноо */
+export function minScoreFor(category: ArticleCategory, env: Env = process.env): number {
+  return relaxedScore(autoPublishMinScore(env), category);
+}
+
+/** Ангиллуудыг доод онооных нь дагуу бүлэглэнэ — Prisma-гийн OR нөхцөл барихад */
+export function minScoreGroups(env: Env = process.env): { score: number; categories: ArticleCategory[] }[] {
+  const byScore = new Map<number, ArticleCategory[]>();
+  for (const c of CATEGORIES) {
+    const score = minScoreFor(c, env);
+    byScore.set(score, [...(byScore.get(score) ?? []), c]);
+  }
+  return [...byScore].map(([score, categories]) => ({ score, categories }));
 }
 
 function overlaps(a: string[], b: string[]): boolean {

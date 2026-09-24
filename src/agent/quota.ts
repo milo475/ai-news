@@ -11,8 +11,8 @@ import type { ArticleCategory } from "../generated/prisma/enums";
 import { ubDayRange } from "../jobs/day";
 import { upcomingSlots } from "../publish/slot.api";
 import {
-  autoPublishMinScore,
   dailyPublishLimit,
+  minScoreGroups,
   selectForPublish,
   type PublishCandidate,
 } from "./quota.api";
@@ -58,6 +58,11 @@ function toCandidate(a: ArticleRow): PublishCandidate {
   };
 }
 
+/** Ангилал бүрийн доод оноог хангасан нийтлэлүүд (PROJECT/HOWTO нь нэгээр доогуур) */
+function scoreWhere() {
+  return { OR: minScoreGroups().map((g) => ({ category: { in: g.categories }, relevance: { gte: g.score } })) };
+}
+
 /** УБ цагаар өнөөдөр нийтлэгдсэн мэдээний тоо (DIGEST ордоггүй) */
 export async function publishedToday(now = new Date()): Promise<number> {
   const { start, end } = ubDayRange(now);
@@ -75,7 +80,6 @@ export async function pickForSlot(
   prefer: ArticleCategory[] = [],
 ): Promise<{ id: string; category: ArticleCategory } | null> {
   const { start, end } = ubDayRange(now);
-  const minScore = autoPublishMinScore();
 
   const todayRows = (await prisma.article.findMany({
     where: { kind: "NEWS", status: "PUBLISHED", publishedAt: { gte: start, lt: end } },
@@ -85,8 +89,8 @@ export async function pickForSlot(
   const baseWhere = {
     kind: "NEWS" as const,
     status: "DRAFT" as const,
-    relevance: { gte: minScore },
     sourceText: { not: null },
+    ...scoreWhere(),
   };
   const order = [
     { relevance: "desc" as const },
@@ -118,7 +122,6 @@ export async function pickForSlot(
 export async function pickForPrepare(need: number, now = new Date()): Promise<string[]> {
   if (need <= 0) return [];
   const { start, end } = ubDayRange(now);
-  const minScore = autoPublishMinScore();
 
   const [todayRows, readyRows, pool] = (await Promise.all([
     prisma.article.findMany({
@@ -130,10 +133,7 @@ export async function pickForPrepare(need: number, now = new Date()): Promise<st
       select: SELECT,
     }),
     prisma.article.findMany({
-      where: {
-        kind: "NEWS", status: "DRAFT", readyAt: null,
-        relevance: { gte: minScore }, sourceText: { not: null },
-      },
+      where: { kind: "NEWS", status: "DRAFT", readyAt: null, sourceText: { not: null }, ...scoreWhere() },
       orderBy: [{ relevance: "desc" }, { publishedAtSource: "desc" }, { createdAt: "desc" }],
       take: CANDIDATE_POOL,
       select: SELECT,

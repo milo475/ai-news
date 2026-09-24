@@ -13,6 +13,7 @@ import { ubDayRange } from "../jobs/day";
 import { jobRunMeta } from "../jobs/meta";
 import type { ArticleCategory } from "../generated/prisma/enums";
 import { categoryPromptBlock, toCategory } from "./category";
+import { relaxedScore } from "./quota.api";
 import { closeBrowser, fetchFullText } from "../fetchers/fulltext.api";
 import { chatJson } from "./llm";
 import { adaptiveBatch, agentBatch, agentDailyBudget, budgetExhausted } from "./budget.api";
@@ -22,6 +23,7 @@ import { slugify } from "./slug";
 
 const SCORE_MODEL = process.env.SCORE_MODEL ?? "deepseek/deepseek-v4.1-flash";
 const WRITE_MODEL = process.env.WRITE_MODEL ?? "google/gemini-3.8-flash";
+/** Ерөнхий босго. PROJECT/HOWTO-д CATEGORY_MIN_SCORE-оор сулруулна (quota.api.ts) */
 const THRESHOLD = Number(process.env.RELEVANCE_THRESHOLD ?? 7);
 
 // cwd-ээс уншина: CLI (npm script) ба Next.js server action хоёулаа төслийн үндсээс ажилладаг.
@@ -243,7 +245,8 @@ export async function processOne(
       },
     });
 
-    if (scoreValue < THRESHOLD) {
+    // PROJECT/HOWTO контент жин багатай эх сурвалжаас ирдэг тул тэдэнд босго нэгээр доогуур
+    if (scoreValue < relaxedScore(THRESHOLD, category)) {
       await prisma.article.update({ where: { id: a.id }, data: { status: "REJECTED" } });
       return {
         status: "REJECTED", scored: true, score: scoreValue, reason: scoreReason, category,

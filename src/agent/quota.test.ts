@@ -1,8 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  autoPublishMinScore, dailyPublishLimit, MAX_PER_CATEGORY, MAX_PER_SOURCE, MIN_NON_NEWS,
-  MIN_SHARED_TAGS, sameTopic, selectForPublish, type PublishCandidate,
+  autoPublishMinScore, CATEGORY_MIN_SCORE, dailyPublishLimit, MAX_PER_CATEGORY, MAX_PER_SOURCE,
+  MIN_NON_NEWS, MIN_SHARED_TAGS, minScoreFor, minScoreGroups, relaxedScore, sameTopic, selectForPublish,
+  type PublishCandidate,
 } from "./quota.api";
 
 const DAY = new Date("2026-09-23T02:00:00Z");
@@ -211,4 +212,45 @@ test("selectForPublish: avoidTopics нь ангиллын тоололд оро�
   // avoidTopics болгож өгвөл ангиллын хязгаар идэгдэхгүй, харин ижил сэдэв (t3) хаагдана
   const picked = selectForPublish(pool, 2, [], [], { avoidTopics: today });
   assert.deepEqual(picked.map((p) => p.id), ["news-new"]);
+});
+
+test("minScoreFor: PROJECT/HOWTO-д доод оноо 6, бусдад 7", () => {
+  assert.deepEqual(CATEGORY_MIN_SCORE, { PROJECT: 6, HOWTO: 6 });
+
+  for (const c of ["PROJECT", "HOWTO"] as const) assert.equal(minScoreFor(c, {}), 6, c);
+  for (const c of ["NEWS", "RISK", "FACT", "BUSINESS"] as const) assert.equal(minScoreFor(c, {}), 7, c);
+
+  // Ерөнхий босгоос хэзээ ч өндөр болохгүй
+  const low = { AUTO_PUBLISH_MIN_SCORE: "5" };
+  assert.equal(minScoreFor("PROJECT", low), 5);
+  assert.equal(minScoreFor("NEWS", low), 5);
+
+  // Ерөнхий босгыг өсгөвөл PROJECT/HOWTO нь 6 хэвээр (зориудаар суларсан ангилал)
+  const high = { AUTO_PUBLISH_MIN_SCORE: "9" };
+  assert.equal(minScoreFor("PROJECT", high), 6);
+  assert.equal(minScoreFor("NEWS", high), 9);
+});
+
+test("relaxedScore: agent-ийн REJECTED босгод ч ижил сулралт", () => {
+  // RELEVANCE_THRESHOLD=7 үед PROJECT/HOWTO 6-гаар DRAFT болно
+  assert.equal(relaxedScore(7, "PROJECT"), 6);
+  assert.equal(relaxedScore(7, "HOWTO"), 6);
+  assert.equal(relaxedScore(7, "NEWS"), 7);
+  assert.equal(relaxedScore(7, "FACT"), 7);
+
+  // Босго аль хэдийн бага бол сулруулахгүй
+  assert.equal(relaxedScore(5, "PROJECT"), 5);
+});
+
+test("minScoreGroups: ангиллуудыг доод онооных нь дагуу бүлэглэнэ", () => {
+  const groups = minScoreGroups({});
+  assert.equal(groups.length, 2);
+
+  const six = groups.find((g) => g.score === 6)!;
+  const seven = groups.find((g) => g.score === 7)!;
+  assert.deepEqual([...six.categories].sort(), ["HOWTO", "PROJECT"]);
+  assert.deepEqual([...seven.categories].sort(), ["BUSINESS", "FACT", "NEWS", "RISK"]);
+
+  // Бүх ангилал яг нэг бүлэгт орно
+  assert.equal(groups.flatMap((g) => g.categories).length, 6);
 });
