@@ -80,6 +80,15 @@ function byScore(a: PublishCandidate, b: PublishCandidate): number {
   return bt - at;
 }
 
+/** Slot-ын ангилалтай нийтлэл түрүүлнэ, дотроо оноогоор */
+function bySlotThenScore(prefer: ArticleCategory[]) {
+  return (a: PublishCandidate, b: PublishCandidate): number => {
+    const pa = prefer.includes(a.category) ? 0 : 1;
+    const pb = prefer.includes(b.category) ? 0 : 1;
+    return pa !== pb ? pa - pb : byScore(a, b);
+  };
+}
+
 /**
  * Квотын үлдэгдэлд багтаах нийтлэлүүдийг сонгоно.
  *
@@ -87,11 +96,14 @@ function byScore(a: PublishCandidate, b: PublishCandidate): number {
  * @param quota       өнөөдөр нийтлэх боломжтой үлдсэн тоо
  * @param alreadyToday өнөөдөр аль хэдийн нийтлэгдсэн мэдээ — эх сурвалж/сэдвийн
  *                     хязгаарыг өдрийн турш барихад хэрэглэнэ
+ * @param prefer       тухайн slot-ын ангилал (morning: NEWS/RISK ...) — оноо багатай ч түрүүлнэ
  */
 export function selectForPublish(
   candidates: PublishCandidate[],
   quota: number,
   alreadyToday: PublishCandidate[] = [],
+  /** Slot-ын ангилал — эдгээр нь оноо багатай ч түрүүлнэ */
+  prefer: ArticleCategory[] = [],
 ): PublishCandidate[] {
   if (quota <= 0) return [];
 
@@ -118,7 +130,7 @@ export function selectForPublish(
     byCategory.set(c.category, (byCategory.get(c.category) ?? 0) + 1);
   };
 
-  const sorted = [...candidates].sort(byScore);
+  const sorted = [...candidates].sort(prefer.length ? bySlotThenScore(prefer) : byScore);
   for (const c of sorted) {
     if (picked.length >= quota) break;
     if (!fits(c)) continue;

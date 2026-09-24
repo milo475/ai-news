@@ -1,35 +1,48 @@
 /**
  * Бүх шатыг дараалуулан ажиллуулна — cron-д зориулав.
  *
- *   npx tsx src/pipeline.ts
- *   npx tsx src/pipeline.ts --skip openrouter,facebook
- *   npx tsx src/pipeline.ts --only rss          # зөвхөн нэг алхам ("pipeline" = бүгд)
+ *   npx tsx src/pipeline.ts                     # цагаас хамаарч горимоо сонгоно
+ *   npx tsx src/pipeline.ts --mode publish      # горим албадах
+ *   npx tsx src/pipeline.ts --only rss          # зөвхөн нэг алхам (горим, өдрийн шалгалтыг алгасна)
+ *   npx tsx src/pipeline.ts --skip openrouter,arena
+ *
+ * Cron цаг бүр ажиллана (`0 * * * *` UTC), код нь УБ цагаар горимоо сонгоно:
+ *
+ *   НИЙТЛЭХ (publish) — УБ 07:00, 15:00, 19:00 (PUBLISH_HOURS_UB): бэлэн нийтлэлийг сайтад
+ *     гаргаад тэр дор нь FB-д постлоно. RSS, үнэлгээ хийхгүй тул нэг минутын дотор дуусна.
+ *   БЭЛТГЭХ (prepare) — бусад цагт: мэдээ татах, үнэлэх, дараагийн slot-д текст/зураг бэлдэх.
+ *     Өдөрт нэг удаагийн алхмууд (openrouter, arena, digest, newsletter) УБ DAILY_HOUR_UB (3)
+ *     цагаас хойших эхний prepare run дээр ажиллана.
  *
  * Нэг алхам унасан ч дараагийнх нь ажиллана; төгсгөлд дүнг хүснэгтээр хэвлээд,
- * ямар нэг алхам унасан бол exit 1.
- *
- * Өдөрт 3 удаа ажиллана (Railway cron `0 1,5,11 * * *` UTC = УБ 09:00, 13:00, 19:00).
- * `oncePerDay` алхмууд (openrouter, arena, digest, newsletter) УБ цагаар тухайн өдөр
- * амжилттай ажилласан бол дахин ажиллахгүй. `--only <алхам>` гэж нэрлэвэл албадана.
+ * ямар нэг алхам унасан бол exit 1. Давхар ажиллахаас JobRun-ийн lock хамгаална.
  */
 import "dotenv/config";
 import { runDigest } from "./agent/digest";
 import { isDigestDay } from "./agent/digest.api";
+import { runImprove } from "./agent/improve";
 import { runAgent } from "./agent/process";
 import { prisma } from "./db";
 import { openRouterKey } from "./env";
 import { ubDayRange } from "./jobs/day";
+import { dailyHour, modeFor, publishHours, type Mode } from "./jobs/mode.api";
 import { runArena } from "./fetchers/arena";
 import { runOpenRouter } from "./fetchers/openrouter";
 import { runRss } from "./fetchers/rss";
 import { runNewsletter } from "./newsletter/send";
-import { postPending } from "./publish/facebook";
+import { runPublishSlot } from "./publish/slot-run";
+import { ubHour } from "./publish/slot.api";
+
+/** Үүнээс удсан дуусаагүй pipeline-ийг үхсэн гэж үзнэ */
+const LOCK_STALE_MS = 50 * 60_000;
 
 interface Step {
   name: string;
-  run: () => Promise<string>;
+  /** Аль горимд ажиллах вэ */
+  mode: Mode;
   /** УБ цагаар өдөрт нэг л удаа — өмнө нь амжилттай ажилласан бол алгасна */
   oncePerDay?: boolean;
+  run: () => Promise<string>;
 }
 
 /** Тухайн ажил УБ цагаар өнөөдөр амжилттай ажилласан уу */
@@ -43,8 +56,20 @@ async function ranToday(job: string, now = new Date()): Promise<boolean> {
 }
 
 const STEPS: Step[] = [
+  // ——— НИЙТЛЭХ ———
+  {
+    name: "publish",
+    mode: "publish",
+    run: async () => {
+      const r = await runPublishSlot();
+      return `${r.slot}: ${r.action} — ${r.detail}` + (r.costUsd > 0 ? ` ($${r.costUsd.toFixed(3)})` : "");
+    },
+  },
+
+  // ——— БЭЛТГЭХ ———
   {
     name: "openrouter",
+    mode: "prepare",
     oncePerDay: true,
     run: async () => {
       const r = await runOpenRouter(7);
@@ -53,6 +78,7 @@ const STEPS: Step[] = [
   },
   {
     name: "arena",
+    mode: "prepare",
     oncePerDay: true,
     run: async () => {
       const r = await runArena();
@@ -61,6 +87,7 @@ const STEPS: Step[] = [
   },
   {
     name: "rss",
+    mode: "prepare",
     run: async () => {
       const r = await runRss();
       const summary = `${r.items} item → ${r.saved} шинэ, алдаатай эх сурвалж ${r.failedSources}/${r.sources}`;
@@ -71,16 +98,27 @@ const STEPS: Step[] = [
   },
   {
     name: "agent",
+    mode: "prepare",
     run: async () => {
-      const r = await runAgent(30);
-      const summary = `${r.scored} үнэлсэн → ${r.drafted} DRAFT, ${r.published} нийтэлсэн, алдаа ${r.failed}`;
+      const r = await runAgent();
+      if (r.skipped) return `алгасав — ${r.skipped}`;
+      const summary = `${r.scored} үнэлсэн → ${r.drafted} DRAFT, алдаа ${r.failed} ($${r.costUsd.toFixed(3)})`;
       // Нийтлэл бүр унасан бол алхам өөрөө унасан гэж үзнэ — cron дээр эвдрэл нуугдахгүй
       if (r.scored > 0 && r.failed === r.scored) throw new Error(`бүх нийтлэл унасан — ${summary}`);
       return summary;
     },
   },
   {
+    name: "improve",
+    mode: "prepare",
+    run: async () => {
+      const r = await runImprove();
+      return `бэлэн ${r.ready}, шинээр ${r.prepared.length}` + (r.costUsd > 0 ? ` ($${r.costUsd.toFixed(3)})` : "");
+    },
+  },
+  {
     name: "digest",
+    mode: "prepare",
     oncePerDay: true,
     run: async () => {
       // Долоо хоногийн тойм — зөвхөн Ням гарагт (UTC)
@@ -91,22 +129,13 @@ const STEPS: Step[] = [
   },
   {
     name: "newsletter",
+    mode: "prepare",
     oncePerDay: true,
     run: async () => {
       // Зөвхөн Ням гарагт — тухайн өдөр гарсан digest-ийг илгээнэ
       if (!isDigestDay(new Date())) return "Ням гараг биш, алгасав";
       const r = await runNewsletter();
       return r.skipped ? (r.reason ?? "алгасав") : `${r.sent} хаяг руу илгээв (алдаа ${r.failed})`;
-    },
-  },
-  {
-    name: "facebook",
-    run: async () => {
-      const r = await postPending();
-      return r.skipped
-        ? "тохируулаагүй, алгасав"
-        : `${r.slot}: ${r.posted} постлосон, алдаа ${r.failed}, дараалалд ${r.queue}` +
-          (r.costUsd > 0 ? `, зураг $${r.costUsd.toFixed(3)}` : "");
     },
   },
 ];
@@ -122,38 +151,80 @@ function since(t0: number): string {
   return `${((Date.now() - t0) / 1000).toFixed(1)}с`;
 }
 
+/** Өмнөх run дуусаагүй байвал энэ удаад алгасна (давхар ажиллахаас хамгаална) */
+async function acquireLock(mode: Mode): Promise<{ id: string } | null> {
+  await prisma.jobRun.updateMany({
+    where: { job: "pipeline", finishedAt: null, startedAt: { lt: new Date(Date.now() - LOCK_STALE_MS) } },
+    data: { finishedAt: new Date(), ok: false, error: "timeout — процесс дуусаагүй" },
+  });
+  const running = await prisma.jobRun.findFirst({
+    where: { job: "pipeline", finishedAt: null },
+    select: { id: true, mode: true, startedAt: true },
+  });
+  if (running) {
+    console.log(
+      `Өмнөх pipeline (${running.mode ?? "?"}, ${running.startedAt.toISOString().slice(11, 16)}) ` +
+        `дуусаагүй байна — энэ удаад алгасав.`,
+    );
+    return null;
+  }
+  return prisma.jobRun.create({ data: { job: "pipeline", mode: mode.toUpperCase() }, select: { id: true } });
+}
+
 async function main() {
-  const skipArg = process.argv.indexOf("--skip");
-  const skip = new Set(
-    (skipArg > -1 ? (process.argv[skipArg + 1] ?? "") : "").split(",").map((s) => s.trim()).filter(Boolean),
-  );
-  const onlyArg = process.argv.indexOf("--only");
-  const only = onlyArg > -1 ? (process.argv[onlyArg + 1] ?? "").trim() : "";
+  const arg = (name: string): string => {
+    const i = process.argv.indexOf(name);
+    return i > -1 ? (process.argv[i + 1] ?? "").trim() : "";
+  };
+  const skip = new Set(arg("--skip").split(",").map((s) => s.trim()).filter(Boolean));
+  const only = arg("--only");
   // --only pipeline = бүх алхам
   const selected = only && only !== "pipeline" ? new Set([only]) : null;
-  const willRun = (name: string) => !skip.has(name) && (!selected || selected.has(name));
+
+  const forced = arg("--mode").toLowerCase();
+  const now = new Date();
+  const mode: Mode =
+    forced === "publish" || forced === "prepare" ? forced : modeFor(now, publishHours());
+  // Алхмаа нэрлэсэн бол горимыг нь өөрөөс нь авна
+  const stepMode = selected ? STEPS.find((s) => selected.has(s.name))?.mode : null;
+  const activeMode = stepMode ?? mode;
+
+  const willRun = (step: Step) =>
+    !skip.has(step.name) && (selected ? selected.has(step.name) : step.mode === activeMode);
+
+  console.log(
+    `Горим: ${activeMode.toUpperCase()} (УБ ${String(ubHour(now)).padStart(2, "0")}:00` +
+      `${forced ? ", албадсан" : ""})`,
+  );
 
   // LLM шаардлагатай алхам ажиллах гэж байвал түлхүүрийг эхлэхэд нь шалгана
-  if (willRun("openrouter") || willRun("agent")) openRouterKey();
+  const needsLlm = STEPS.filter((s) => ["openrouter", "agent", "improve"].includes(s.name)).some(willRun);
+  if (needsLlm) openRouterKey();
+
+  const lock = selected ? null : await acquireLock(activeMode);
+  if (!lock && !selected) {
+    await prisma.$disconnect();
+    return;
+  }
+  // Алхмуудын JobRun-д ч горим бичигдэнэ (jobRunMeta уншина)
+  process.env.JOB_MODE = activeMode.toUpperCase();
 
   const rows: Row[] = [];
   let failed = false;
 
   for (const step of STEPS) {
-    if (!willRun(step.name)) {
-      rows.push({
-        Алхам: step.name,
-        Төлөв: "алгасав",
-        "Үр дүн": skip.has(step.name) ? "--skip" : `--only ${only}`,
-        Хугацаа: "—",
-      });
-      continue;
-    }
-    // Өдөрт нэг удаагийн алхам — гараар «--only <алхам>» гэж дуудвал албадана
-    if (step.oncePerDay && !selected?.has(step.name) && (await ranToday(step.name))) {
-      console.log(`\n──── ${step.name} ──── өнөөдөр ажилласан, алгасав`);
-      rows.push({ Алхам: step.name, Төлөв: "алгасав", "Үр дүн": "өнөөдөр ажилласан", Хугацаа: "—" });
-      continue;
+    if (!willRun(step)) continue;
+
+    // Өдөрт нэг удаагийн алхам: заасан цагаас хойш, өнөөдөр ажиллаагүй бол
+    if (step.oncePerDay && !selected) {
+      if (ubHour(now) < dailyHour()) {
+        rows.push({ Алхам: step.name, Төлөв: "алгасав", "Үр дүн": `УБ ${dailyHour()}:00-аас хойш`, Хугацаа: "—" });
+        continue;
+      }
+      if (await ranToday(step.name)) {
+        rows.push({ Алхам: step.name, Төлөв: "алгасав", "Үр дүн": "өнөөдөр ажилласан", Хугацаа: "—" });
+        continue;
+      }
     }
 
     console.log(`\n──── ${step.name} ────`);
@@ -170,6 +241,13 @@ async function main() {
 
   console.log("");
   console.table(rows);
+
+  if (lock) {
+    await prisma.jobRun.update({
+      where: { id: lock.id },
+      data: { finishedAt: new Date(), ok: !failed, itemsOut: rows.filter((r) => r.Төлөв === "ok").length },
+    });
+  }
   await prisma.$disconnect();
   if (failed) process.exitCode = 1;
 }

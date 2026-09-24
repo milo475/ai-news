@@ -150,7 +150,7 @@ export async function publishArticleToFacebook(
 }
 
 /** Өнөөдөр жагсаалтын карт тавьсан уу */
-async function rankingPostedToday(now: Date): Promise<boolean> {
+export async function rankingPostedToday(now: Date): Promise<boolean> {
   const row = await prisma.fbRankingPost.findUnique({ where: { day: ubDateLabel(now) } });
   return row !== null;
 }

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { prisma } from "@/db";
 import { CATEGORY_LABEL } from "@/agent/category";
+import { hourLabel, humanDelay, nextPublishAt, publishHours } from "@/jobs/mode.api";
 import { publishedToday } from "@/agent/quota";
 import { dailyPublishLimit } from "@/agent/quota.api";
 import { fmtDate } from "@/components/format";
@@ -15,12 +16,14 @@ export const metadata = { title: "Админ" };
 const TABS = ["DRAFT", "RAW", "PUBLISHED", "REJECTED", "SKIPPED"] as const;
 type Status = (typeof TABS)[number];
 
-const JOBS = ["openrouter", "arena", "rss", "agent", "digest"] as const;
+const JOBS = ["pipeline", "rss", "agent", "improve", "publish", "openrouter", "arena", "digest"] as const;
 
 const RUN_BUTTONS = [
-  { job: "arena", label: "Arena татах" },
   { job: "rss", label: "Мэдээ татах" },
   { job: "agent", label: "Агент бичүүлэх" },
+  { job: "improve", label: "Нийтлэл бэлдэх" },
+  { job: "publish", label: "Одоо нийтлэх" },
+  { job: "arena", label: "Arena татах" },
   { job: "digest", label: "Digest бичүүлэх" },
   { job: "pipeline", label: "Бүгд" },
 ] as const;
@@ -44,7 +47,7 @@ export default async function Admin({
 
   const umamiUrl = process.env.NEXT_PUBLIC_UMAMI_URL?.trim().replace(/\/+$/, "") || null;
 
-  const [counts, jobs, articles, searches, empties, todayCount, fbQueue] = await Promise.all([
+  const [counts, jobs, articles, searches, empties, todayCount, fbQueue, readyCount] = await Promise.all([
     prisma.article.groupBy({ by: ["status"], _count: true }),
     Promise.all(
       JOBS.map((job) =>
@@ -69,7 +72,9 @@ export default async function Admin({
         status: "PUBLISHED", fbPostedAt: null, fbPostId: null, fbAttempts: { lt: MAX_ATTEMPTS },
       },
     }),
+    prisma.article.count({ where: { status: "DRAFT", readyAt: { not: null } } }),
   ]);
+  const next = nextPublishAt(new Date(), publishHours());
   const countOf = (s: string) => counts.find((c) => c.status === s)?._count ?? 0;
   const anyRunning = jobs.some(({ run }) => run && !run.finishedAt);
   const dailyLimit = dailyPublishLimit();
@@ -105,7 +110,16 @@ export default async function Admin({
         ))}
       </section>
 
-      <section className="grid grid-cols-2 gap-3">
+      <section className="grid grid-cols-2 lg:grid-cols-3 gap-3">
+        <div className="rounded-lg border border-line p-3">
+          <p className="text-xs text-muted">Дараагийн нийтлэх (УБ)</p>
+          <p className="text-2xl font-semibold tabular-nums">
+            {hourLabel(next.hour)} <span className="text-muted text-base">({humanDelay(next.minutes)})</span>
+          </p>
+          <p className="text-xs text-muted">
+            {publishHours().map(hourLabel).join(" · ")} — бэлэн {readyCount} нийтлэл
+          </p>
+        </div>
         <div className="rounded-lg border border-line p-3">
           <p className="text-xs text-muted">Өнөөдөр нийтэлсэн (УБ цагаар)</p>
           <p className="text-2xl font-semibold tabular-nums">
@@ -113,13 +127,13 @@ export default async function Admin({
             <span className="text-muted">/{dailyLimit}</span>
           </p>
           {todayCount >= dailyLimit && dailyLimit > 0 && (
-            <p className="text-xs text-muted">квот дүүрсэн — агент өнөөдөр нэмж нийтлэхгүй</p>
+            <p className="text-xs text-muted">квот дүүрсэн — өнөөдөр нэмж нийтлэхгүй</p>
           )}
         </div>
         <div className="rounded-lg border border-line p-3">
           <p className="text-xs text-muted">FB дараалалд</p>
           <p className="text-2xl font-semibold tabular-nums">{fbQueue}</p>
-          <p className="text-xs text-muted">run бүрт {postsPerRun()} пост (өдөрт 3 run)</p>
+          <p className="text-xs text-muted">slot бүрт {postsPerRun()} пост</p>
         </div>
       </section>
 
@@ -139,7 +153,10 @@ export default async function Admin({
         <div className="space-y-1 text-sm">
           {jobs.map(({ job, run }) => (
             <p key={job} className="flex flex-wrap items-baseline gap-2">
-              <span className="text-muted w-24 shrink-0">{job}</span>
+              <span className="text-muted w-24 shrink-0">
+                {job}
+                {run?.mode && <span className="ml-1 text-[10px] uppercase opacity-60">{run.mode}</span>}
+              </span>
               {!run ? (
                 <span className="text-muted">ажиллаагүй</span>
               ) : !run.finishedAt ? (

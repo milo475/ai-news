@@ -82,6 +82,8 @@ test("isGenericScene: оффис, компьютерийн ард хүн гэх 
     "A lone watchtower with a camera mast in the desert at dawn, wide shot.",
     "A silicon wafer held with tweezers in a cleanroom, overhead view.",
     "A small wheeled delivery robot waiting at a pedestrian crossing.",
+    // Тодорхой объект гол нь байвал «office» гэсэн үг байсан ч зүгээр
+    "A locked filing cabinet in a government office, papers visible through a slightly open drawer.",
   ]) {
     assert.equal(isGenericScene(concrete), false, concrete);
   }

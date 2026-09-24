@@ -92,7 +92,10 @@ export const RECENT_SCENES = 10;
 
 /** Хориглосон ерөнхий дүрслэлүүд — эдгээр таарвал нэг удаа дахин гаргуулна */
 const GENERIC_PATTERNS: RegExp[] = [
-  /\b(a |an |the )?(modern |bright |busy |open[- ]plan )?office\b/i,
+  // «government office with a filing cabinet» гэх мэт тодорхой дүрслэлийг барихгүй —
+  // зөвхөн ерөнхий тодотголтой оффисыг
+  /\b(modern|bright|busy|generic|typical|corporate|open[- ]plan)\s+office\b/i,
+  /\b(an?|the)\s+office\s+(interior|space|environment)\b/i,
   /\b(co-?working|workspace|cubicle|boardroom|meeting room|conference room)\b/i,
   /\bpeople (at|in front of|around) (a |the )?(computer|laptop|desk|screen|monitor)/i,
   /\b(a |an |the )?(person|man|woman|developer|analyst|employee|worker)\b[^.]{0,30}\b(at|on|in front of) (a|the|their|two|multiple) (laptop|computer|desk|monitor|screen)/i,

@@ -27,7 +27,7 @@ export interface ChatJsonOptions {
 
 interface ChatResponse {
   choices?: { message?: { content?: string }; finish_reason?: string }[];
-  usage?: { total_tokens?: number };
+  usage?: { total_tokens?: number; cost?: number };
   error?: { message?: string };
 }
 
@@ -47,7 +47,7 @@ async function callOnce<T>(
   apiKey: string,
   opts: ChatJsonOptions,
   noReasoning: boolean,
-): Promise<{ data: T; tokens: number }> {
+): Promise<{ data: T; tokens: number; costUsd: number }> {
   const res = await fetch(URL_CHAT, {
     method: "POST",
     headers: {
@@ -109,11 +109,16 @@ async function callOnce<T>(
     (err as Error & { retryable?: boolean }).retryable = true;
     throw err;
   }
-  return { data, tokens: json.usage?.total_tokens ?? 0 };
+  return { data, tokens: json.usage?.total_tokens ?? 0, costUsd: json.usage?.cost ?? 0 };
 }
 
-/** Бүтэцтэй JSON хариу авна. Алдаа гарвал 2с, 6с хүлээж дахин оролдоно. */
-export async function chatJson<T>(opts: ChatJsonOptions): Promise<{ data: T; tokens: number }> {
+/**
+ * Бүтэцтэй JSON хариу авна. Алдаа гарвал 2с, 6с хүлээж дахин оролдоно.
+ * costUsd — OpenRouter-ийн тайлагнасан бодит зардал (өдрийн төсөв хянахад).
+ */
+export async function chatJson<T>(
+  opts: ChatJsonOptions,
+): Promise<{ data: T; tokens: number; costUsd: number }> {
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) throw new Error("OPENROUTER_API_KEY тохируулаагүй байна");
 

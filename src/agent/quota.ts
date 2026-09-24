@@ -1,13 +1,14 @@
 /**
- * Өдрийн квотоор авто нийтлэх — agent алхмын төгсгөлд ажиллана.
+ * Өдрийн квот — НИЙТЛЭХ горимын slot бүрт нэг нийтлэл сонгоно.
  *
- * УБ цагаар тухайн өдөр PUBLISHED болсон мэдээг тоолж, үлдсэн квотыг DRAFT-уудаас
- * оноо өндөрөөс нь эхлэн сонгоно (quota.api.ts-ийн дүрмээр). Бусад нь DRAFT хэвээр —
- * /admin-аас гараар нийтэлж болно, гараар нийтэлсэн нь мөн квотод тооцогдоно.
+ * УБ цагаар тухайн өдөр PUBLISHED болсон мэдээг тоолж, квот дүүрээгүй бол DRAFT-уудаас
+ * quota.api.ts-ийн дүрмээр (slot-ын ангилал → оноо → эх сурвалж/ангилал/сэдвийн хязгаар)
+ * сонгоно. Бэлэн (readyAt) нийтлэл байвал түүнийг эхэлж үзнэ — текст, зураг нь бэлэн
+ * тул slot хурдан дуусна. Гараар /admin-аас нийтэлсэн нь мөн квотод тооцогдоно.
  */
 import { prisma } from "../db";
 import type { ArticleCategory } from "../generated/prisma/enums";
-import { ubDateLabel, ubDayRange } from "../jobs/day";
+import { ubDayRange } from "../jobs/day";
 import {
   autoPublishMinScore,
   dailyPublishLimit,
@@ -56,15 +57,6 @@ function toCandidate(a: ArticleRow): PublishCandidate {
   };
 }
 
-export interface AutoPublishResult {
-  /** Өдрийн дээд хязгаар */
-  limit: number;
-  /** УБ цагаар өнөөдөр аль хэдийн нийтлэгдсэн (гараар нийтэлсэн нь ч ордог) */
-  already: number;
-  /** Энэ ажиллалтад нийтэлсэн */
-  published: { id: string; titleMn: string | null; slug: string; relevance: number; category: ArticleCategory }[];
-}
-
 /** УБ цагаар өнөөдөр нийтлэгдсэн мэдээний тоо (DIGEST ордоггүй) */
 export async function publishedToday(now = new Date()): Promise<number> {
   const { start, end } = ubDayRange(now);
@@ -73,52 +65,48 @@ export async function publishedToday(now = new Date()): Promise<number> {
   });
 }
 
-/** Квотын үлдэгдлийг DRAFT-уудаар дүүргэнэ */
-export async function runAutoPublish(now = new Date()): Promise<AutoPublishResult> {
-  const limit = dailyPublishLimit();
-  const minScore = autoPublishMinScore();
+/**
+ * Тухайн slot-д нийтлэх нэг нийтлэлийг сонгоно (нийтлэхгүй — зөвхөн сонголт).
+ * Бэлэн (readyAt) нийтлэлүүдийг эхэлж үзээд, олдохгүй бол бүх DRAFT-аас сонгоно.
+ */
+export async function pickForSlot(
+  now: Date,
+  prefer: ArticleCategory[] = [],
+): Promise<{ id: string; category: ArticleCategory } | null> {
   const { start, end } = ubDayRange(now);
+  const minScore = autoPublishMinScore();
 
   const todayRows = (await prisma.article.findMany({
     where: { kind: "NEWS", status: "PUBLISHED", publishedAt: { gte: start, lt: end } },
     select: SELECT,
   })) as ArticleRow[];
-  const already = todayRows.length;
-  const remaining = limit - already;
 
-  if (remaining <= 0) {
-    console.log(
-      limit === 0
-        ? "Авто нийтлэх унтраалттай (DAILY_PUBLISH_LIMIT=0)"
-        : `Өнөөдөр (${ubDateLabel(now)}) квот дүүрсэн: ${already}/${limit}`,
-    );
-    return { limit, already, published: [] };
+  const baseWhere = {
+    kind: "NEWS" as const,
+    status: "DRAFT" as const,
+    relevance: { gte: minScore },
+    sourceText: { not: null },
+  };
+  const order = [
+    { relevance: "desc" as const },
+    { publishedAtSource: "desc" as const },
+    { createdAt: "desc" as const },
+  ];
+
+  // Эхлээд бэлэн болгосон нийтлэлүүд, дараа нь бусад
+  for (const where of [{ ...baseWhere, readyAt: { not: null } }, baseWhere]) {
+    const drafts = (await prisma.article.findMany({
+      where, orderBy: order, take: CANDIDATE_POOL, select: SELECT,
+    })) as ArticleRow[];
+    if (drafts.length === 0) continue;
+
+    const picked = selectForPublish(drafts.map(toCandidate), 1, todayRows.map(toCandidate), prefer);
+    if (picked[0]) return { id: picked[0].id, category: picked[0].category };
   }
+  return null;
+}
 
-  // Зөвхөн бүтэн тексттэй нийтлэлийг авто нийтэлнэ — хураангуйгаар бичигдсэнд баримт дутуу байж мэднэ
-  const drafts = (await prisma.article.findMany({
-    where: { kind: "NEWS", status: "DRAFT", relevance: { gte: minScore }, sourceText: { not: null } },
-    orderBy: [{ relevance: "desc" }, { publishedAtSource: "desc" }, { createdAt: "desc" }],
-    take: CANDIDATE_POOL,
-    select: SELECT,
-  })) as ArticleRow[];
-
-  const picks = selectForPublish(drafts.map(toCandidate), remaining, todayRows.map(toCandidate));
-
-  const published: AutoPublishResult["published"] = [];
-  for (const p of picks) {
-    const a = await prisma.article.update({
-      where: { id: p.id },
-      data: { status: "PUBLISHED", publishedAt: new Date(), reviewedBy: "auto" },
-      select: { id: true, titleMn: true, slug: true, relevance: true, category: true },
-    });
-    published.push(a);
-    console.log(`↑ PUBLISHED score=${a.relevance} ${a.category} "${a.titleMn}" /medee/${a.slug}`);
-  }
-
-  console.log(
-    `Өдрийн квот ${limit}: өмнө нь ${already}, одоо ${published.length} нийтлэв ` +
-      `(${drafts.length} DRAFT нэр дэвшсэн, оноо ≥ ${minScore}).`,
-  );
-  return { limit, already, published };
+/** Өдрийн квотын үлдэгдэл */
+export async function remainingQuota(now = new Date()): Promise<number> {
+  return Math.max(0, dailyPublishLimit() - (await publishedToday(now)));
 }

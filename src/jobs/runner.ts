@@ -9,18 +9,22 @@ import { closeSync, mkdirSync, openSync } from "node:fs";
 import { join } from "node:path";
 import { prisma } from "../db";
 
-export const JOB_NAMES = ["rss", "agent", "openrouter", "arena", "digest", "newsletter", "pipeline"] as const;
+export const JOB_NAMES = [
+  "rss", "agent", "improve", "publish", "openrouter", "arena", "digest", "newsletter", "pipeline",
+] as const;
 export type JobName = (typeof JOB_NAMES)[number];
 
 /** pipeline нь хэд хэдэн JobRun үүсгэдэг тул бүгдийг нь шалгана */
 const JOB_ROWS: Record<JobName, string[]> = {
   rss: ["rss"],
   agent: ["agent"],
+  improve: ["improve"],
+  publish: ["publish"],
   openrouter: ["openrouter"],
   arena: ["arena"],
   digest: ["digest"],
   newsletter: ["newsletter"],
-  pipeline: ["openrouter", "arena", "rss", "agent", "digest", "newsletter"],
+  pipeline: ["pipeline", "openrouter", "arena", "rss", "agent", "improve", "publish", "digest", "newsletter"],
 };
 
 /** Үүнээс удвал процесс нь үхсэн гэж үзнэ */

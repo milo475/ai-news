@@ -189,6 +189,10 @@ model Article {
   fbImageAt    DateTime?
   /// AI зургийн англи prompt — /admin дээр харах, дахин үүсгэхэд
   fbImagePrompt String?
+  /// Текстийг нэг удаа сайжруулсан огноо (БЭЛТГЭХ горим) — дахин засахгүйн тулд
+  improvedAt   DateTime?
+  /// Нийтлэхэд бүрэн бэлэн болсон огноо: текст сайжирсан + fbText бичигдсэн
+  readyAt      DateTime?
   reviewedBy   String?
 
   createdAt DateTime @default(now())
@@ -208,6 +212,7 @@ model Article {
   @@index([kind, status, publishedAt])
   @@index([status, fbPostedAt])
   @@index([status, category, publishedAt])
+  @@index([status, readyAt])
   @@index([searchVector], type: Gin)
   @@index([status, publishedAt])
   @@index([status, createdAt])
@@ -217,7 +222,9 @@ model Article {
 /// Fetcher/agent ажиллалтын лог — эвдэрсэн эсэхийг харах
 model JobRun {
   id         String   @id @default(cuid())
-  job        String                  // "openrouter", "rss", "agent"
+  job        String                  // "openrouter", "rss", "agent", "pipeline"
+  /// Аль горимын run бэ: PUBLISH (нийтлэх) | PREPARE (бэлтгэх)
+  mode       String?
   startedAt  DateTime @default(now())
   finishedAt DateTime?
   ok         Boolean?

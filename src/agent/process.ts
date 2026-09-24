@@ -1,7 +1,7 @@
 /**
  * Мэдээний agent — 2-р шат: RAW нийтлэлийг LLM-ээр үнэлж, монголоор бичиж DRAFT болгоно.
  *
- *   npx tsx src/agent/process.ts --limit 10   # default 20
+ *   npx tsx src/agent/process.ts --limit 10   # default AGENT_BATCH (8)
  *
  * Cron: RSS цуглуулагчийн дараа.
  */
@@ -9,13 +9,14 @@ import "dotenv/config";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { prisma } from "../db";
+import { ubDayRange } from "../jobs/day";
 import { jobRunMeta } from "../jobs/meta";
 import type { ArticleCategory } from "../generated/prisma/enums";
 import { categoryPromptBlock, toCategory } from "./category";
 import { closeBrowser, fetchFullText } from "../fetchers/fulltext.api";
 import { chatJson } from "./llm";
+import { agentBatch, agentDailyBudget, budgetExhausted } from "./budget.api";
 import { pruneStaleRaw } from "./prune";
-import { runAutoPublish } from "./quota";
 import { DIVERSE_CATEGORIES, HIGH_WEIGHT_MIN, mixRawBatch, splitSizes, staleBefore } from "./raw.api";
 import { slugify } from "./slug";
 
@@ -180,12 +181,14 @@ export async function processOne(
   opts: {
     catalog?: Catalog;
     onTokens?: (model: string, tokens: number) => void;
+    onCost?: (usd: number) => void;
     skipScore?: boolean;
   } = {},
 ): Promise<ProcessResult> {
   let a = await prisma.article.findUniqueOrThrow({ where: { id: articleId }, include: { source: true } });
   const { companies, models } = opts.catalog ?? (await loadCatalog());
   const addTokens = opts.onTokens ?? (() => {});
+  const addCost = opts.onCost ?? (() => {});
 
   // rss үед сүлжээний түр алдаа байсан байж болно — нэг удаа дахин оролдоно
   if (!a.sourceText) {
@@ -223,6 +226,7 @@ export async function processOne(
       maxTokens: 600, temperature: 0.1, reasoning: false,
     });
     addTokens(SCORE_MODEL, score.tokens);
+    addCost(score.costUsd);
     scoreTokens = score.tokens;
     scoreValue = score.data.score;
     scoreReason = score.data.reason;
@@ -254,6 +258,7 @@ export async function processOne(
     schema: WRITE_SCHEMA, maxTokens: 4000, temperature: 0.4, reasoning: false,
   });
   addTokens(WRITE_MODEL, write.tokens);
+  addCost(write.costUsd);
 
   const companyIds = matchCompanies(write.data.mentionedCompanies, companies);
   const modelIds = matchModels(write.data.mentionedModels, models);
@@ -328,13 +333,35 @@ export async function selectRawBatch(limit: number, now = new Date()): Promise<R
   return picked;
 }
 
+/** УБ цагаар өнөөдөр LLM-д төлсөн нийт дүн (бүх job) */
+export async function spentTodayUsd(now = new Date()): Promise<number> {
+  const { start, end } = ubDayRange(now);
+  const sum = await prisma.jobRun.aggregate({
+    where: { startedAt: { gte: start, lt: end } },
+    _sum: { costUsd: true },
+  });
+  return Number(sum._sum.costUsd ?? 0);
+}
+
 /** Pipeline болон CLI хоёулаа үүнийг дуудна */
 export async function runAgent(
-  limit = 20,
-): Promise<{ scored: number; drafted: number; failed: number; published: number }> {
+  limit = agentBatch(),
+): Promise<{ scored: number; drafted: number; failed: number; costUsd: number; skipped?: string }> {
+  // Өдрийн LLM төсөв дүүрсэн бол шинэ нийтлэл боловсруулахгүй — бэлэн DRAFT-ууд хүлээж байна
+  const budget = agentDailyBudget();
+  const spent = await spentTodayUsd();
+  if (budgetExhausted(spent, budget)) {
+    const msg = `өдрийн төсөв дүүрсэн ($${spent.toFixed(2)}/$${budget.toFixed(2)})`;
+    console.log(`Agent алгасав: ${msg}`);
+    return { scored: 0, drafted: 0, failed: 0, costUsd: 0, skipped: msg };
+  }
+  if (limit === 0) return { scored: 0, drafted: 0, failed: 0, costUsd: 0, skipped: "AGENT_BATCH=0" };
+
   const run = await prisma.jobRun.create({ data: { job: "agent", ...jobRunMeta() } });
   const tokensByModel = new Map<string, number>();
   const onTokens = (model: string, n: number) => tokensByModel.set(model, (tokensByModel.get(model) ?? 0) + n);
+  let costUsd = 0;
+  const onCost = (usd: number) => { costUsd += usd; };
 
   try {
     // Хуучирсан RAW-ууд дараалал эзлэхгүй — LLM дуудалгүй SKIPPED болгоно
@@ -349,7 +376,7 @@ export async function runAgent(
     for (const [i, a] of articles.entries()) {
       const head = `[${i + 1}/${articles.length}]`;
       try {
-        const r = await processOne(a.id, { catalog, onTokens });
+        const r = await processOne(a.id, { catalog, onTokens, onCost });
         if (r.status === "REJECTED") {
           rejected++;
           console.log(`${head} score=${r.score} → REJECTED "${short(a.sourceTitle)}" (${r.reason})`);
@@ -368,21 +395,12 @@ export async function runAgent(
       }
     }
 
-    let cost = 0;
-    for (const [slug, tokens] of tokensByModel) {
-      const m = await prisma.aiModel.findUnique({ where: { slug }, select: { outputPricePerM: true } });
-      cost += (tokens * Number(m?.outputPricePerM ?? 0)) / 1e6;
-    }
     const totalTokens = [...tokensByModel.values()].reduce((a, b) => a + b, 0);
     console.log(
       `\nҮнэлсэн ${articles.length}: DRAFT ${drafted}, REJECTED ${rejected}, алдаа ${failed}. ` +
-        `Нийт ${totalTokens} токен, зардал дээд тал нь ~$${cost.toFixed(4)} ` +
-        `(бүх токеныг output гэж тооцсон).`,
+        `${totalTokens} токен, зардал $${costUsd.toFixed(4)} ` +
+        `(өдрийн нийт $${(spent + costUsd).toFixed(2)}/$${budget.toFixed(2)}).`,
     );
-
-    // Өдрийн квотын дагуу DRAFT-уудаас сонгож нийтэлнэ — бүх нийтлэл унасан үед ч
-    // өмнөх ажиллалтын DRAFT-ууд хүлээж байж болох тул алгасахгүй
-    const auto = await runAutoPublish();
 
     // Нийтлэл бүр унасан бол лог дээр ч ногоон харагдах ёсгүй
     const allFailed = articles.length > 0 && failed === articles.length;
@@ -395,14 +413,15 @@ export async function runAgent(
         itemsOut: drafted,
         attempted: articles.length,
         failed,
+        costUsd,
         error: allFailed ? `${failed}/${articles.length} нийтлэл боловсруулагдаагүй` : null,
       },
     });
-    return { scored: articles.length, drafted, failed, published: auto.published.length };
+    return { scored: articles.length, drafted, failed, costUsd };
   } catch (e) {
     await prisma.jobRun.update({
       where: { id: run.id },
-      data: { finishedAt: new Date(), ok: false, error: String(e) },
+      data: { finishedAt: new Date(), ok: false, error: String(e), costUsd },
     });
     throw e;
   } finally {
@@ -412,7 +431,7 @@ export async function runAgent(
 
 if (process.argv[1]?.endsWith("process.ts")) {
   const limitArg = process.argv.indexOf("--limit");
-  const limit = limitArg > -1 ? Number(process.argv[limitArg + 1]) : 20;
+  const limit = limitArg > -1 ? Number(process.argv[limitArg + 1]) : agentBatch();
   runAgent(limit)
     .catch((e) => { console.error(e); process.exitCode = 1; })
     .finally(() => prisma.$disconnect());
