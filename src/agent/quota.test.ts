@@ -1,8 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  autoPublishMinScore, dailyPublishLimit, MAX_PER_CATEGORY, MAX_PER_SOURCE, selectForPublish,
-  type PublishCandidate,
+  autoPublishMinScore, dailyPublishLimit, MAX_PER_CATEGORY, MAX_PER_SOURCE, MIN_NON_NEWS,
+  selectForPublish, type PublishCandidate,
 } from "./quota.api";
 
 const DAY = new Date("2026-09-23T02:00:00Z");
@@ -86,6 +86,37 @@ test("selectForPublish: нэг ангиллаас өдөрт 2-оос илүүг
     [draft("risk-1", 9, { category: "RISK" }), draft("risk-2", 8, { category: "RISK" })],
   );
   assert.deepEqual(withToday.map((p) => p.id), ["fact"]);
+});
+
+test("selectForPublish: сүүлийн суудлыг NEWS-ээс бусдад өгнө", () => {
+  assert.equal(MIN_NON_NEWS, 1);
+
+  // Оноогоор бол 3 NEWS сонгогдох байсан ч сүүлийнх нь HOWTO болно
+  const picked = selectForPublish(
+    [
+      draft("news-1", 10, { category: "NEWS" }),
+      draft("news-2", 9, { category: "NEWS" }),
+      draft("news-3", 8, { category: "NEWS" }),
+      draft("howto", 4, { category: "HOWTO" }),
+    ],
+    3,
+  );
+  assert.deepEqual(picked.map((p) => p.id), ["news-1", "news-2", "howto"]);
+
+  // Өнөөдөр 1 NEWS нийтлэгдсэн, квот 2 үлдсэн → нэг нь NEWS, нэг нь бусад
+  const withToday = selectForPublish(
+    [draft("news-b", 10, { category: "NEWS" }), draft("risk", 5, { category: "RISK" })],
+    2,
+    [draft("news-a", 9, { category: "NEWS" })],
+  );
+  assert.deepEqual(withToday.map((p) => p.id), ["news-b", "risk"]);
+
+  // NEWS-ээс бусад нэр дэвшигч байхгүй бол NEWS-ээр дүүргэнэ (суудал хоосон үлдэхгүй)
+  const onlyNews = selectForPublish(
+    [draft("n1", 10, { category: "NEWS" }), draft("n2", 9, { category: "NEWS" })],
+    3,
+  );
+  assert.deepEqual(onlyNews.map((p) => p.id), ["n1", "n2"]);
 });
 
 test("selectForPublish: өнөөдөр нийтлэгдсэн нь эх сурвалж/сэдвийн хязгаарт тооцогдоно", () => {

@@ -13,6 +13,7 @@
     "fetch:arena": "tsx src/fetchers/arena.ts",
     "fetch:rss": "tsx src/fetchers/rss.ts",
     "agent:process": "tsx src/agent/process.ts",
+    "raw:prune": "tsx src/agent/prune.ts",
     "agent:digest": "tsx src/agent/digest.ts",
     "publish:facebook": "tsx src/publish/facebook.ts",
     "newsletter:send": "tsx src/newsletter/send.ts",

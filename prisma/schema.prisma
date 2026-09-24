@@ -39,7 +39,8 @@ enum ArticleStatus {
   DRAFT      // agent бэлтгэсэн, хүн шалгаагүй
   REVIEW     // хүн шалгаж байна
   PUBLISHED  // сайт дээр гарсан
-  REJECTED   // хаясан
+  REJECTED   // agent үнэлээд хаясан
+  SKIPPED    // хоцрогдсон — үнэлэлгүй алгассан (LLM дуудаагүй)
 }
 
 /// AI компани (OpenAI, Anthropic, Google ...)

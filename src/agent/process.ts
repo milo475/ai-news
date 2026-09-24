@@ -14,7 +14,9 @@ import type { ArticleCategory } from "../generated/prisma/enums";
 import { categoryPromptBlock, toCategory } from "./category";
 import { closeBrowser, fetchFullText } from "../fetchers/fulltext.api";
 import { chatJson } from "./llm";
+import { pruneStaleRaw } from "./prune";
 import { runAutoPublish } from "./quota";
+import { DIVERSE_CATEGORIES, HIGH_WEIGHT_MIN, mixRawBatch, splitSizes, staleBefore } from "./raw.api";
 import { slugify } from "./slug";
 
 const SCORE_MODEL = process.env.SCORE_MODEL ?? "deepseek/deepseek-v4.1-flash";
@@ -281,6 +283,51 @@ export async function processOne(
   };
 }
 
+export interface RawPick {
+  id: string;
+  sourceTitle: string;
+}
+
+/**
+ * Багцыг хоёр бүлгээс холино (raw.api.ts): жин өндөртэй эх сурвалжаас хагас,
+ * PROJECT/BUSINESS/FACT/HOWTO эх сурвалжаас хагас. Бүлэг дотроо эх сурвалжийн
+ * огноогоор шинэ нь түрүүлнэ. Аль нэг нь хүрэлцэхгүй бол нөгөөгөөр нөхнө.
+ */
+export async function selectRawBatch(limit: number, now = new Date()): Promise<RawPick[]> {
+  const fresh = {
+    status: "RAW" as const,
+    OR: [
+      { publishedAtSource: { gte: staleBefore(now) } },
+      { publishedAtSource: null, createdAt: { gte: staleBefore(now) } },
+    ],
+  };
+  const order = [{ publishedAtSource: "desc" as const }, { createdAt: "desc" as const }];
+  const select = { id: true, sourceTitle: true };
+  const size = splitSizes(limit);
+
+  const [high, diverse] = await Promise.all([
+    prisma.article.findMany({
+      where: { ...fresh, source: { weight: { gte: HIGH_WEIGHT_MIN } } },
+      orderBy: order,
+      take: limit,          // нөгөө бүлэг дутвал эндээс нөхнө
+      select,
+    }),
+    prisma.article.findMany({
+      where: { ...fresh, source: { defaultCategory: { in: DIVERSE_CATEGORIES } } },
+      orderBy: order,
+      take: limit,
+      select,
+    }),
+  ]);
+
+  const picked = mixRawBatch(high, diverse, limit);
+  console.log(
+    `Багц ${picked.length}/${limit}: жин ≥${HIGH_WEIGHT_MIN} бүлгээс ${size.high}, ` +
+      `${DIVERSE_CATEGORIES.join("/")} бүлгээс ${size.diverse} (боломжит ${high.length} / ${diverse.length})`,
+  );
+  return picked;
+}
+
 /** Pipeline болон CLI хоёулаа үүнийг дуудна */
 export async function runAgent(
   limit = 20,
@@ -290,12 +337,11 @@ export async function runAgent(
   const onTokens = (model: string, n: number) => tokensByModel.set(model, (tokensByModel.get(model) ?? 0) + n);
 
   try {
-    const articles = await prisma.article.findMany({
-      where: { status: "RAW" },
-      orderBy: [{ source: { weight: "desc" } }, { publishedAtSource: "desc" }],
-      take: limit,
-      select: { id: true, sourceTitle: true },
-    });
+    // Хуучирсан RAW-ууд дараалал эзлэхгүй — LLM дуудалгүй SKIPPED болгоно
+    const pruned = await pruneStaleRaw();
+    if (pruned.skipped > 0) console.log(`${pruned.skipped} хоцрогдсон RAW → SKIPPED`);
+
+    const articles = await selectRawBatch(limit);
     const catalog = await loadCatalog();
 
     let drafted = 0, rejected = 0, failed = 0;

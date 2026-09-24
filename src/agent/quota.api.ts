@@ -5,7 +5,8 @@
  *   1. Оноо өндөрөөс нь эхэлнэ (тэнцвэл эх сурвалжийн шинэ мэдээ түрүүлнэ).
  *   2. Нэг эх сурвалжаас өдөрт 2-оос илүүг авахгүй — нэг сайтын эгнээ болохгүйн тулд.
  *   3. Нэг ангиллаас (NEWS, PROJECT ...) өдөрт 2-оос илүүг авахгүй — өдрийн 3 пост
- *      бүгд ижил төрлийн болохгүйн тулд.
+ *      бүгд ижил төрлийн болохгүйн тулд. Боломжтой бол өдрийн сонголтод дор хаяж нэг
+ *      NEWS-ээс бусад ангилал орно (зөвхөн моделийн мэдээний хуудас болохгүйн тулд).
  *   4. Ижил сэдэв/модель давхардуулахгүй — өмнө нь сонгосон (эсвэл өнөөдөр нийтлэгдсэн)
  *      мэдээтэй ижил модель дурдсан, эсвэл ижил компани + ижил шошготой бол алгасна.
  */
@@ -16,6 +17,9 @@ export const MAX_PER_SOURCE = 2;
 
 /** Нэг ангиллаас өдөрт авах дээд тоо */
 export const MAX_PER_CATEGORY = 2;
+
+/** Өдрийн сонголтод NEWS-ээс бусад ангилал хэдээс багагүй байх вэ (боломжтой бол) */
+export const MIN_NON_NEWS = 1;
 
 /** Өдөрт нийтлэх анхдагч тоо */
 export const DEFAULT_DAILY_LIMIT = 3;
@@ -102,16 +106,35 @@ export function selectForPublish(
   const taken = [...alreadyToday];
   const picked: PublishCandidate[] = [];
 
-  for (const c of [...candidates].sort(byScore)) {
-    if (picked.length >= quota) break;
-    if ((bySource.get(c.sourceId) ?? 0) >= MAX_PER_SOURCE) continue;
-    if ((byCategory.get(c.category) ?? 0) >= MAX_PER_CATEGORY) continue;
-    if (taken.some((t) => sameTopic(c, t))) continue;
+  const fits = (c: PublishCandidate) =>
+    (bySource.get(c.sourceId) ?? 0) < MAX_PER_SOURCE &&
+    (byCategory.get(c.category) ?? 0) < MAX_PER_CATEGORY &&
+    !taken.some((t) => sameTopic(c, t));
 
+  const add = (c: PublishCandidate) => {
     picked.push(c);
     taken.push(c);
     bySource.set(c.sourceId, (bySource.get(c.sourceId) ?? 0) + 1);
     byCategory.set(c.category, (byCategory.get(c.category) ?? 0) + 1);
+  };
+
+  const sorted = [...candidates].sort(byScore);
+  for (const c of sorted) {
+    if (picked.length >= quota) break;
+    if (!fits(c)) continue;
+
+    // Сүүлийн суудлыг NEWS-ээр дүүргэхийн өмнө: өдөр бүхэлдээ зөвхөн NEWS болох гэж байвал
+    // NEWS-ээс бусад нэр дэвшигч байгаа эсэхийг шалгаад түүнд суудлаа өгнө
+    const lastSeat = picked.length === quota - 1;
+    const nonNews = [...alreadyToday, ...picked].filter((x) => x.category !== "NEWS").length;
+    if (lastSeat && nonNews < MIN_NON_NEWS && c.category === "NEWS") {
+      const alt = sorted.find((x) => x.category !== "NEWS" && !picked.includes(x) && fits(x));
+      if (alt) {
+        add(alt);
+        continue;
+      }
+    }
+    add(c);
   }
 
   return picked;

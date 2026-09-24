@@ -12,7 +12,7 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 export const metadata = { title: "Админ" };
 
-const TABS = ["DRAFT", "RAW", "PUBLISHED", "REJECTED"] as const;
+const TABS = ["DRAFT", "RAW", "PUBLISHED", "REJECTED", "SKIPPED"] as const;
 type Status = (typeof TABS)[number];
 
 const JOBS = ["openrouter", "arena", "rss", "agent", "digest"] as const;
@@ -96,7 +96,7 @@ export default async function Admin({
         </span>
       </div>
 
-      <section className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      <section className="grid grid-cols-2 sm:grid-cols-5 gap-3">
         {TABS.map((s) => (
           <div key={s} className="rounded-lg border border-line p-3">
             <p className="text-xs text-muted">{s}</p>
