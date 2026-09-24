@@ -78,6 +78,7 @@ export const POSTABLE_SELECT = {
   summaryMn: true,
   bodyMn: true,
   fbText: true,
+  fbImageData: true,
   category: true,
   models: { select: { name: true } },
   companies: { select: { name: true } },
@@ -129,12 +130,22 @@ export async function publishArticleToFacebook(
 
   const link = articleLink(a.slug);
   let costUsd = 0;
-  const image = await imageForArticle(a.id, { now: opts.now });
-  if (image) {
-    costUsd = image.costUsd;
-    await saveImage(a.id, image);
+
+  // БЭЛТГЭХ горимд үүсгэсэн зураг байвал түүнийг шууд ашиглана — дахин үүсгэхгүй,
+  // өдрийн зургийн квотоос ч идэхгүй. Байхгүй бол энд үүсгэнэ.
+  let photo: Buffer | null = a.fbImageData ? Buffer.from(a.fbImageData) : null;
+  if (!photo) {
+    const image = await imageForArticle(a.id, { now: opts.now });
+    if (image) {
+      costUsd = image.costUsd;
+      await saveImage(a.id, image);
+      photo = image.buffer;
+    }
+  }
+
+  if (photo) {
     try {
-      return { fbPostId: await postPhoto(image.buffer, text), kind: "photo", costUsd };
+      return { fbPostId: await postPhoto(photo, text), kind: "photo", costUsd };
     } catch (e) {
       // Зурагтай пост амжилтгүй (хэмжээ, эрх) — текстээ алдалгүй link постоор
       console.warn(`  ⚠ зурагтай пост унасан: ${(e as Error).message.slice(0, 120)} — link постоор оролдоно`);

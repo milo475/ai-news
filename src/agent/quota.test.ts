@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   autoPublishMinScore, dailyPublishLimit, MAX_PER_CATEGORY, MAX_PER_SOURCE, MIN_NON_NEWS,
-  selectForPublish, type PublishCandidate,
+  MIN_SHARED_TAGS, sameTopic, selectForPublish, type PublishCandidate,
 } from "./quota.api";
 
 const DAY = new Date("2026-09-23T02:00:00Z");
@@ -51,13 +51,57 @@ test("selectForPublish: нэг эх сурвалжаас 2-оос илүүг а�
   assert.deepEqual(picked.map((p) => p.id), ["a", "b", "d"]);
 });
 
+test("sameTopic: ижил модель бол үргэлж нэг сэдэв", () => {
+  const a = draft("a", 9, { modelSlugs: ["openai/gpt-6-astra"], companySlugs: ["openai"] });
+  const b = draft("b", 8, { modelSlugs: ["openai/gpt-6-astra"], companySlugs: ["google"], tags: ["өөр"] });
+  assert.equal(sameTopic(a, b), true);
+});
+
+test("sameTopic: ижил компанид 1 шошго хангалтгүй, 2 шошго давхцвал нэг сэдэв", () => {
+  assert.equal(MIN_SHARED_TAGS, 2);
+  const base = { companySlugs: ["openai"], category: "BUSINESS" as const };
+
+  const oneTag = sameTopic(
+    draft("a", 9, { ...base, tags: ["хөрөнгө оруулалт", "модель"] }),
+    draft("b", 8, { ...base, tags: ["хөрөнгө оруулалт", "зохицуулалт"] }),
+  );
+  assert.equal(oneTag, false, "нэг шошго давхцсан нь өөр сэдэв");
+
+  const twoTags = sameTopic(
+    draft("a", 9, { ...base, tags: ["хөрөнгө оруулалт", "модель"] }),
+    draft("b", 8, { ...base, tags: ["хөрөнгө оруулалт", "модель", "судалгаа"] }),
+  );
+  assert.equal(twoTags, true);
+
+  // Өөр компани бол хичнээн шошго давхцсан ч өөр сэдэв
+  assert.equal(
+    sameTopic(
+      draft("a", 9, { companySlugs: ["openai"], tags: ["модель", "судалгаа"] }),
+      draft("b", 8, { companySlugs: ["anthropic"], tags: ["модель", "судалгаа"] }),
+    ),
+    false,
+  );
+});
+
+test("sameTopic: нэг компанийн хоёр RISK мэдээ — нэг шошго давхцахад л давхардал", () => {
+  const risk = (id: string, tags: string[]) =>
+    draft(id, 9, { companySlugs: ["openai"], tags, category: "RISK" as const });
+
+  assert.equal(sameTopic(risk("a", ["кибер аюулгүй байдал"]), risk("b", ["кибер аюулгүй байдал", "агент"])), true);
+  assert.equal(sameTopic(risk("a", ["зохицуулалт"]), risk("b", ["кибер аюулгүй байдал"])), false, "давхцсан шошго алга");
+
+  // Зөвхөн нэг нь RISK бол ердийн дүрэм (2 шошго)
+  const news = draft("n", 8, { companySlugs: ["openai"], tags: ["кибер аюулгүй байдал"], category: "NEWS" });
+  assert.equal(sameTopic(risk("a", ["кибер аюулгүй байдал"]), news), false);
+});
+
 test("selectForPublish: ижил модель/сэдвийг давхардуулахгүй", () => {
   const picked = selectForPublish(
     [
       draft("gpt-1", 10, { modelSlugs: ["openai/gpt-6-astra"], companySlugs: ["openai"] }),
       draft("gpt-2", 9, { modelSlugs: ["openai/gpt-6-astra"], companySlugs: ["openai"] }),
-      // ижил компани, ижил шошго — нэг сэдэв гэж үзнэ
-      draft("openai-money-1", 8, { companySlugs: ["openai"], tags: ["хөрөнгө оруулалт"], category: "BUSINESS" }),
+      // ижил компани, 2 ижил шошго — нэг сэдэв
+      draft("openai-money-1", 8, { companySlugs: ["openai"], tags: ["хөрөнгө оруулалт", "модель"], category: "BUSINESS" }),
       draft("openai-money-2", 7, { companySlugs: ["openai"], tags: ["хөрөнгө оруулалт", "модель"], category: "BUSINESS" }),
       draft("anthropic", 6, { companySlugs: ["anthropic"], tags: ["зохицуулалт"], category: "RISK" }),
     ],

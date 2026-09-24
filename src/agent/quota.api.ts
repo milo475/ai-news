@@ -7,8 +7,7 @@
  *   3. Нэг ангиллаас (NEWS, PROJECT ...) өдөрт 2-оос илүүг авахгүй — өдрийн 3 пост
  *      бүгд ижил төрлийн болохгүйн тулд. Боломжтой бол өдрийн сонголтод дор хаяж нэг
  *      NEWS-ээс бусад ангилал орно (зөвхөн моделийн мэдээний хуудас болохгүйн тулд).
- *   4. Ижил сэдэв/модель давхардуулахгүй — өмнө нь сонгосон (эсвэл өнөөдөр нийтлэгдсэн)
- *      мэдээтэй ижил модель дурдсан, эсвэл ижил компани + ижил шошготой бол алгасна.
+ *   4. Ижил сэдэв/модель давхардуулахгүй — sameTopic-ийг үз.
  */
 import type { ArticleCategory } from "../generated/prisma/enums";
 
@@ -66,10 +65,27 @@ function overlaps(a: string[], b: string[]): boolean {
   return a.some((x) => b.includes(x));
 }
 
-/** Ижил сэдэв үү: нэг моделийн тухай, эсвэл нэг компанийн ижил шошготой мэдээ */
+/** Ижил компанийн мэдээг нэг сэдэв гэж үзэхэд хэдэн шошго давхцсан байх вэ */
+export const MIN_SHARED_TAGS = 2;
+
+function sharedCount(a: string[], b: string[]): number {
+  return a.filter((x) => b.includes(x)).length;
+}
+
+/**
+ * Ижил сэдэв үү:
+ *   - нэг моделийн тухай бол үргэлж тийм;
+ *   - ижил компанийн мэдээ бол 2-оос доошгүй шошго давхцсан үед;
+ *   - хоёулаа RISK ангилалтай бол ижил компанид нэг шошго давхцахад л хангалттай —
+ *     нэг өдөр нэг компанийн хоёр аюулын мэдээ гаргахгүй.
+ */
 export function sameTopic(a: PublishCandidate, b: PublishCandidate): boolean {
   if (overlaps(a.modelSlugs, b.modelSlugs)) return true;
-  return overlaps(a.companySlugs, b.companySlugs) && overlaps(a.tags, b.tags);
+  if (!overlaps(a.companySlugs, b.companySlugs)) return false;
+
+  const shared = sharedCount(a.tags, b.tags);
+  const bothRisk = a.category === "RISK" && b.category === "RISK";
+  return shared >= (bothRisk ? 1 : MIN_SHARED_TAGS);
 }
 
 /** Оноо буурахаар, тэнцвэл шинэ мэдээ түрүүлнэ */
