@@ -237,7 +237,7 @@ npx tsx src/publish/fbimage.ts --ranking --out b.jpg # жагсаалтын ка
 |---|---|
 | `FB_POSTS_PER_RUN` | нэг run-д хэдэн пост (default 1). Pipeline өдөрт 3 удаа ажилладаг тул **өдөрт 3 пост** |
 | `FB_COPY_MODEL` | FB текст бичих модель (хоосон бол `WRITE_MODEL`) |
-| `IMAGE_MODEL` | зургийн модель (default `google/gemini-2.5-flash-image`) |
+| `IMAGE_MODEL` | зургийн модель (default `google/gemini-3.1-flash-lite-image`) |
 | `FB_IMAGE_DAILY_LIMIT` | өдөрт үүсгэх зургийн дээд тоо (default 5, `0` = зураггүй) |
 | `FB_USE_SOURCE_IMAGE` | `true` бол AI зургийн оронд эх нийтлэлийн `og:image` |
 | `FB_PAGE_ID`, `FB_PAGE_ACCESS_TOKEN` | хоосон бол алхам алгасагдана |
@@ -300,7 +300,8 @@ FACT — гайхшрал, RISK — тайван, айлгахгүй, HOWTO — 
 Пост нь `/{page-id}/photos`-руу `caption`-той хамт явна — feed дээр том харагдана. Зураг үүсээгүй,
 эсвэл зурагтай пост унавал `/{page-id}/feed` (холбоосын preview) руу буцна — пост алдагдахгүй.
 
-**Зардал.** Нэг зураг ≈ $0.034–0.04 (2026-09, OpenRouter). Өдөрт 3 пост = сард ~$3–4.
+**Зардал.** Нэг зураг ≈ $0.034 (2026-09, OpenRouter). Өдөрт 3 пост = сард ~$3.
+Үндсэн модель зураг буцаахгүй бол нөөц модель (`google/gemini-2.5-flash-image`) нэг удаа оролдоно.
 `FB_IMAGE_DAILY_LIMIT` (default 5) хэтэрвэл тухайн өдөр зураггүй (link) постоор явна.
 Зургийн зардал `JobRun.costUsd`-д бичигдэнэ (job: `facebook`).
 

@@ -6,10 +6,13 @@
  */
 import type { ArticleCategory } from "../generated/prisma/enums";
 
-/** Анхдагч зургийн модель — OpenRouter-т image output дэмждэг */
-export const DEFAULT_IMAGE_MODEL = "google/gemini-2.5-flash-image";
-/** Үндсэн модель унасан үед оролдох нөөц (2026-09: нэг зураг ≈ $0.034, үндсэнхээс хямд) */
-export const FALLBACK_IMAGE_MODEL = "google/gemini-3.1-flash-lite-image";
+/**
+ * Анхдагч зургийн модель. 2026-09-24-нд туршихад нэг зураг ≈ $0.034 бөгөөд
+ * gemini-2.5-flash-image ($0.039) нь зарим prompt дээр зургийн оронд текст буцаадаг байв.
+ */
+export const DEFAULT_IMAGE_MODEL = "google/gemini-3.1-flash-lite-image";
+/** Үндсэн модель унасан үед оролдох нөөц */
+export const FALLBACK_IMAGE_MODEL = "google/gemini-2.5-flash-image";
 
 /** Өдөрт үүсгэх зургийн дээд тоо — зардлын хамгаалалт */
 export const DEFAULT_IMAGE_DAILY_LIMIT = 5;
