@@ -160,7 +160,7 @@ LLM танигдахгүй утга буцаавал эх сурвалжийн `
 
 | Хувьсагч | Утга |
 |---|---|
-| `SCORE_MODEL` | үнэлгээний модель (maxTokens 300, temperature 0.1) |
+| `SCORE_MODEL` | үнэлгээний модель (maxTokens 600, temperature 0.1) |
 | `WRITE_MODEL` | монголоор бичих модель (maxTokens 4000, temperature 0.4) |
 | `RELEVANCE_THRESHOLD` | үүнээс доош оноотой нийтлэл `REJECTED` (default 7) |
 | `DAILY_PUBLISH_LIMIT` | өдөрт авто нийтлэх дээд тоо (default 3, `0` = унтраалттай) |

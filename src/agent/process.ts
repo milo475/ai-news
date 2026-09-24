@@ -47,7 +47,7 @@ const SCORE_SCHEMA = {
   type: "object",
   properties: {
     score: { type: "integer", minimum: 1, maximum: 10 },
-    reason: { type: "string", description: "Нэг өгүүлбэр шалтгаан" },
+    reason: { type: "string", description: "Нэг богино өгүүлбэр шалтгаан, 200 тэмдэгтээс хэтрэхгүй" },
     category: {
       type: "string",
       enum: ["NEWS", "PROJECT", "BUSINESS", "FACT", "RISK", "HOWTO"],
@@ -217,7 +217,8 @@ export async function processOne(
   if (!opts.skipScore) {
     const score = await chatJson<ScoreOut>({
       model: SCORE_MODEL, system: SCORE_SYSTEM, user: scoreUser, schema: SCORE_SCHEMA,
-      maxTokens: 300, temperature: 0.1, reasoning: false,
+      // Кирилл текст токен идэмхий: 300 нь урт тайлбарт хүрэлцэхгүй байж нийтлэл унадаг байв
+      maxTokens: 600, temperature: 0.1, reasoning: false,
     });
     addTokens(SCORE_MODEL, score.tokens);
     scoreTokens = score.tokens;
