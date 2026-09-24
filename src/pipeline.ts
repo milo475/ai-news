@@ -105,7 +105,8 @@ const STEPS: Step[] = [
       const r = await postPending();
       return r.skipped
         ? "тохируулаагүй, алгасав"
-        : `${r.posted} постлосон, алдаа ${r.failed}, дараалалд ${r.queue}`;
+        : `${r.slot}: ${r.posted} постлосон, алдаа ${r.failed}, дараалалд ${r.queue}` +
+          (r.costUsd > 0 ? `, зураг $${r.costUsd.toFixed(3)}` : "");
     },
   },
 ];

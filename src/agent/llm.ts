@@ -146,3 +146,64 @@ export async function chatJson<T>(opts: ChatJsonOptions): Promise<{ data: T; tok
     }
   }
 }
+
+// ---------- Зураг үүсгэх (image output) ----------
+
+export interface ChatImageResult {
+  /** Зургийн эх бинари */
+  buffer: Buffer;
+  /** "image/png" гэх мэт */
+  mime: string;
+  tokens: number;
+  /** OpenRouter-ийн тайлагнасан зардал, USD */
+  costUsd: number;
+}
+
+interface ImageResponse {
+  choices?: { message?: { content?: string; images?: { image_url?: { url?: string } }[] } }[];
+  usage?: { total_tokens?: number; cost?: number };
+  error?: { message?: string };
+}
+
+/**
+ * Зураг үүсгэнэ (OpenRouter-ийн image-output модель, жишээ google/gemini-2.5-flash-image).
+ * Хариу нь data:image/...;base64 URL хэлбэрээр ирдэг.
+ */
+export async function chatImage(opts: { model: string; prompt: string }): Promise<ChatImageResult> {
+  const apiKey = process.env.OPENROUTER_API_KEY;
+  if (!apiKey) throw new Error("OPENROUTER_API_KEY тохируулаагүй байна");
+
+  const res = await fetch(URL_CHAT, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+      "HTTP-Referer": REFERER,
+      "X-Title": TITLE,
+    },
+    body: JSON.stringify({
+      model: opts.model,
+      modalities: ["image", "text"],
+      messages: [{ role: "user", content: opts.prompt }],
+    }),
+  });
+  if (!res.ok) throw new Error(`OpenRouter image ${res.status}: ${(await res.text()).slice(0, 300)}`);
+
+  const json = (await res.json()) as ImageResponse;
+  if (json.error) throw new Error(`OpenRouter image: ${json.error.message ?? "тодорхойгүй алдаа"}`);
+
+  const message = json.choices?.[0]?.message;
+  const url = message?.images?.[0]?.image_url?.url;
+  if (!url?.startsWith("data:")) {
+    // Модель заримдаа зургийн оронд текст (татгалзал, тайлбар) буцаадаг — шалтгааныг нь харуулна
+    const said = message?.content?.replace(/\s+/g, " ").slice(0, 150);
+    throw new Error(`OpenRouter image: зураг ирсэнгүй${said ? ` — "${said}"` : ""}`);
+  }
+  const [head, b64] = url.slice(5).split(",", 2);
+  return {
+    buffer: Buffer.from(b64 ?? "", "base64"),
+    mime: (head ?? "image/png").replace(";base64", ""),
+    tokens: json.usage?.total_tokens ?? 0,
+    costUsd: json.usage?.cost ?? 0,
+  };
+}

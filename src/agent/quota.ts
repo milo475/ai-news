@@ -6,6 +6,7 @@
  * /admin-аас гараар нийтэлж болно, гараар нийтэлсэн нь мөн квотод тооцогдоно.
  */
 import { prisma } from "../db";
+import type { ArticleCategory } from "../generated/prisma/enums";
 import { ubDateLabel, ubDayRange } from "../jobs/day";
 import {
   autoPublishMinScore,
@@ -21,6 +22,7 @@ interface ArticleRow {
   id: string;
   relevance: number;
   sourceId: string;
+  category: ArticleCategory;
   tags: string[];
   publishedAtSource: Date | null;
   createdAt: Date;
@@ -32,6 +34,7 @@ const SELECT = {
   id: true,
   relevance: true,
   sourceId: true,
+  category: true,
   tags: true,
   publishedAtSource: true,
   createdAt: true,
@@ -44,6 +47,7 @@ function toCandidate(a: ArticleRow): PublishCandidate {
     id: a.id,
     relevance: a.relevance,
     sourceId: a.sourceId,
+    category: a.category,
     tags: a.tags,
     publishedAtSource: a.publishedAtSource,
     createdAt: a.createdAt,
@@ -58,7 +62,7 @@ export interface AutoPublishResult {
   /** УБ цагаар өнөөдөр аль хэдийн нийтлэгдсэн (гараар нийтэлсэн нь ч ордог) */
   already: number;
   /** Энэ ажиллалтад нийтэлсэн */
-  published: { id: string; titleMn: string | null; slug: string; relevance: number }[];
+  published: { id: string; titleMn: string | null; slug: string; relevance: number; category: ArticleCategory }[];
 }
 
 /** УБ цагаар өнөөдөр нийтлэгдсэн мэдээний тоо (DIGEST ордоггүй) */
@@ -106,10 +110,10 @@ export async function runAutoPublish(now = new Date()): Promise<AutoPublishResul
     const a = await prisma.article.update({
       where: { id: p.id },
       data: { status: "PUBLISHED", publishedAt: new Date(), reviewedBy: "auto" },
-      select: { id: true, titleMn: true, slug: true, relevance: true },
+      select: { id: true, titleMn: true, slug: true, relevance: true, category: true },
     });
     published.push(a);
-    console.log(`↑ PUBLISHED score=${a.relevance} "${a.titleMn}" /medee/${a.slug}`);
+    console.log(`↑ PUBLISHED score=${a.relevance} ${a.category} "${a.titleMn}" /medee/${a.slug}`);
   }
 
   console.log(

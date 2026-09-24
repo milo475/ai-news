@@ -10,6 +10,8 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { prisma } from "../db";
 import { jobRunMeta } from "../jobs/meta";
+import type { ArticleCategory } from "../generated/prisma/enums";
+import { categoryPromptBlock, toCategory } from "./category";
 import { closeBrowser, fetchFullText } from "../fetchers/fulltext.api";
 import { chatJson } from "./llm";
 import { runAutoPublish } from "./quota";
@@ -23,11 +25,18 @@ const THRESHOLD = Number(process.env.RELEVANCE_THRESHOLD ?? 7);
 // import.meta.url нь Next-ийн bundle дотор .next/server/... руу заадаг тул тохирохгүй.
 const GLOSSARY = readFileSync(join(process.cwd(), "src/agent/glossary.md"), "utf8");
 
-const SCORE_SYSTEM = `Чи монгол уншигчдад зориулсан AI мэдээний сайтын редактор. Өгөгдсөн нийтлэл хиймэл оюуны салбарын чухал мэдээ мөн эсэхийг 1–10 оноогоор үнэл.
-Өндөр оноо (8–10): шинэ модель, бүтээгдэхүүн, боломж гаргасан; томоохон AI компанийн стратегийн шийдвэр, худалдан авалт, удирдлагын өөрчлөлт; судалгааны чухал үр дүн; засгийн газрын зохицуулалт, хууль, шүүхийн шийдвэр; 100 сая ам.доллараас дээш хөрөнгө оруулалт.
-Дунд (5–7): бага зэргийн шинэчлэл, салбарын дүн шинжилгээ, чухал хүний ярилцлага, ажлын байрны томоохон өөрчлөлт.
-Бага (1–4): хувийн санал бодол, tutorial, бүтээгдэхүүний review, спонсорын контент, хямдралын зар, AI-тай сул холбоотой, эсвэл монгол уншигчид огт хамаагүй орон нутгийн жижиг мэдээ.
+const SCORE_SYSTEM = `Чи монгол уншигчдад зориулсан AI мэдээний сайтын редактор. Өгөгдсөн нийтлэлийг 1–10 оноогоор үнэлж, ангиллыг нь тодорхойл.
+
+ГОЛ ШАЛГУУР: монгол уншигчид үүнийг ойлгох, хэрэгжүүлэх, эсвэл гайхах боломжтой юу? Ганц компанийн PR, зарлал бол бага оноо. Хүний амьдрал, ажил, мөнгөнд нөлөөлөх бол өндөр оноо.
+
+Өндөр оноо (8–10): хүний ажил, мөнгө, аюулгүй байдалд шууд нөлөөлөх; шинэ модель, бүтээгдэхүүн, боломж гаргасан; хэн ч давтаж хийж болох төсөл, орлогын жишээ; гайхалтай судалгааны үр дүн; засгийн газрын зохицуулалт, хууль, шүүхийн шийдвэр; 100 сая ам.доллараас дээш хөрөнгө оруулалт.
+Дунд (5–7): бага зэргийн шинэчлэл, салбарын дүн шинжилгээ, чухал хүний ярилцлага, ажлын байрны өөрчлөлт.
+Бага (1–4): ганц компанийн PR, спонсорын контент, хямдралын зар, бүтээгдэхүүний review, AI-тай сул холбоотой, эсвэл монгол уншигчид огт хамаагүй орон нутгийн жижиг мэдээ.
 Хувийн блогийн хэрэгслийн шинэчлэл, release note-ыг 4-өөс дээш бүү үнэл.
+
+Ангилал (category) — агуулгад нь хамгийн тохирохыг сонго:
+${categoryPromptBlock()}
+
 Зөвхөн JSON буцаа.`;
 
 const WRITE_SYSTEM = `Чи монгол хэлээр хиймэл оюуны мэдээ бичдэг сэтгүүлч. Доорх эх мэдээллийг уншаад монгол уншигчдад зориулж ӨӨРИЙН ҮГЭЭР мэдээ бич. Эх нийтлэлийн өгүүлбэрийг орчуулж бүү хуул. Эх мэдээлэлд байхгүй баримт, тоо, ишлэл бүү нэм. Хэрэв эх мэдээлэл дутуу бол мэдэгдэж байгаа зүйлээ л бич, таамаглахгүй. Хэрэв зөвхөн хураангуй өгөгдсөн бол богино (100–150 үг) бич, дэлгэрүүлж бүү таамагла. Эх мэдээлэл дутуу, хураангуй, бүтэн текст байхгүй гэх мэт ажлын явцын тайлбарыг нийтлэлд хэзээ ч бүү бич — уншигч үүнийг мэдэх ёсгүй. Доорх толь бичиг, дүрмийг заавал мөрд.
@@ -39,8 +48,13 @@ const SCORE_SCHEMA = {
   properties: {
     score: { type: "integer", minimum: 1, maximum: 10 },
     reason: { type: "string", description: "Нэг өгүүлбэр шалтгаан" },
+    category: {
+      type: "string",
+      enum: ["NEWS", "PROJECT", "BUSINESS", "FACT", "RISK", "HOWTO"],
+      description: "Агуулгын ангилал",
+    },
   },
-  required: ["score", "reason"],
+  required: ["score", "reason", "category"],
   additionalProperties: false,
 };
 
@@ -58,7 +72,7 @@ const WRITE_SCHEMA = {
   additionalProperties: false,
 };
 
-interface ScoreOut { score: number; reason: string }
+interface ScoreOut { score: number; reason: string; category: string }
 interface WriteOut {
   titleMn: string; summaryMn: string; bodyMn: string; tags: string[];
   mentionedCompanies: string[]; mentionedModels: string[];
@@ -145,6 +159,7 @@ export interface ProcessResult {
   scored: boolean;
   score: number;
   reason: string;
+  category: ArticleCategory;
   titleMn?: string;
   slug?: string;
   companies: number;
@@ -197,6 +212,7 @@ export async function processOne(
   let scoreTokens = 0;
   let scoreValue = a.relevance;
   let scoreReason = a.scoreReason ?? "";
+  let category = a.category;
 
   if (!opts.skipScore) {
     const score = await chatJson<ScoreOut>({
@@ -207,11 +223,14 @@ export async function processOne(
     scoreTokens = score.tokens;
     scoreValue = score.data.score;
     scoreReason = score.data.reason;
+    // LLM танигдахгүй утга буцаавал эх сурвалжийн анхдагч ангилал
+    category = toCategory(score.data.category, a.source.defaultCategory);
     await prisma.article.update({
       where: { id: a.id },
       data: {
         relevance: scoreValue,
         scoreReason,
+        category,
         scoreModel: SCORE_MODEL,
         tokensUsed: { increment: score.tokens },
       },
@@ -220,7 +239,7 @@ export async function processOne(
     if (scoreValue < THRESHOLD) {
       await prisma.article.update({ where: { id: a.id }, data: { status: "REJECTED" } });
       return {
-        status: "REJECTED", scored: true, score: scoreValue, reason: scoreReason,
+        status: "REJECTED", scored: true, score: scoreValue, reason: scoreReason, category,
         companies: 0, models: 0, hadText: Boolean(a.sourceText), tokens: score.tokens,
       };
     }
@@ -254,7 +273,7 @@ export async function processOne(
   });
 
   return {
-    status: "DRAFT", scored: !opts.skipScore, score: scoreValue, reason: scoreReason,
+    status: "DRAFT", scored: !opts.skipScore, score: scoreValue, reason: scoreReason, category,
     titleMn: write.data.titleMn, slug,
     companies: companyIds.length, models: modelIds.length,
     hadText: Boolean(a.sourceText), tokens: scoreTokens + write.tokens,
@@ -290,7 +309,7 @@ export async function runAgent(
         } else {
           drafted++;
           console.log(
-            `${head} score=${r.score} → ${r.status} "${r.titleMn}" slug=${r.slug} ` +
+            `${head} score=${r.score} ${r.category} → ${r.status} "${r.titleMn}" slug=${r.slug} ` +
               `companies=${r.companies} models=${r.models} ` +
               `text=${r.hadText ? "бүтэн" : "хураангуй"} (${r.tokens} tok)`,
           );

@@ -17,6 +17,8 @@ export interface FeedItem {
   fullHtml?: string;
   author?: string;
   publishedAt?: Date;
+  /** Feed-ийн зураг (enclosure / media:content) — og:image олдохгүй үеийн нөөц */
+  imageUrl?: string;
 }
 
 /** Нэг feed-ийг татаж, item-үүдийг цэвэрлэсэн хэлбэрээр буцаана */
@@ -30,7 +32,17 @@ export async function fetchFeed(feedUrl: string): Promise<FeedItem[]> {
   });
   if (!res.ok) throw new Error(`${feedUrl} → HTTP ${res.status}`);
 
-  const parser = new Parser<Record<string, unknown>, { author?: string; "content:encoded"?: string }>();
+  const parser = new Parser<
+    Record<string, unknown>,
+    {
+      author?: string;
+      "content:encoded"?: string;
+      mediaContent?: { $?: { url?: string; medium?: string } } | { $?: { url?: string } }[];
+      mediaThumbnail?: { $?: { url?: string } } | { $?: { url?: string } }[];
+    }
+  >({
+    customFields: { item: [["media:content", "mediaContent"], ["media:thumbnail", "mediaThumbnail"]] },
+  });
   const feed = await parser.parseString(await res.text());
 
   const items: FeedItem[] = [];
@@ -48,9 +60,26 @@ export async function fetchFeed(feedUrl: string): Promise<FeedItem[]> {
       fullHtml: it["content:encoded"] ?? it.content ?? undefined,
       author: it.author?.trim() || it.creator?.trim() || undefined,
       publishedAt: at && !Number.isNaN(at.getTime()) ? at : undefined,
+      imageUrl: feedImage(it),
     });
   }
   return items;
+}
+
+/** enclosure, media:content, media:thumbnail-аас зургийн хаяг */
+function feedImage(item: {
+  enclosure?: { url?: string; type?: string };
+  mediaContent?: unknown;
+  mediaThumbnail?: unknown;
+}): string | undefined {
+  const enc = item.enclosure;
+  if (enc?.url && (enc.type ?? "image").startsWith("image")) return enc.url;
+  for (const raw of [item.mediaContent, item.mediaThumbnail]) {
+    const first = Array.isArray(raw) ? raw[0] : raw;
+    const url = (first as { $?: { url?: string; medium?: string } } | undefined)?.$?.url;
+    if (url) return url;
+  }
+  return undefined;
 }
 
 // ---------- Цэвэр хувиргалтууд (тест хийхэд хялбар) ----------

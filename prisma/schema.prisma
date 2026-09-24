@@ -23,6 +23,16 @@ enum ArticleKind {
   DIGEST  // долоо хоногийн нэгтгэл
 }
 
+/// Нийтлэлийн агуулгын ангилал — зөвхөн моделийн мэдээ биш, өргөн хүрээг хамруулна
+enum ArticleCategory {
+  NEWS      // салбарын мэдээ
+  PROJECT   // AI-аар хийсэн төсөл, бүтээгдэхүүн
+  BUSINESS  // бизнес санаа, мөнгө олох жишээ
+  FACT      // сонирхолтой баримт, судалгаа
+  RISK      // аюул, хууран мэхлэлт, зохицуулалт
+  HOWTO     // хэрэглээ, заавар
+}
+
 /// Нийтлэлийн төлөв
 enum ArticleStatus {
   RAW        // эх сурвалжаас татсан, agent хараахан боловсруулаагүй
@@ -113,6 +123,8 @@ model Source {
   feedUrl   String?  @unique      // RSS/Atom хаяг
   language  String   @default("en")
   weight    Int      @default(5)  // 1–10, эх сурвалжийн найдвартай байдал
+  /// Энэ эх сурвалжийн мэдээ ихэвчлэн ямар ангилалд ордог — LLM өөрөөр шийдвэл түүнийг нь авна
+  defaultCategory ArticleCategory @default(NEWS)
   needsBrowser Boolean @default(false) // JS-ээр зурагддаг сайт — бүтэн текстэд Playwright хэрэгтэй
   isActive  Boolean  @default(true)
   lastFetchedAt DateTime?
@@ -125,10 +137,11 @@ model Source {
 
 /// Нийтлэл — эх мэдээ + agent-ийн монгол хураангуй
 model Article {
-  id          String        @id @default(cuid())
-  slug        String        @unique          // URL: /medee/openai-gpt-6-astra-garlaa
-  kind        ArticleKind   @default(NEWS)
-  status      ArticleStatus @default(DRAFT)
+  id          String          @id @default(cuid())
+  slug        String          @unique        // URL: /medee/openai-gpt-6-astra-garlaa
+  kind        ArticleKind     @default(NEWS)
+  category    ArticleCategory @default(NEWS)  // agent үнэлэх үедээ тодорхойлно
+  status      ArticleStatus   @default(DRAFT)
 
   // Эх сурвалжийн мэдээлэл
   sourceId     String
@@ -138,6 +151,7 @@ model Article {
   sourceExcerpt String?                     // RSS-ийн description, HTML-гүй (≤2000 тэмдэгт)
   sourceText    String?                     // эх хуудаснаас Readability-ээр татсан бүтэн текст (≤8000)
   sourceAuthor  String?
+  sourceImageUrl String?                     // эх нийтлэлийн og:image (FB_USE_SOURCE_IMAGE үед)
   sourceHash   String                       // гарчгийн normalized hash — давхардал
   publishedAtSource DateTime?
 
@@ -158,6 +172,22 @@ model Article {
   fbPostedAt   DateTime?                    // хэзээ постлогдсон — хоосон = дараалалд байна
   fbAttempts   Int      @default(0)         // амжилтгүй оролдлогын тоо (3 болбол алгасна)
   fbError      String?                      // сүүлийн алдааны мессеж
+  /// FB-д зориулж тусдаа LLM-ээр бичүүлсэн текст (нийтлэлийн хураангуй биш)
+  fbText       String?
+  /// A/B туршилтын хоёр дахь хувилбар — постлогдоогүй нь
+  fbTextAlt    String?
+  /// Постлосон хувилбарын hook загвар: number | contrast | question | local | forecast
+  fbHookType   String?
+  /// FB постын зураг — 1080×1080 JPEG, DB-д (web ба cron тусдаа контейнер учир)
+  fbImageData  Bytes?
+  /// Зургийг үзүүлэх зам: /api/fb-image/<id>
+  fbImageUrl   String?
+  /// Зураг ямар аргаар гарсан: ai | source | ranking
+  fbImageKind  String?
+  /// Зураг үүсгэсэн огноо — өдрийн зургийн квотыг тоолоход
+  fbImageAt    DateTime?
+  /// AI зургийн англи prompt — /admin дээр харах, дахин үүсгэхэд
+  fbImagePrompt String?
   reviewedBy   String?
 
   createdAt DateTime @default(now())
@@ -176,6 +206,7 @@ model Article {
 
   @@index([kind, status, publishedAt])
   @@index([status, fbPostedAt])
+  @@index([status, category, publishedAt])
   @@index([searchVector], type: Gin)
   @@index([status, publishedAt])
   @@index([status, createdAt])
@@ -195,6 +226,8 @@ model JobRun {
   attempted  Int      @default(0)
   failed     Int      @default(0)
   error      String?
+  /// Тухайн ажиллалтад OpenRouter-т төлсөн дүн (зураг, LLM) — зардлыг хөөхөд
+  costUsd    Decimal? @db.Decimal(10, 6)
   pid        Int?                    // ажиллуулсан процесс — /admin-аас эхлүүлсэн үед
   logFile    String?                 // logs/<job>-<timestamp>.log
 
@@ -275,6 +308,15 @@ model DigestItem {
 
   @@id([digestId, articleId])
   @@index([digestId, order])
+}
+
+/// Жагсаалтын карт постыг өдөрт нэг л удаа тавихын тулд (нийтлэлтэй холбоогүй пост)
+model FbRankingPost {
+  id        String   @id @default(cuid())
+  /// УБ цагийн огноо, "2026-09-23"
+  day       String   @unique
+  fbPostId  String?
+  createdAt DateTime @default(now())
 }
 
 /// Хайлтын бүртгэл — юу хайгдаж байгааг харахад. Хувийн мэдээлэл хадгалахгүй.

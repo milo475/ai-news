@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { prisma } from "@/db";
+import { CATEGORY_LABEL } from "@/agent/category";
 import { publishedToday } from "@/agent/quota";
 import { dailyPublishLimit } from "@/agent/quota.api";
 import { fmtDate } from "@/components/format";
@@ -55,7 +56,7 @@ export default async function Admin({
       orderBy: status === "PUBLISHED" ? { publishedAt: "desc" } : { createdAt: "desc" },
       take: 100,
       select: {
-        id: true, titleMn: true, sourceTitle: true, relevance: true, createdAt: true,
+        id: true, titleMn: true, sourceTitle: true, relevance: true, createdAt: true, category: true,
         publishedAtSource: true, sourceText: true, reviewedBy: true, source: { select: { name: true } },
         fbPostId: true, fbPostedAt: true, fbAttempts: true, fbError: true,
       },
@@ -217,6 +218,9 @@ export default async function Admin({
                     <Link href={`/admin/${a.id}`} className="font-medium hover:text-accent">
                       {a.titleMn ?? a.sourceTitle}
                     </Link>
+                    <span className="ml-2 text-xs rounded px-1.5 py-0.5 border border-line text-muted">
+                      {CATEGORY_LABEL[a.category]}
+                    </span>
                     {a.reviewedBy === "auto" && (
                       <span className="ml-2 text-xs rounded px-1.5 py-0.5 border border-accent/50 text-accent">
                         авто

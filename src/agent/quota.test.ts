@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  autoPublishMinScore, dailyPublishLimit, MAX_PER_SOURCE, selectForPublish,
+  autoPublishMinScore, dailyPublishLimit, MAX_PER_CATEGORY, MAX_PER_SOURCE, selectForPublish,
   type PublishCandidate,
 } from "./quota.api";
 
@@ -12,6 +12,7 @@ function draft(id: string, relevance: number, over: Partial<PublishCandidate> = 
     id,
     relevance,
     sourceId: over.sourceId ?? `src-${id}`,
+    category: over.category ?? "NEWS",
     modelSlugs: over.modelSlugs ?? [],
     companySlugs: over.companySlugs ?? [],
     tags: over.tags ?? [],
@@ -22,7 +23,12 @@ function draft(id: string, relevance: number, over: Partial<PublishCandidate> = 
 
 test("selectForPublish: оноо өндөрөөс нь квотын хэрээр сонгоно", () => {
   const picked = selectForPublish(
-    [draft("a", 7), draft("b", 10), draft("c", 9), draft("d", 8)],
+    [
+      draft("a", 7, { category: "HOWTO" }),
+      draft("b", 10, { category: "NEWS" }),
+      draft("c", 9, { category: "RISK" }),
+      draft("d", 8, { category: "PROJECT" }),
+    ],
     3,
   );
   assert.deepEqual(picked.map((p) => p.id), ["b", "c", "d"]);
@@ -35,10 +41,10 @@ test("selectForPublish: квот 0 эсвэл нэр дэвшигчгүй бол
 
 test("selectForPublish: нэг эх сурвалжаас 2-оос илүүг авахгүй", () => {
   const same = [
-    draft("a", 10, { sourceId: "techcrunch" }),
-    draft("b", 9, { sourceId: "techcrunch" }),
-    draft("c", 8, { sourceId: "techcrunch" }),
-    draft("d", 5, { sourceId: "verge" }),
+    draft("a", 10, { sourceId: "techcrunch", category: "NEWS" }),
+    draft("b", 9, { sourceId: "techcrunch", category: "RISK" }),
+    draft("c", 8, { sourceId: "techcrunch", category: "PROJECT" }),
+    draft("d", 5, { sourceId: "verge", category: "PROJECT" }),
   ];
   const picked = selectForPublish(same, 3);
   assert.equal(MAX_PER_SOURCE, 2);
@@ -51,25 +57,47 @@ test("selectForPublish: ижил модель/сэдвийг давхардуу�
       draft("gpt-1", 10, { modelSlugs: ["openai/gpt-6-astra"], companySlugs: ["openai"] }),
       draft("gpt-2", 9, { modelSlugs: ["openai/gpt-6-astra"], companySlugs: ["openai"] }),
       // ижил компани, ижил шошго — нэг сэдэв гэж үзнэ
-      draft("openai-money-1", 8, { companySlugs: ["openai"], tags: ["хөрөнгө оруулалт"] }),
-      draft("openai-money-2", 7, { companySlugs: ["openai"], tags: ["хөрөнгө оруулалт", "модель"] }),
-      draft("anthropic", 6, { companySlugs: ["anthropic"], tags: ["зохицуулалт"] }),
+      draft("openai-money-1", 8, { companySlugs: ["openai"], tags: ["хөрөнгө оруулалт"], category: "BUSINESS" }),
+      draft("openai-money-2", 7, { companySlugs: ["openai"], tags: ["хөрөнгө оруулалт", "модель"], category: "BUSINESS" }),
+      draft("anthropic", 6, { companySlugs: ["anthropic"], tags: ["зохицуулалт"], category: "RISK" }),
     ],
     3,
   );
   assert.deepEqual(picked.map((p) => p.id), ["gpt-1", "openai-money-1", "anthropic"]);
 });
 
+test("selectForPublish: нэг ангиллаас өдөрт 2-оос илүүг авахгүй", () => {
+  assert.equal(MAX_PER_CATEGORY, 2);
+  const picked = selectForPublish(
+    [
+      draft("news-1", 10, { category: "NEWS" }),
+      draft("news-2", 9, { category: "NEWS" }),
+      draft("news-3", 8, { category: "NEWS" }),   // 3 дахь NEWS — алгасагдана
+      draft("howto", 5, { category: "HOWTO" }),
+    ],
+    3,
+  );
+  assert.deepEqual(picked.map((p) => p.id), ["news-1", "news-2", "howto"]);
+
+  // Өнөөдөр 2 RISK нийтлэгдсэн бол гурав дахь RISK орохгүй
+  const withToday = selectForPublish(
+    [draft("risk-3", 10, { category: "RISK" }), draft("fact", 4, { category: "FACT" })],
+    2,
+    [draft("risk-1", 9, { category: "RISK" }), draft("risk-2", 8, { category: "RISK" })],
+  );
+  assert.deepEqual(withToday.map((p) => p.id), ["fact"]);
+});
+
 test("selectForPublish: өнөөдөр нийтлэгдсэн нь эх сурвалж/сэдвийн хязгаарт тооцогдоно", () => {
   const already = [
-    draft("published-1", 10, { sourceId: "techcrunch" }),
-    draft("published-2", 9, { sourceId: "techcrunch", modelSlugs: ["google/gemini-3.8-flash"] }),
+    draft("published-1", 10, { sourceId: "techcrunch", category: "NEWS" }),
+    draft("published-2", 9, { sourceId: "techcrunch", modelSlugs: ["google/gemini-3.8-flash"], category: "RISK" }),
   ];
   const picked = selectForPublish(
     [
-      draft("same-source", 10, { sourceId: "techcrunch" }),
-      draft("same-model", 9, { modelSlugs: ["google/gemini-3.8-flash"], sourceId: "verge" }),
-      draft("ok", 8, { sourceId: "verge" }),
+      draft("same-source", 10, { sourceId: "techcrunch", category: "PROJECT" }),
+      draft("same-model", 9, { modelSlugs: ["google/gemini-3.8-flash"], sourceId: "verge", category: "PROJECT" }),
+      draft("ok", 8, { sourceId: "verge", category: "PROJECT" }),
     ],
     2,
     already,

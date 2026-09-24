@@ -4,12 +4,18 @@
  * Дүрэм:
  *   1. Оноо өндөрөөс нь эхэлнэ (тэнцвэл эх сурвалжийн шинэ мэдээ түрүүлнэ).
  *   2. Нэг эх сурвалжаас өдөрт 2-оос илүүг авахгүй — нэг сайтын эгнээ болохгүйн тулд.
- *   3. Ижил сэдэв/модель давхардуулахгүй — өмнө нь сонгосон (эсвэл өнөөдөр нийтлэгдсэн)
+ *   3. Нэг ангиллаас (NEWS, PROJECT ...) өдөрт 2-оос илүүг авахгүй — өдрийн 3 пост
+ *      бүгд ижил төрлийн болохгүйн тулд.
+ *   4. Ижил сэдэв/модель давхардуулахгүй — өмнө нь сонгосон (эсвэл өнөөдөр нийтлэгдсэн)
  *      мэдээтэй ижил модель дурдсан, эсвэл ижил компани + ижил шошготой бол алгасна.
  */
+import type { ArticleCategory } from "../generated/prisma/enums";
 
 /** Нэг эх сурвалжаас өдөрт авах дээд тоо */
 export const MAX_PER_SOURCE = 2;
+
+/** Нэг ангиллаас өдөрт авах дээд тоо */
+export const MAX_PER_CATEGORY = 2;
 
 /** Өдөрт нийтлэх анхдагч тоо */
 export const DEFAULT_DAILY_LIMIT = 3;
@@ -22,6 +28,7 @@ export interface PublishCandidate {
   id: string;
   relevance: number;
   sourceId: string;
+  category: ArticleCategory;
   /** Холбогдсон моделийн slug-ууд */
   modelSlugs: string[];
   /** Холбогдсон компанийн slug-ууд */
@@ -84,20 +91,27 @@ export function selectForPublish(
 ): PublishCandidate[] {
   if (quota <= 0) return [];
 
-  const perSource = new Map<string, number>();
-  for (const a of alreadyToday) perSource.set(a.sourceId, (perSource.get(a.sourceId) ?? 0) + 1);
+  const count = (list: PublishCandidate[], key: (c: PublishCandidate) => string) => {
+    const m = new Map<string, number>();
+    for (const c of list) m.set(key(c), (m.get(key(c)) ?? 0) + 1);
+    return m;
+  };
+  const bySource = count(alreadyToday, (c) => c.sourceId);
+  const byCategory = count(alreadyToday, (c) => c.category);
 
   const taken = [...alreadyToday];
   const picked: PublishCandidate[] = [];
 
   for (const c of [...candidates].sort(byScore)) {
     if (picked.length >= quota) break;
-    if ((perSource.get(c.sourceId) ?? 0) >= MAX_PER_SOURCE) continue;
+    if ((bySource.get(c.sourceId) ?? 0) >= MAX_PER_SOURCE) continue;
+    if ((byCategory.get(c.category) ?? 0) >= MAX_PER_CATEGORY) continue;
     if (taken.some((t) => sameTopic(c, t))) continue;
 
     picked.push(c);
     taken.push(c);
-    perSource.set(c.sourceId, (perSource.get(c.sourceId) ?? 0) + 1);
+    bySource.set(c.sourceId, (bySource.get(c.sourceId) ?? 0) + 1);
+    byCategory.set(c.category, (byCategory.get(c.category) ?? 0) + 1);
   }
 
   return picked;

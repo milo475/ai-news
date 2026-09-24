@@ -25,6 +25,8 @@ const USER_AGENT =
 export interface FullText {
   text: string;
   byline?: string;
+  /** og:image — FB постод эх сурвалжийн зураг хэрэглэх сонголтод */
+  imageUrl?: string;
 }
 
 /** Үгийн дунд таслахгүй */
@@ -108,6 +110,26 @@ async function htmlViaFetch(url: string): Promise<string | null> {
   }
 }
 
+/** og:image / twitter:image — харьцангуй хаягийг бүтэн болгоно */
+function metaImage(document: Document, pageUrl: string): string | undefined {
+  const selectors = [
+    'meta[property="og:image"]',
+    'meta[name="og:image"]',
+    'meta[property="og:image:url"]',
+    'meta[name="twitter:image"]',
+  ];
+  for (const sel of selectors) {
+    const raw = document.querySelector(sel)?.getAttribute("content")?.trim();
+    if (!raw) continue;
+    try {
+      return new URL(raw, pageUrl).toString();
+    } catch {
+      // буруу хаяг — дараагийн meta-г үзнэ
+    }
+  }
+  return undefined;
+}
+
 export async function fetchFullText(
   url: string,
   opts: { browser?: boolean } = {},
@@ -120,7 +142,11 @@ export async function fetchFullText(
     const text = (article?.textContent ?? "").replace(/\s+/g, " ").trim();
     if (text.length < MIN_CHARS) return null;
     const byline = article?.byline?.replace(/\s+/g, " ").trim();
-    return { text: cut(text, MAX_CHARS), byline: byline || undefined };
+    return {
+      text: cut(text, MAX_CHARS),
+      byline: byline || undefined,
+      imageUrl: metaImage(document as unknown as Document, url),
+    };
   } catch {
     return null;
   }

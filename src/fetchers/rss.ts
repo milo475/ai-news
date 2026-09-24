@@ -9,6 +9,7 @@
 import "dotenv/config";
 import { randomBytes } from "node:crypto";
 import { prisma } from "../db";
+import type { ArticleCategory } from "../generated/prisma/enums";
 import { jobRunMeta } from "../jobs/meta";
 import { closeBrowser, fetchFullText, textFromFeedHtml } from "./fulltext.api";
 import { fetchFeed, normalizeUrl, titleHash, type FeedItem } from "./rss.api";
@@ -46,7 +47,7 @@ interface SourceResult {
 
 /** Нэг эх сурвалжийн item-үүдийг RAW нийтлэл болгож хадгална */
 async function saveItems(
-  source: { id: string; needsBrowser: boolean },
+  source: { id: string; needsBrowser: boolean; defaultCategory: ArticleCategory },
   items: FeedItem[],
   res: SourceResult,
 ): Promise<void> {
@@ -76,12 +77,15 @@ async function saveItems(
       data: {
         slug: rawSlug(new Date()),
         status: "RAW",
+        // agent үнэлэхдээ өөрчилж болно — эхлээд эх сурвалжийн анхдагч
+        category: source.defaultCategory,
         sourceId: source.id,
         sourceUrl,
         sourceTitle: item.title,
         sourceExcerpt: item.excerpt || null,
         sourceText,
         sourceAuthor: item.author ?? full?.byline ?? null,
+        sourceImageUrl: full?.imageUrl ?? item.imageUrl ?? null,
         sourceHash,
         publishedAtSource: item.publishedAt ?? null,
       },

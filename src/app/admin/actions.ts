@@ -108,23 +108,66 @@ export async function rewriteArticle(formData: FormData) {
 
 /** Нэг нийтлэлийг Facebook-т постолж, алдаа гарвал түүнийг буцаана (хоосон = амжилттай) */
 async function postOne(id: string): Promise<string> {
-  const { POSTABLE_SELECT, markFailed, markPosted, postToFacebook } = await import("@/publish/facebook");
+  const { markFailed, markPosted, publishArticleToFacebook } = await import("@/publish/facebook");
   const a = await prisma.article.findUniqueOrThrow({
     where: { id },
-    select: { ...POSTABLE_SELECT, status: true, fbPostId: true, fbPostedAt: true },
+    select: { id: true, status: true, fbPostId: true, fbPostedAt: true },
   });
 
   if (a.status !== "PUBLISHED") return "Зөвхөн нийтлэгдсэн мэдээг постолно.";
   if (a.fbPostId || a.fbPostedAt) return "Энэ нийтлэл аль хэдийн постлогдсон.";
 
   try {
-    await markPosted(a.id, await postToFacebook(a));
+    // Текст, зураг байхгүй бол энд үүснэ (LLM дуудна)
+    const out = await publishArticleToFacebook(a.id);
+    await markPosted(a.id, out.fbPostId);
     return "";
   } catch (e) {
     const message = (e as Error).message;
     await markFailed(a.id, message);
     return message;
   }
+}
+
+/** /admin дээрээс FB текстийг дахин бичүүлэх */
+export async function regenerateFbText(formData: FormData) {
+  const id = String(formData.get("id"));
+  let error = "";
+  try {
+    const { generateFbCopy } = await import("@/publish/fbcopy");
+    await generateFbCopy(id);
+  } catch (e) {
+    error = (e as Error).message;
+  }
+  revalidatePath(`/admin/${id}`);
+  redirect(error ? `/admin/${id}?err=${encodeURIComponent(error)}` : `/admin/${id}`);
+}
+
+/** /admin дээрээс FB зургийг дахин үүсгэх (өдрийн зургийн квотыг алгасна) */
+export async function regenerateFbImage(formData: FormData) {
+  const id = String(formData.get("id"));
+  let error = "";
+  try {
+    const { imageForArticle, saveImage } = await import("@/publish/fbimage");
+    const image = await imageForArticle(id, { force: true });
+    if (!image) error = "Зураг үүссэнгүй — лог харна уу.";
+    else await saveImage(id, image);
+  } catch (e) {
+    error = (e as Error).message;
+  }
+  revalidatePath(`/admin/${id}`);
+  redirect(error ? `/admin/${id}?err=${encodeURIComponent(error)}` : `/admin/${id}`);
+}
+
+/** FB текстийг гараар засаж хадгална */
+export async function saveFbText(formData: FormData) {
+  const id = String(formData.get("id"));
+  await prisma.article.update({
+    where: { id },
+    data: { fbText: String(formData.get("fbText") ?? "").trim() || null },
+  });
+  revalidatePath(`/admin/${id}`);
+  redirect(`/admin/${id}`);
 }
 
 /** /admin/<id> дээрх «Facebook-т постлох». Алдааг ?err=-ээр хуудсан дээр харуулна. */

@@ -2,7 +2,11 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/db";
 import { fmtDate } from "@/components/format";
-import { postArticleToFacebook, rejectArticle, rewriteArticle, saveAndPublishArticle, saveArticle } from "../actions";
+import { CATEGORY_LABEL } from "@/agent/category";
+import {
+  postArticleToFacebook, regenerateFbImage, regenerateFbText, rejectArticle, rewriteArticle,
+  saveAndPublishArticle, saveArticle, saveFbText,
+} from "../actions";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -29,7 +33,7 @@ export default async function Edit({
       <div className="flex items-baseline justify-between gap-4">
         <Link href={`/admin?status=${a.status}`} className="text-sm text-muted hover:text-ink">← Админ</Link>
         <span className="text-xs text-muted">
-          {a.status} · оноо {a.relevance || "—"} · {a.tokensUsed} токен
+          {a.status} · {CATEGORY_LABEL[a.category]} · оноо {a.relevance || "—"} · {a.tokensUsed} токен
         </span>
       </div>
 
@@ -107,8 +111,12 @@ export default async function Edit({
             )}
           </section>
 
-          <section className="rounded-lg border border-line p-3 space-y-1">
-            <p className="text-xs text-muted">Facebook</p>
+          <section className="rounded-lg border border-line p-3 space-y-3">
+            <div className="flex items-baseline justify-between gap-2">
+              <p className="text-xs text-muted">Facebook</p>
+              {a.fbHookType && <span className="text-xs text-muted">hook: {a.fbHookType}</span>}
+            </div>
+
             {a.fbPostedAt || a.fbPostId ? (
               <p className="text-xs text-up">
                 ✓ {a.fbPostedAt ? fmtDate(a.fbPostedAt) : "постлосон"}
@@ -132,6 +140,65 @@ export default async function Edit({
               <p className="text-xs text-down break-words">
                 {a.fbAttempts} удаа алдаа{a.fbError ? `: ${a.fbError}` : ""}
               </p>
+            )}
+
+            {/* Зураг — DB-ээс /api/fb-image/<id> замаар */}
+            {a.fbImageUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={`${a.fbImageUrl}?v=${a.fbImageAt?.getTime() ?? 0}`}
+                alt="FB постын зураг"
+                className="w-full rounded border border-line"
+              />
+            ) : (
+              <p className="text-xs text-muted">Зураг үүсээгүй — постлохын өмнө автоматаар үүснэ.</p>
+            )}
+            <div className="flex flex-wrap items-center gap-2">
+              <form action={regenerateFbImage}>
+                <input type="hidden" name="id" value={a.id} />
+                <button className="text-xs rounded border border-line px-2 py-1 hover:bg-line/40">
+                  Зураг дахин үүсгэх
+                </button>
+              </form>
+              {a.fbImageKind && <span className="text-xs text-muted">({a.fbImageKind})</span>}
+            </div>
+            {a.fbImagePrompt && (
+              <details>
+                <summary className="text-xs text-accent cursor-pointer">Зургийн prompt</summary>
+                <p className="text-xs text-muted pt-1 break-words">{a.fbImagePrompt}</p>
+              </details>
+            )}
+
+            {/* FB текст — гараар засаж болно */}
+            <form action={saveFbText} className="space-y-2">
+              <input type="hidden" name="id" value={a.id} />
+              <label className="block space-y-1">
+                <span className="text-xs text-muted">FB текст</span>
+                <textarea
+                  name="fbText"
+                  rows={10}
+                  defaultValue={a.fbText ?? ""}
+                  placeholder="Хоосон бол постлохын өмнө автоматаар бичигдэнэ"
+                  className={`${input} text-xs`}
+                />
+              </label>
+              <div className="flex flex-wrap gap-2">
+                <button className="text-xs rounded border border-line px-2 py-1 hover:bg-line/40">
+                  Текст хадгалах
+                </button>
+                <button
+                  formAction={regenerateFbText}
+                  className="text-xs rounded border border-line px-2 py-1 hover:bg-line/40"
+                >
+                  Дахин бичүүлэх (2 хувилбар)
+                </button>
+              </div>
+            </form>
+            {a.fbTextAlt && (
+              <details>
+                <summary className="text-xs text-accent cursor-pointer">Нөөц хувилбар (A/B)</summary>
+                <p className="text-xs whitespace-pre-wrap pt-1">{a.fbTextAlt}</p>
+              </details>
             )}
           </section>
 
