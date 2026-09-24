@@ -106,6 +106,43 @@ export async function pickForSlot(
   return null;
 }
 
+/**
+ * БЭЛТГЭХ горимд: бэлдэх N нийтлэлийг сонгоно.
+ *
+ * Зөвхөн оноогоор авбал нэг үйл явдлыг гурван эх сурвалж бичсэн байхад гурвуулаа бэлдэгдэж,
+ * буфер нь бодитоор нэг л нийтлэл болдог. Тиймээс нийтлэх үеийнхтэй ижил дүрмийг (эх сурвалж,
+ * ангилал, сэдвийн давхардал) энд ч хэрэглэнэ: өнөөдөр нийтлэгдсэн болон аль хэдийн бэлэн
+ * болсон нийтлэлүүдтэй давхцахгүй байхаар сонгоно.
+ */
+export async function pickForPrepare(need: number, now = new Date()): Promise<string[]> {
+  if (need <= 0) return [];
+  const { start, end } = ubDayRange(now);
+  const minScore = autoPublishMinScore();
+
+  const [todayRows, readyRows, pool] = (await Promise.all([
+    prisma.article.findMany({
+      where: { kind: "NEWS", status: "PUBLISHED", publishedAt: { gte: start, lt: end } },
+      select: SELECT,
+    }),
+    prisma.article.findMany({
+      where: { kind: "NEWS", status: "DRAFT", readyAt: { not: null } },
+      select: SELECT,
+    }),
+    prisma.article.findMany({
+      where: {
+        kind: "NEWS", status: "DRAFT", readyAt: null,
+        relevance: { gte: minScore }, sourceText: { not: null },
+      },
+      orderBy: [{ relevance: "desc" }, { publishedAtSource: "desc" }, { createdAt: "desc" }],
+      take: CANDIDATE_POOL,
+      select: SELECT,
+    }),
+  ])) as [ArticleRow[], ArticleRow[], ArticleRow[]];
+
+  const taken = [...todayRows, ...readyRows].map(toCandidate);
+  return selectForPublish(pool.map(toCandidate), need, taken).map((c) => c.id);
+}
+
 /** Өдрийн квотын үлдэгдэл */
 export async function remainingQuota(now = new Date()): Promise<number> {
   return Math.max(0, dailyPublishLimit() - (await publishedToday(now)));

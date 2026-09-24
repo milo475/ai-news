@@ -24,7 +24,7 @@ import {
   checkImproved, IMAGE_AHEAD, IMPROVE_SCHEMA, IMPROVE_SYSTEM, readyTarget, trimTitle,
   type ImproveOut,
 } from "./improve.api";
-import { autoPublishMinScore } from "./quota.api";
+import { pickForPrepare } from "./quota";
 
 const IMPROVE_MODEL = process.env.WRITE_MODEL ?? "google/gemini-3.8-flash";
 
@@ -99,16 +99,14 @@ export async function runImprove(limit?: number): Promise<ImproveResult> {
   const prepared: ImproveResult["prepared"] = [];
 
   try {
-    // Квотод нэр дэвших магадлалтай нь: оноо өндөр, бүтэн тексттэй, шинэ
-    const candidates = await prisma.article.findMany({
-      where: {
-        status: "DRAFT", kind: "NEWS", readyAt: null,
-        relevance: { gte: autoPublishMinScore() }, sourceText: { not: null },
-      },
-      orderBy: [{ relevance: "desc" }, { publishedAtSource: "desc" }, { createdAt: "desc" }],
-      take: need,
+    // Нийтлэх үеийнхтэй ижил дүрмээр — нэг үйл явдлыг гурван эх сурвалжаас бэлдэхгүй
+    const ids = await pickForPrepare(need);
+    const rows = await prisma.article.findMany({
+      where: { id: { in: ids } },
       select: { id: true, titleMn: true, fbText: true, fbImageData: true },
     });
+    // pickForPrepare-ийн эрэмбийг хадгална (эхнийх нь зурагтай болно)
+    const candidates = ids.map((id) => rows.find((r) => r.id === id)!).filter(Boolean);
     console.log(`Бэлэн ${ready}/${target}, ${candidates.length} нийтлэл бэлдэнэ...`);
 
     const imageLimit = imageDailyLimit();
