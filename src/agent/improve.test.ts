@@ -3,7 +3,10 @@ import assert from "node:assert/strict";
 import {
   checkImproved, DEFAULT_READY_TARGET, IMAGE_AHEAD, MAX_TITLE_CHARS, readyTarget, trimTitle,
 } from "./improve.api";
-import { agentBatch, agentDailyBudget, budgetExhausted, DEFAULT_AGENT_BATCH, DEFAULT_AGENT_DAILY_BUDGET } from "./budget.api";
+import {
+  adaptiveBatch, agentBatch, agentDailyBudget, budgetExhausted, DEFAULT_AGENT_BATCH,
+  DEFAULT_AGENT_DAILY_BUDGET, LOW_QUEUE_BATCH, LOW_QUEUE_THRESHOLD,
+} from "./budget.api";
 
 const BODY = "Нэг догол мөр. ".repeat(30);
 const before = { titleMn: "Урт гарчиг", bodyMn: BODY };
@@ -50,7 +53,7 @@ test("readyTarget: анхдагч 3, зургийг дараагийн 2 slot-д
 
 test("agentBatch / agentDailyBudget / budgetExhausted", () => {
   assert.equal(agentBatch({}), DEFAULT_AGENT_BATCH);
-  assert.equal(agentBatch({}), 8);
+  assert.equal(agentBatch({}), 10);
   assert.equal(agentBatch({ AGENT_BATCH: "12" }), 12);
   assert.equal(agentBatch({ AGENT_BATCH: "0" }), 0);
   assert.equal(agentBatch({ AGENT_BATCH: "найм" }), DEFAULT_AGENT_BATCH);
@@ -63,4 +66,26 @@ test("agentBatch / agentDailyBudget / budgetExhausted", () => {
   assert.equal(budgetExhausted(1.4, 1.5), false);
   assert.equal(budgetExhausted(1.5, 1.5), true);
   assert.equal(budgetExhausted(9, 0), false, "0 = хязгааргүй");
+});
+
+test("adaptiveBatch: RAW дараалал 50-аас доош бол багц 6 болно", () => {
+  assert.equal(LOW_QUEUE_THRESHOLD, 50);
+  assert.equal(LOW_QUEUE_BATCH, 6);
+
+  // Хуримтлал их — бүтэн багц
+  assert.equal(adaptiveBatch(10, 250), 10);
+  assert.equal(adaptiveBatch(10, 50), 10);
+
+  // Дараалал богино — буурна
+  assert.equal(adaptiveBatch(10, 49), 6);
+  assert.equal(adaptiveBatch(10, 0), 6);
+  assert.equal(adaptiveBatch(20, 10), 6);
+
+  // Гараар 6-аас бага тавьсныг хүндэтгэнэ
+  assert.equal(adaptiveBatch(3, 10), 3);
+  assert.equal(adaptiveBatch(3, 200), 3);
+
+  // Унтраалттай бол унтраалттай хэвээр
+  assert.equal(adaptiveBatch(0, 200), 0);
+  assert.equal(adaptiveBatch(0, 5), 0);
 });

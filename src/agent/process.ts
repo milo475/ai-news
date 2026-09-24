@@ -1,7 +1,7 @@
 /**
  * Мэдээний agent — 2-р шат: RAW нийтлэлийг LLM-ээр үнэлж, монголоор бичиж DRAFT болгоно.
  *
- *   npx tsx src/agent/process.ts --limit 10   # default AGENT_BATCH (8)
+ *   npx tsx src/agent/process.ts --limit 10   # default: AGENT_BATCH, дарааллаас хамаарч буурна
  *
  * Cron: RSS цуглуулагчийн дараа.
  */
@@ -15,7 +15,7 @@ import type { ArticleCategory } from "../generated/prisma/enums";
 import { categoryPromptBlock, toCategory } from "./category";
 import { closeBrowser, fetchFullText } from "../fetchers/fulltext.api";
 import { chatJson } from "./llm";
-import { agentBatch, agentDailyBudget, budgetExhausted } from "./budget.api";
+import { adaptiveBatch, agentBatch, agentDailyBudget, budgetExhausted } from "./budget.api";
 import { pruneStaleRaw } from "./prune";
 import { DIVERSE_CATEGORIES, HIGH_WEIGHT_MIN, mixRawBatch, splitSizes, staleBefore } from "./raw.api";
 import { slugify } from "./slug";
@@ -343,9 +343,12 @@ export async function spentTodayUsd(now = new Date()): Promise<number> {
   return Number(sum._sum.costUsd ?? 0);
 }
 
-/** Pipeline болон CLI хоёулаа үүнийг дуудна */
+/**
+ * Pipeline болон CLI хоёулаа үүнийг дуудна.
+ * @param explicitLimit гараар өгсөн тоо. Хоосон бол AGENT_BATCH + дарааллын уртаас хамаарна.
+ */
 export async function runAgent(
-  limit = agentBatch(),
+  explicitLimit?: number,
 ): Promise<{ scored: number; drafted: number; failed: number; costUsd: number; skipped?: string }> {
   // Өдрийн LLM төсөв дүүрсэн бол шинэ нийтлэл боловсруулахгүй — бэлэн DRAFT-ууд хүлээж байна
   const budget = agentDailyBudget();
@@ -355,7 +358,6 @@ export async function runAgent(
     console.log(`Agent алгасав: ${msg}`);
     return { scored: 0, drafted: 0, failed: 0, costUsd: 0, skipped: msg };
   }
-  if (limit === 0) return { scored: 0, drafted: 0, failed: 0, costUsd: 0, skipped: "AGENT_BATCH=0" };
 
   const run = await prisma.jobRun.create({ data: { job: "agent", ...jobRunMeta() } });
   const tokensByModel = new Map<string, number>();
@@ -367,6 +369,20 @@ export async function runAgent(
     // Хуучирсан RAW-ууд дараалал эзлэхгүй — LLM дуудалгүй SKIPPED болгоно
     const pruned = await pruneStaleRaw();
     if (pruned.skipped > 0) console.log(`${pruned.skipped} хоцрогдсон RAW → SKIPPED`);
+
+    // Дараалал богино бол багцаа багасгана (adaptive) — хуримтлал байхгүй бол яарах шаардлагагүй
+    const rawQueue = await prisma.article.count({ where: { status: "RAW" } });
+    const limit = explicitLimit ?? adaptiveBatch(agentBatch(), rawQueue);
+    if (limit === 0) {
+      await prisma.jobRun.update({
+        where: { id: run.id },
+        data: { finishedAt: new Date(), ok: true, error: null },
+      });
+      return { scored: 0, drafted: 0, failed: 0, costUsd: 0, skipped: "AGENT_BATCH=0" };
+    }
+    if (explicitLimit === undefined && limit !== agentBatch()) {
+      console.log(`RAW дараалал ${rawQueue} — багц ${agentBatch()} → ${limit}`);
+    }
 
     const articles = await selectRawBatch(limit);
     const catalog = await loadCatalog();
@@ -431,7 +447,7 @@ export async function runAgent(
 
 if (process.argv[1]?.endsWith("process.ts")) {
   const limitArg = process.argv.indexOf("--limit");
-  const limit = limitArg > -1 ? Number(process.argv[limitArg + 1]) : agentBatch();
+  const limit = limitArg > -1 ? Number(process.argv[limitArg + 1]) : undefined;
   runAgent(limit)
     .catch((e) => { console.error(e); process.exitCode = 1; })
     .finally(() => prisma.$disconnect());
