@@ -19,8 +19,8 @@ import { CATEGORY_LABEL } from "../agent/category";
 import { chatImage, chatJson } from "../agent/llm";
 import { prisma } from "../db";
 import {
-  buildPhotoPrompt, CARD_H, CARD_W, CTA_FB, checkHook, fitHeadline, HOOK_SCHEMA, HOOK_SYSTEM,
-  overlaySvg, pickHook,
+  buildPhotoPrompt, CARD_H, CARD_W, CTA_FB, checkHook, fitHeadline, hookScore, HOOK_SCHEMA,
+  HOOK_SYSTEM, overlaySvg, pickHook, type ScoredHook,
 } from "./card.api";
 import {
   CATEGORY_SCENE_HINT, FALLBACK_IMAGE_MODEL, imageModel, isGenericScene, recentScenesBlock,
@@ -94,7 +94,7 @@ export async function writeHeadline(
   let problems: string[] = [];
 
   for (let attempt = 0; attempt < 2; attempt++) {
-    const out = await chat<{ hooks: string[] }>({
+    const out = await chat<{ hooks: ScoredHook[] }>({
       model: process.env.WRITE_MODEL ?? "google/gemini-3.8-flash",
       system: HOOK_SYSTEM,
       user: [
@@ -110,9 +110,15 @@ export async function writeHeadline(
     });
     costUsd += out.costUsd;
 
-    const picked = pickHook(out.data.hooks ?? []);
-    if (picked) return { headline: picked, costUsd };
-    problems = (out.data.hooks ?? []).flatMap((h) => checkHook(h).map((p) => `"${h.slice(0, 40)}" — ${p.detail}`));
+    const hooks = out.data.hooks ?? [];
+    const picked = pickHook(hooks);
+    if (picked) {
+      console.log(`  headline оноо: ${hookScore(picked)}/30 (${hooks.length} хувилбараас)`);
+      return { headline: picked.text, costUsd };
+    }
+    problems = hooks.flatMap((h) =>
+      checkHook(h.text ?? "").map((p) => `"${(h.text ?? "").slice(0, 40)}" — ${p.detail}`),
+    );
     console.warn(`  ⚠ headline тохирсонгүй: ${problems.slice(0, 3).join("; ")}`);
   }
   throw new Error("Headline бичигдсэнгүй (шалгуур давсангүй)");

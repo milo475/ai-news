@@ -80,15 +80,32 @@ export function fitHeadline(text: string, sizes = FONT_SIZES): FittedHeadline | 
 
 export const HOOK_SYSTEM = `Чи монгол хэлний гарчиг бичдэг редактор. Нийтлэлээс нийгмийн сүлжээний зурган дээр тавих НЭГ өгүүлбэр бич.
 
-Дүрэм:
-- ${MAX_HOOK_CHARS} тэмдэгтээс богино, нэг өгүүлбэр.
-- Тоо баримт заавал орно (хувь, доллар, хүний тоо, огноо, хэмжээ).
-- Баталгаатай өнгө: "...болжээ", "...байдаг", "...гэж үзэж байна" маягаар дуусна.
-- Асуулт биш, тушаал биш, кликбейт биш. Нийтлэлд байхгүй зүйл бүү нэм.
-- Emoji, хашилт, том үсгээр хашгирах хориотой.
-- Хэн бичсэн тухай юу ч бүү дурд.
+Уншигчийг ГАЙХУУЛАХ эсвэл түүнд ШУУД ХАМААТАЙ ганц баримт сонго.
 
-Гурван өөр хувилбар бич — өөр өөр баримтаас эхэлсэн байх. Зөвхөн JSON.`;
+БҮТЭЦ: [хэн/юу] + [гайхалтай тоо эсвэл харьцуулалт] + [үр дагавар].
+
+ХОРИОТОЙ:
+- Огноо (2026, 9-р сарын 21, 21-нд) — зурган дээр огноо хэрэггүй.
+- Мэдээллийн хуурай хэллэг: "танилцуулжээ", "зарлажээ", "төлөвлөжээ", "мэдэгдлээ".
+  Оронд нь: "болж байна", "болно", "байдаг", "хүрчээ", "унтардаг болжээ".
+- Emoji, хашилт, том үсгээр хашгирах.
+- Хэн бичсэн тухай дурдах.
+- ${MAX_HOOK_CHARS} тэмдэгтээс урт байх, хоёр өгүүлбэр болгох.
+
+САЙН жишээ:
+- Компаниас нэг ажилтан гарахад орлох зардал нь жилийн цалингаас 1.5–2 дахин их байдаг.
+- Гэрийн энгийн хөргөгч хүртэл системийн алдаанаас болж унтардаг болжээ.
+- Хиймэл оюун 5 хүн тутмын 1-ийн ажлын цагийг хоногт нэг цагаар хэмнэж байна.
+
+МУУ жишээ:
+- X компани шинэ бүтээгдэхүүнээ 9-р сарын 21-нд танилцууллаа.  (огноо + хуурай хэллэг)
+- Технологи хурдацтай хөгжиж байна.  (тоо ч үгүй, баримт ч үгүй)
+
+Тоо байхгүй сэдэвт харьцуулалт, эсрэгцүүлэл хэрэглэж болно ("хүртэл", "ч гэсэн", "гэвч").
+
+Гурван өөр хувилбар бич — өөр өөр баримтаас эхэлсэн байх. Хувилбар бүрийг ӨӨРӨӨ үнэл:
+surprise (гайхшрал), relevance (монгол уншигчид хамаатай эсэх), clarity (нэг уншаад ойлгогдох эсэх),
+тус бүр 0–10. Зөвхөн JSON.`;
 
 export const HOOK_SCHEMA = {
   type: "object",
@@ -97,19 +114,74 @@ export const HOOK_SCHEMA = {
       type: "array",
       minItems: 3,
       maxItems: 3,
-      items: { type: "string", description: `Нэг өгүүлбэр, ${MAX_HOOK_CHARS} тэмдэгтээс богино, тоотой` },
+      items: {
+        type: "object",
+        properties: {
+          text: { type: "string", description: `Нэг өгүүлбэр, ${MAX_HOOK_CHARS} тэмдэгтээс богино` },
+          surprise: { type: "integer", minimum: 0, maximum: 10 },
+          relevance: { type: "integer", minimum: 0, maximum: 10 },
+          clarity: { type: "integer", minimum: 0, maximum: 10 },
+        },
+        required: ["text", "surprise", "relevance", "clarity"],
+        additionalProperties: false,
+      },
     },
   },
   required: ["hooks"],
   additionalProperties: false,
 };
 
+export interface ScoredHook {
+  text: string;
+  surprise: number;
+  relevance: number;
+  clarity: number;
+}
+
+/** Гурван шалгуурын нийлбэр — сонголтын үндэс */
+export function hookScore(h: ScoredHook): number {
+  return (h.surprise ?? 0) + (h.relevance ?? 0) + (h.clarity ?? 0);
+}
+
 export interface HookProblem {
-  code: "empty" | "too-long" | "no-number" | "emoji" | "quotes" | "multi-sentence" | "shouting";
+  code:
+    | "empty" | "too-long" | "no-number" | "emoji" | "quotes" | "multi-sentence" | "shouting"
+    | "date" | "press-release";
   detail: string;
 }
 
-const EMOJI = /[\p{Extended_Pictographic}️]/u;
+const EMOJI = /[\p{Extended_Pictographic}\uFE0F]/u;
+
+/** Огноо, он сар өдрийн хэлбэрүүд — "тоотой" гэж тооцогдохгүй */
+// \b нь кирилл үсгийн хажууд ажиллахгүй тул зай/тэмдэгтийн заагаар шалгана
+const DATE_PATTERNS: RegExp[] = [
+  /(19|20)\d{2}\s*он[а-яөүё]*/gu,               // "2026 оны", "2026 онд"
+  /\d{1,2}\s*-?\s*р\s+сар[а-яөүё]*/gu,          // "9-р сарын"
+  /\d{1,2}\s*дугаар\s+сар[а-яөүё]*/gu,
+  /\d{1,2}-(нд|ны|ний|нээс|наас)(?=\s|$|[.,!?])/gu, // "21-нд"
+  /(19|20)\d{2}(?=\s|$|[.,!?])/gu,               // ганцаар "2026"
+];
+
+/** Огноо заасан хэсгүүдийг хасна */
+export function stripDates(text: string): string {
+  let out = text;
+  for (const re of DATE_PATTERNS) out = out.replace(re, " ");
+  return out.replace(/\s{2,}/g, " ").replace(/\s+([.,])/g, "$1").trim();
+}
+
+/** Харьцуулалт/эсрэгцүүлэл — тоогүй ч гэсэн хүчтэй гарчиг болгодог үгс */
+const CONTRAST_WORDS = ["хүртэл", "ч гэсэн", "гэвч", "атал", "байтал", "хэрнээ"];
+
+/** Үр дагаврын тоо (огноо тооцохгүй) эсвэл харьцуулалт байна уу */
+export function hasImpactNumber(text: string): boolean {
+  if (/\d/.test(stripDates(text))) return true;
+  const lower = text.toLowerCase();
+  return CONTRAST_WORDS.some((w) => lower.includes(w));
+}
+
+/** Мэдээллийн хуурай хэллэг — зурган дээр хориотой */
+const PRESS_RELEASE =
+  /(танилцуул|зарла|төлөвлө|мэдэгдэ|хэлэлцэ|нээлтээ хий)[а-яөүё]*?(жээ|лаа|лээ|на|нэ|в)(?=\s|$|[.,!?])/iu;
 
 /** Headline-ий шалгуур. Хоосон массив = зүгээр. */
 export function checkHook(hook: string): HookProblem[] {
@@ -118,10 +190,13 @@ export function checkHook(hook: string): HookProblem[] {
 
   if (!text) return [{ code: "empty", detail: "хоосон" }];
   if (text.length > MAX_HOOK_CHARS) problems.push({ code: "too-long", detail: `${text.length} тэмдэгт` });
-  if (!/\d/.test(text)) problems.push({ code: "no-number", detail: "тоо баримт алга" });
+  if (stripDates(text) !== text) problems.push({ code: "date", detail: "огноо байна" });
+  if (!hasImpactNumber(text)) {
+    problems.push({ code: "no-number", detail: "үр дагаврын тоо ч, харьцуулалт ч алга" });
+  }
+  if (PRESS_RELEASE.test(text)) problems.push({ code: "press-release", detail: "мэдээллийн хуурай хэллэг" });
   if (EMOJI.test(text)) problems.push({ code: "emoji", detail: "emoji байна" });
   if (/["«»“”]/.test(text)) problems.push({ code: "quotes", detail: "хашилт байна" });
-  // Дундаа цэг тавьсан бол хоёр өгүүлбэр — зурган дээр нэг л өгүүлбэр байна
   if (/[.!?…]\s+\S/.test(text)) problems.push({ code: "multi-sentence", detail: "нэгээс олон өгүүлбэр" });
   // \b нь кирилл үсэгтэй ажиллахгүй тул зайгаар нь таслаж шалгана
   const shouts = [...text.matchAll(/(?:^|\s)([A-ZА-ЯӨҮЁ]{4,})(?=\s|$|[.,!?:;])/gu)].map((m) => m[1]!);
@@ -133,23 +208,28 @@ export function checkHook(hook: string): HookProblem[] {
 }
 
 /**
- * Гурван хувилбараас хамгийн богиныг сонгоно (зурган дээр богино нь илүү).
+ * Хувилбаруудаас хамгийн өндөр оноотойг сонгоно (тэнцвэл богиныг).
  * Шалгуур давсан нь байхгүй бол null.
  */
-export function pickHook(hooks: string[]): string | null {
+export function pickHook(hooks: ScoredHook[]): ScoredHook | null {
   const valid = hooks
-    .map((h) => h.trim())
-    .filter((h) => checkHook(h).length === 0 && fitHeadline(h) !== null)
-    .sort((a, b) => a.length - b.length);
+    .map((h) => ({ ...h, text: h.text?.trim() ?? "" }))
+    .filter((h) => checkHook(h.text).length === 0 && fitHeadline(h.text) !== null)
+    .sort((a, b) => (hookScore(b) - hookScore(a)) || (a.text.length - b.text.length));
   return valid[0] ?? null;
 }
 
 // ---------- Зургийн prompt ----------
 
-/** Суурь зургийн тогтмол хэсэг — кино кадар/документари, "AI-style" гялтганахгүй */
+/**
+ * Суурь зургийн тогтмол хэсэг — кино кадар/документари, "AI-style" гялтганахгүй.
+ * Компози: гол объект дээд 2/3-д, доод 1/3 хоосон/харанхуй — тэнд headline бичигдэнэ.
+ */
 export const PHOTO_PROMPT_PREFIX =
   "documentary photograph, candid cinematic still, real people in a real place, 35mm film look, " +
-  "slight grain, natural lighting, shallow depth of field, muted colours, 4:5 vertical framing";
+  "slight grain, natural lighting, shallow depth of field, muted colours, 4:5 vertical framing, " +
+  "main subject placed in the upper two-thirds of the frame, lower third empty and darker " +
+  "(floor, table surface, shadow or wall) leaving clean space for a text overlay";
 
 /** Хориглох жагсаалт — prompt-ийн төгсгөлд явна */
 export const PHOTO_PROMPT_NEGATIVE =

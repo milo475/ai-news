@@ -2,38 +2,75 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import sharp from "sharp";
 import {
-  buildPhotoPrompt, CARD_H, CARD_W, checkHook, CTA_FB, CTA_IG, fitHeadline, FONT_SIZES, MAX_HOOK_CHARS,
-  MAX_LINES, overlaySvg, PAD, PHOTO_PROMPT_NEGATIVE, pickHook, wrapLines,
+  buildPhotoPrompt, CARD_H, CARD_W, checkHook, CTA_FB, CTA_IG, fitHeadline, FONT_SIZES,
+  hasImpactNumber, hookScore, MAX_HOOK_CHARS, MAX_LINES, overlaySvg, PAD, PHOTO_PROMPT_NEGATIVE,
+  pickHook, PHOTO_PROMPT_PREFIX, stripDates, wrapLines, type ScoredHook,
 } from "./card.api";
 import { heroJpeg, renderCard } from "./card";
 
-const GOOD = "Австралийн төрийн системд AI агент 3 сарын турш илрээгүй байжээ.";
+const GOOD = "Гэрийн энгийн хөргөгч хүртэл системийн алдаанаас болж унтардаг болжээ.";
+const GOOD_NUM = "Нэг ажилтан гарахад орлох зардал нь жилийн цалингаас 2 дахин их байдаг.";
 
-test("checkHook: тоотой, нэг өгүүлбэр, emoji/хашилтгүй байх", () => {
+const scored = (text: string, s = 8, r = 8, c = 8): ScoredHook => ({
+  text, surprise: s, relevance: r, clarity: c,
+});
+
+test("stripDates: он, сар, өдрийн хэлбэрүүдийг хасна", () => {
+  assert.equal(stripDates("2026 оны 9-р сарын 21-нд гарчээ"), "гарчээ");
+  assert.equal(stripDates("Gemini 4 загвар 2026 онд гарна"), "Gemini 4 загвар гарна");
+  assert.equal(stripDates("40 хувиар буурчээ"), "40 хувиар буурчээ", "энгийн тоог хөндөхгүй");
+});
+
+test("hasImpactNumber: огноо тоонд тооцогдохгүй, харьцуулалт зөвшөөрнө", () => {
+  assert.equal(hasImpactNumber("Загварыг 2026 оны 9-р сарын 21-нд гаргажээ"), false, "зөвхөн огноо");
+  assert.equal(hasImpactNumber("Зардал 2 дахин их байдаг"), true);
+  assert.equal(hasImpactNumber("Ашиглалт 40 хувиар өсчээ"), true);
+  assert.equal(hasImpactNumber("Сард 200 ам.доллар болно"), true);
+
+  // Тоогүй ч харьцуулалттай бол зүгээр
+  assert.equal(hasImpactNumber(GOOD), true, "«хүртэл»");
+  assert.equal(hasImpactNumber("Жижиг дэлгүүр ч гэсэн ийм хэрэгсэл ашигладаг болжээ"), true);
+  assert.equal(hasImpactNumber("Технологи хурдацтай хөгжиж байна"), false);
+});
+
+test("checkHook: огноо, хуурай хэллэг, тоогүй байдлыг барина", () => {
   assert.deepEqual(checkHook(GOOD), []);
+  assert.deepEqual(checkHook(GOOD_NUM), []);
 
   const codes = (h: string) => checkHook(h).map((p) => p.code);
   assert.ok(codes("").includes("empty"));
-  assert.ok(codes("Хиймэл оюун хөгжиж байна.").includes("no-number"), "тоо байхгүй");
+  assert.ok(codes("Технологи хурдацтай хөгжиж байна.").includes("no-number"));
+  assert.ok(codes("Google шинэ загвараа 2026 онд гаргана.").includes("date"));
+  assert.ok(codes("Google шинэ загвараа танилцууллаа.").includes("press-release"));
+  assert.ok(codes("Samsung 40 хувийн хямдрал зарлажээ.").includes("press-release"));
   assert.ok(codes(`${"у".repeat(MAX_HOOK_CHARS + 5)} 40 хувь`).includes("too-long"));
   assert.ok(codes("40 хувь нь ингэжээ 🚀").includes("emoji"));
-  assert.ok(codes('«40 хувь» нь ингэжээ').includes("quotes"));
+  assert.ok(codes("«40 хувь» нь ингэжээ").includes("quotes"));
   assert.ok(codes("40 хувь нь ингэжээ. Дараа нь тэгжээ.").includes("multi-sentence"));
   assert.ok(codes("ЭНЭ БОЛ 40 ХУВИЙН ӨӨРЧЛӨЛТ").includes("shouting"));
-
-  // Товчлол ганцаараа бол хашгирсан гэж үзэхгүй
-  assert.ok(!codes("NASA 40 сая долларын гэрээ байгуулжээ.").includes("shouting"));
+  assert.ok(!codes("NASA 40 сая долларын гэрээтэй болжээ.").includes("shouting"));
 });
 
-test("pickHook: шалгуур давсан хамгийн богиныг сонгоно", () => {
-  const picked = pickHook([
-    "Австралийн төрийн системд хиймэл оюуны агент 3 сарын турш илрээгүй хэвээр байжээ гэнэ.",
-    GOOD,
-    "Хиймэл оюун хөгжиж байна.", // тоогүй — хасагдана
-  ]);
-  assert.equal(picked, GOOD);
+test("pickHook: хамгийн өндөр оноотойг, тэнцвэл богиныг", () => {
+  const best = scored("Хиймэл оюун 5 хүн тутмын 1-ийн цагийг хэмнэж байна.", 9, 9, 9);
+  const picked = pickHook([scored(GOOD_NUM, 6, 6, 6), best, scored(GOOD, 5, 5, 5)]);
+  assert.equal(picked?.text, best.text);
+  assert.equal(hookScore(best), 27);
 
-  assert.equal(pickHook(["Тоогүй өгүүлбэр.", "Бас нэг тоогүй."]), null);
+  // Оноо тэнцвэл богино нь
+  const shortOne = scored("Зардал 2 дахин өсчээ.", 8, 8, 8);
+  const tie = pickHook([scored(GOOD_NUM, 8, 8, 8), shortOne]);
+  assert.equal(tie?.text, shortOne.text);
+
+  // Шалгуур давсангүй — огноотой, хуурай, тоогүй
+  assert.equal(
+    pickHook([
+      scored("Google загвараа 2026 онд гаргана.", 10, 10, 10),
+      scored("Компани шинэ хэрэгслээ танилцууллаа.", 10, 10, 10),
+      scored("Технологи хөгжиж байна.", 10, 10, 10),
+    ]),
+    null,
+  );
   assert.equal(pickHook([]), null);
 });
 
@@ -89,6 +126,10 @@ test("buildPhotoPrompt: кино кадрын стиль + хориглох жа
   }
   assert.ok(prompt.includes("a night shift nurse checking a monitor"));
   assert.ok(prompt.endsWith(`${PHOTO_PROMPT_NEGATIVE}.`));
+
+  // 4:5 картын компози — гол объект дээд 2/3-д, доод 1/3 хоосон
+  assert.ok(PHOTO_PROMPT_PREFIX.includes("upper two-thirds"));
+  assert.ok(PHOTO_PROMPT_PREFIX.includes("lower third empty"));
 });
 
 test("renderCard: 1080×1350 JPEG, суурь зургаас өөр (overlay зурагдсан)", async () => {

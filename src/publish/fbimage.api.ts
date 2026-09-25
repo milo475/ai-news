@@ -56,8 +56,17 @@ BANNED (too generic — never use unless the article is literally about it):
 room", "a business handshake", "a boardroom", "generic server racks", "a glowing AI brain",
 "a humanoid robot", "abstract digital background", "hands typing on a keyboard".
 
+Prefer the HUMAN side of the topic over a literal illustration: show who is affected and what they
+do, not the technology itself. Examples:
+- model compression / faster inference → someone using an assistant on their phone on a bus
+- a new chip → a phone being unboxed or a laptop on a kitchen table, not a cleanroom
+- a research paper → the everyday task the research changes
+A literal lab, physics equipment or server room is allowed only when the article is about that place.
+
 Rules:
 - One sentence, English, under 200 characters.
+- Compose for a 4:5 card: the subject sits in the upper two-thirds, the lower third stays empty
+  or dark (a table, floor, wall or shadow) so a headline can be laid over it.
 - Real-world, photographable scene — objects and places first, people only if they belong there.
 - No brand names, no logos, no product names, no text or signage in the scene.
 - No recognisable real people, no faces in close-up; people seen from behind, from the side, or in soft focus.
