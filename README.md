@@ -621,6 +621,66 @@ session дэмждэггүй). Хэрэглэгчийн хүснэгтүүд: `U
 
 **Umami event:** `bookmark_add`, `bookmark_remove`.
 
+## Заавар (/zaavar) — мөнхийн контент
+HOWTO гарын авлагууд. Мэдээ хурдан хуучирдаг бол заавар нь Google-ээс жилээр траффик татна.
+
+**Модель:** `Guide` — `slug`, `title`, `lead`, `bodyMd`, `level` (BEGINNER/INTERMEDIATE/ADVANCED),
+`audience[]`, `tools[]`, `usecaseSlug` (`/hereglee`-тэй холбоно), `readMinutes`, `heroImageData`,
+`faq` (Json `[{q,a}]`), `status`, `views`, `topic` (захиалсан сэдэв), `costUsd`.
+Тусдаа `GuideStep` хүснэгт БАЙХГҮЙ — алхмууд нь `bodyMd` доторх `##` гарчгууд.
+
+**bodyMd-ийн гэрээ**
+
+| Тэмдэглэгээ | Юу болох вэ |
+|---|---|
+| `## Гарчиг` | TOC-ийн мөр, JSON-LD HowTo-ийн алхам, `id` нь `slugify(гарчиг)` |
+| ` ```prompt … ``` ` | «Хуулах» товчтой `<PromptBox>` |
+| ` ```js … ``` ` | энгийн код блок |
+
+`headingId()`-г `tocFromMarkdown` ба `GuideBody` хоёул дууддаг тул TOC-ийн холбоос үргэлж таарна.
+Ижил гарчиг давхардвал хоёр дахь нь `-2` авна.
+
+**Хуудсууд:** `/zaavar` (түвшин/хэн/хэрэгслээр шүүх), `/zaavar/<slug>` (sticky TOC, PromptBox,
+хэрэгслийн chip, FAQ accordion, холбоотой 3 заавар + хэрэглээний ангилал, Хадгалах товч).
+Nav-д «Заавар», нүүрний «Сүүлийн мэдээ»-ний доор «Шинэ заавар» 3 карт.
+
+**Хадгалах.** `Bookmark` нь одоо нийтлэл ЭСВЭЛ заавар заана: `articleId`/`guideId` хоёрын **яг нэг
+нь** бөглөгдөнө (DB-д `CHECK (num_nonnulls(...) = 1)`, Prisma-д илэрхийлэгддэггүй тул гараар).
+
+**SEO**
+- `metadata`: title ≤60, description ≤155 (`clamp` нь үгийн дунд таслахгүй), canonical, OG/Twitter.
+- JSON-LD: `HowTo` (алхмууд `##`-аас, `totalTime`, алхам бүр `#id` холбоостой) + `FAQPage`.
+- `/sitemap.xml` — мэдээ, заавар, модель (1000 хүртэл), хэрэглээ, статик хуудсууд. Заавар нь
+  мэдээнээс өндөр `priority` (0.9 vs 0.6).
+- `/robots.txt` — `/api/` хаалттай, гэхдээ зургийн эндпойнтууд (`guide-image`, `hero-image`,
+  `fb-image`, `og`) тусад нь `Allow` — эс тэгвээс og:image, HowTo зураг индексэд орохгүй.
+- Хуудас бүрд «Сүүлд шинэчилсэн» огноо.
+
+**Контент үүсгэх** — `/admin/zaavar`
+- «Сэдвээс заавар бичүүлэх»: сэдэв + зорилтот уншигч + түвшин → `WRITE_MODEL` бүтэн заавар бичнэ
+  (lead 2 өгүүлбэр, 5–8 алхам, шаардлагатай алхамд prompt, «Түгээмэл алдаа», FAQ 3–5).
+  `checkGuide` давахгүй бол нэг удаа дахин бичүүлнэ.
+- **Хэрэгслийн нэрийг зааврын хэллэгт ЗӨВШӨӨРНӨ.** FB текстийн «эх сурвалж/загварын нэр бүү дурд»
+  дүрэм энд хамаарахгүй — заавар нь ChatGPT, Gemini, Canva-г нэрээр нь заах ёстой.
+- Hero зураг нь `card.ts`-ийн scene урсгалаар (`buildHero`), ангилал нь `HOWTO` тул лаборатори,
+  микроскоп гарахгүй — энгийн хүн, өдөр тутмын орчин.
+- Бүх заавар **DRAFT**-аар үүснэ. Автомат нийтлэхгүй — админ уншиж, засаад өөрөө нийтэлнэ.
+
+```bash
+npm run seed:guides              # 12 суурь сэдвийг DRAFT-аар (~$0.6, зурагтай)
+npm run seed:guides -- --no-hero # зураггүй, хямд
+npm run seed:guides -- --only 3  # эхний 3
+npx tsx src/guides/write.ts "сэдэв" --audience оюутан --level BEGINNER
+```
+
+Давтан ажиллуулахад аюулгүй: `Guide.topic`-оор давхардлыг шалгана (гарчгийг LLM өөрөө бичдэг тул
+slug-аас сэдвийг таних боломжгүй).
+
+**Үзэлт.** Umami-гаас татахгүй, `Guide.views`-ыг DB дээр шууд `increment` хийнэ. `isBot()` нь
+user-agent-аар crawler, curl, headless-ийг шүүнэ (UA огт байхгүй бол ч тоолохгүй).
+
+**Umami event:** `guide_view`, `prompt_copy`, `guide_filter`.
+
 ## Брэнд
 Нэр: **AI News**. Тэмдэг нь өсөх багана + дээш заасан сум, өнгө `--color-accent` (`#4f46e5`).
 

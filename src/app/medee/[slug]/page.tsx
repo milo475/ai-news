@@ -43,7 +43,7 @@ export default async function NewsPage({ params }: { params: Promise<Params> }) 
   if (!n) notFound();
   const shareUrl = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(`${SITE_URL}/medee/${slug}`)}`;
   const user = await currentUser();
-  const saved = user ? await isBookmarked(user.id, n.id) : false;
+  const saved = user ? await isBookmarked(user.id, { articleId: n.id }) : false;
 
   return (
     <article className="max-w-2xl space-y-6">
@@ -65,7 +65,7 @@ export default async function NewsPage({ params }: { params: Promise<Params> }) 
           )}
         </p>
         <div className="flex flex-wrap items-center gap-3 pt-1">
-          <BookmarkButton articleId={n.id} saved={saved} path={`/medee/${slug}`} />
+          <BookmarkButton target={{ articleId: n.id }} saved={saved} path={`/medee/${slug}`} />
           {n.kind === "DIGEST" && <ShareFacebook slug={slug} href={shareUrl} />}
         </div>
       </div>

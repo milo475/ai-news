@@ -7,7 +7,7 @@ import type { SearchResults } from "@/lib/search";
 import { analytics } from "@/lib/analytics";
 
 const DEBOUNCE_MS = 200;
-const PLACEHOLDER = "Модель, мэдээ, хэрэгсэл хайх…";
+const PLACEHOLDER = "Мэдээ, заавар, модель хайх…";
 
 interface Row {
   href: string;
@@ -25,6 +25,14 @@ function toRows(r: SearchResults | null): { group: string; rows: Row[] }[] {
         href: `/medee/${a.slug}`,
         label: a.titleMn,
         hint: a.kind === "DIGEST" ? "Долоо хоногийн тойм" : a.summaryMn.slice(0, 80),
+      })),
+    },
+    {
+      group: "Заавар",
+      rows: r.guides.map((g) => ({
+        href: `/zaavar/${g.slug}`,
+        label: g.title,
+        hint: `${g.readMinutes} мин · ${g.lead.slice(0, 60)}`,
       })),
     },
     {

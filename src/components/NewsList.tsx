@@ -42,7 +42,7 @@ export function NewsList({
             <Tags tags={n.tags} />
             {savedIds && (
               <span className="ml-auto">
-                <BookmarkButton articleId={n.id} saved={savedIds.has(n.id)} path={path} compact />
+                <BookmarkButton target={{ articleId: n.id }} saved={savedIds.has(n.id)} path={path} compact />
               </span>
             )}
           </div>

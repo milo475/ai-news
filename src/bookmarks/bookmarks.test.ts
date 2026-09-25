@@ -41,17 +41,17 @@ test("bookmark toggle идемпотент, unique зөрчил дээр уна�
     await import("./queries");
 
   try {
-    assert.equal(await isBookmarked(user.id, a1.id), false);
+    assert.equal(await isBookmarked(user.id, { articleId: a1.id }), false);
 
     // Хадгалах → хасах → хадгалах
-    assert.equal(await toggleBookmarkFor(user.id, a1.id), true);
-    assert.equal(await isBookmarked(user.id, a1.id), true);
+    assert.equal(await toggleBookmarkFor(user.id, { articleId: a1.id }), true);
+    assert.equal(await isBookmarked(user.id, { articleId: a1.id }), true);
     assert.equal(await prisma.bookmark.count({ where: { userId: user.id } }), 1);
 
-    assert.equal(await toggleBookmarkFor(user.id, a1.id), false);
-    assert.equal(await isBookmarked(user.id, a1.id), false);
+    assert.equal(await toggleBookmarkFor(user.id, { articleId: a1.id }), false);
+    assert.equal(await isBookmarked(user.id, { articleId: a1.id }), false);
 
-    assert.equal(await toggleBookmarkFor(user.id, a1.id), true);
+    assert.equal(await toggleBookmarkFor(user.id, { articleId: a1.id }), true);
 
     // Unique зөрчил: DB давхар мөр үүсгэхийг хориглоно, toggle нь уг алдааг таньж залгина
     await assert.rejects(
@@ -63,14 +63,14 @@ test("bookmark toggle идемпотент, unique зөрчил дээр уна�
     assert.equal(isUniqueViolation(new Error("сүлжээний алдаа")), false, "өөр алдааг залгихгүй");
 
     // Хоёр таб зэрэг хасахад deleteMany тул «олдсонгүй» алдаа гарахгүй
-    assert.equal(await toggleBookmarkFor(user.id, a2.id), true);
+    assert.equal(await toggleBookmarkFor(user.id, { articleId: a2.id }), true);
     await assert.doesNotReject(() =>
-      Promise.all([toggleBookmarkFor(user.id, a2.id), toggleBookmarkFor(user.id, a2.id)]),
+      Promise.all([toggleBookmarkFor(user.id, { articleId: a2.id }), toggleBookmarkFor(user.id, { articleId: a2.id })]),
     );
 
     // Жагсаалт + ангиллын тоо
     await prisma.bookmark.deleteMany({ where: { userId: user.id, articleId: a2.id } });
-    assert.equal(await toggleBookmarkFor(user.id, a2.id), true);
+    assert.equal(await toggleBookmarkFor(user.id, { articleId: a2.id }), true);
     const list = await listBookmarks(user.id);
     assert.equal(list.length, 2);
     assert.equal(list[0]!.id, a2.id, "сүүлд хадгалсан нь эхэнд");
@@ -140,7 +140,7 @@ test("бүртгэл устгахад bookmark, preference cascade-аар уст
   const { toggleBookmarkFor } = await import("./queries");
 
   try {
-    await toggleBookmarkFor(user.id, a1.id);
+    await toggleBookmarkFor(user.id, { articleId: a1.id });
     await prisma.userPreference.create({ data: { userId: user.id, categories: ["NEWS"] } });
     await prisma.subscriber.create({
       data: { email: user.email, userId: user.id, status: "ACTIVE", unsubscribeToken: `u-${tag}` },

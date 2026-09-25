@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { requireUser } from "@/auth/session";
-import { bookmarkCategories, listBookmarks } from "@/bookmarks/queries";
+import { bookmarkCategories, listBookmarks, listGuideBookmarks } from "@/bookmarks/queries";
 import { BookmarkButton } from "@/components/BookmarkButton";
+import { GuideGrid } from "@/components/GuideList";
 import { CATEGORIES, CATEGORY_LABEL } from "@/agent/category";
 import { fmtDate } from "@/components/format";
 import { getLatestNews } from "@/data";
@@ -19,18 +20,23 @@ export default async function SavedPage({
   // Танигдахгүй ангилал ирвэл шүүлтгүй бүтэн жагсаалт
   const filter = (CATEGORIES as string[]).includes(asked ?? "") ? (asked as ArticleCategory) : undefined;
 
-  const [items, groups] = await Promise.all([
+  const [items, groups, guides] = await Promise.all([
     listBookmarks(user.id, filter),
     bookmarkCategories(user.id),
+    listGuideBookmarks(user.id),
   ]);
-  const total = groups.reduce((n, g) => n + g.count, 0);
+  const articleTotal = groups.reduce((n, g) => n + g.count, 0);
+  const total = articleTotal + guides.length;
+
+  // ?angilal=zaavar — зөвхөн хадгалсан заавар
+  const onlyGuides = asked === "zaavar";
 
   if (total === 0) {
     const latest = await getLatestNews(3);
     return (
       <div className="space-y-4">
         <div className="rounded-lg border border-dashed border-line p-6 text-sm text-muted">
-          Одоохондоо хадгалсан зүйл алга. Мэдээний хажуугийн ☆ товчийг дарж хадгална.
+          Одоохондоо хадгалсан зүйл алга. Мэдээ, зааврын хажуугийн ☆ товчийг дарж хадгална.
         </div>
         {latest.length > 0 && (
           <section className="space-y-2">
@@ -50,7 +56,7 @@ export default async function SavedPage({
     );
   }
 
-  const path = filter ? `/profile/hadgalsan?angilal=${filter}` : "/profile/hadgalsan";
+  const path = asked ? `/profile/hadgalsan?angilal=${asked}` : "/profile/hadgalsan";
 
   return (
     <div className="space-y-4">
@@ -58,11 +64,21 @@ export default async function SavedPage({
         <Link
           href="/profile/hadgalsan"
           className={`rounded-full border px-2.5 py-1 ${
-            filter ? "border-line text-muted hover:text-ink" : "border-accent text-accent"
+            filter || onlyGuides ? "border-line text-muted hover:text-ink" : "border-accent text-accent"
           }`}
         >
           Бүгд <span className="tabular-nums">{total}</span>
         </Link>
+        {guides.length > 0 && (
+          <Link
+            href="/profile/hadgalsan?angilal=zaavar"
+            className={`rounded-full border px-2.5 py-1 ${
+              onlyGuides ? "border-accent text-accent" : "border-line text-muted hover:text-ink"
+            }`}
+          >
+            Заавар <span className="tabular-nums">{guides.length}</span>
+          </Link>
+        )}
         {groups.map((g) => (
           <Link
             key={g.category}
@@ -76,7 +92,14 @@ export default async function SavedPage({
         ))}
       </nav>
 
-      {items.length === 0 ? (
+      {guides.length > 0 && !filter && (
+        <section className="space-y-2">
+          <h2 className="text-sm font-semibold">Заавар</h2>
+          <GuideGrid items={guides} savedIds={new Set(guides.map((g) => g.id))} path={path} cols={2} />
+        </section>
+      )}
+
+      {onlyGuides ? null : items.length === 0 ? (
         <div className="rounded-lg border border-dashed border-line p-6 text-sm text-muted">
           Энэ ангилалд хадгалсан зүйл алга.
         </div>
@@ -91,7 +114,7 @@ export default async function SavedPage({
                 <span>·</span>
                 <span>{fmtDate(n.publishedAt)}</span>
                 <span className="ml-auto">
-                  <BookmarkButton articleId={n.id} saved path={path} compact />
+                  <BookmarkButton target={{ articleId: n.id }} saved path={path} compact />
                 </span>
               </div>
             </li>

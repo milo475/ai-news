@@ -21,6 +21,7 @@ const NAV = [
   { href: "/", label: "Нүүр" },
   { href: "/jagsaalt", label: "Жагсаалт" },
   { href: "/hereglee", label: "Хэрэглээ" },
+  { href: "/zaavar", label: "Заавар" },
   { href: "/medee", label: "Мэдээ" },
 ];
 

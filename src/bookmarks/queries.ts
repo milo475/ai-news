@@ -1,8 +1,14 @@
 /**
- * Хадгалсан нийтлэлүүд — унших талын query-ууд.
+ * Хадгалсан зүйлс — унших талын query-ууд.
+ *
+ * Нэг Bookmark мөр нь нийтлэл ЭСВЭЛ заавар заана (DB дээр CHECK constraint-аар барьсан).
  */
 import { prisma } from "../db";
 import type { ArticleCategory } from "../generated/prisma/enums";
+import { guideCardSelect, toGuideCard, type GuideCard } from "../guides/queries";
+
+/** Хадгалах боломжтой зүйл — яг нэг талбартай */
+export type BookmarkTarget = { articleId: string; guideId?: never } | { guideId: string; articleId?: never };
 
 export interface BookmarkCard {
   id: string;
@@ -13,6 +19,9 @@ export interface BookmarkCard {
   publishedAt: Date | null;
   savedAt: Date;
 }
+
+/** Зааврын карт + хэзээ хадгалсан */
+export type GuideBookmarkCard = GuideCard & { savedAt: Date };
 
 /** Хэрэглэгчийн хадгалсан нийтлэлүүд, сүүлд хадгалсан нь эхэнд */
 export async function listBookmarks(
@@ -30,15 +39,29 @@ export async function listBookmarks(
     },
   });
 
-  return rows.map((r) => ({
-    id: r.article.id,
-    slug: r.article.slug,
-    titleMn: r.article.titleMn ?? "",
-    summaryMn: r.article.summaryMn ?? "",
-    category: r.article.category,
-    publishedAt: r.article.publishedAt,
-    savedAt: r.createdAt,
-  }));
+  return rows.flatMap((r) =>
+    r.article
+      ? [{
+          id: r.article.id,
+          slug: r.article.slug,
+          titleMn: r.article.titleMn ?? "",
+          summaryMn: r.article.summaryMn ?? "",
+          category: r.article.category,
+          publishedAt: r.article.publishedAt,
+          savedAt: r.createdAt,
+        }]
+      : [],
+  );
+}
+
+/** Хадгалсан заавраууд */
+export async function listGuideBookmarks(userId: string): Promise<GuideBookmarkCard[]> {
+  const rows = await prisma.bookmark.findMany({
+    where: { userId, guide: { status: "PUBLISHED" } },
+    orderBy: { createdAt: "desc" },
+    select: { createdAt: true, guide: { select: guideCardSelect } },
+  });
+  return rows.flatMap((r) => (r.guide ? [{ ...toGuideCard(r.guide), savedAt: r.createdAt }] : []));
 }
 
 /** Хадгалсан нийтлэлүүдийн ангиллаар тоолсон дүн — шүүлтүүрт */
@@ -48,10 +71,11 @@ export async function bookmarkCategories(userId: string): Promise<{ category: Ar
     where: { userId, article: { status: "PUBLISHED" } },
     _count: true,
   });
-  if (rows.length === 0) return [];
+  const ids = rows.flatMap((r) => (r.articleId ? [r.articleId] : []));
+  if (ids.length === 0) return [];
 
   const articles = await prisma.article.findMany({
-    where: { id: { in: rows.map((r) => r.articleId) } },
+    where: { id: { in: ids } },
     select: { category: true },
   });
   const counts = new Map<ArticleCategory, number>();
@@ -59,12 +83,9 @@ export async function bookmarkCategories(userId: string): Promise<{ category: Ar
   return [...counts].map(([category, count]) => ({ category, count })).sort((a, b) => b.count - a.count);
 }
 
-/** Тухайн нийтлэлийг хадгалсан эсэх */
-export async function isBookmarked(userId: string, articleId: string): Promise<boolean> {
-  const row = await prisma.bookmark.findUnique({
-    where: { userId_articleId: { userId, articleId } },
-    select: { id: true },
-  });
+/** Тухайн зүйлийг хадгалсан эсэх */
+export async function isBookmarked(userId: string, target: BookmarkTarget): Promise<boolean> {
+  const row = await prisma.bookmark.findFirst({ where: { userId, ...target }, select: { id: true } });
   return row !== null;
 }
 
@@ -75,27 +96,34 @@ export async function bookmarkedIds(userId: string, articleIds: string[]): Promi
     where: { userId, articleId: { in: articleIds } },
     select: { articleId: true },
   });
-  return new Set(rows.map((r) => r.articleId));
+  return new Set(rows.flatMap((r) => (r.articleId ? [r.articleId] : [])));
+}
+
+/** Хадгалсан заавруудын id (жагсаалтын картууд) */
+export async function bookmarkedGuideIds(userId: string, guideIds: string[]): Promise<Set<string>> {
+  if (guideIds.length === 0) return new Set();
+  const rows = await prisma.bookmark.findMany({
+    where: { userId, guideId: { in: guideIds } },
+    select: { guideId: true },
+  });
+  return new Set(rows.flatMap((r) => (r.guideId ? [r.guideId] : [])));
 }
 
 /**
  * Хадгалсан бол хасна, үгүй бол хадгална. Идемпотент:
  * зэрэг дарахад «олдсонгүй» ч, unique зөрчил ч алдаа болохгүй.
  */
-export async function toggleBookmarkFor(userId: string, articleId: string): Promise<boolean> {
-  const existing = await prisma.bookmark.findUnique({
-    where: { userId_articleId: { userId, articleId } },
-    select: { id: true },
-  });
+export async function toggleBookmarkFor(userId: string, target: BookmarkTarget): Promise<boolean> {
+  const existing = await prisma.bookmark.findFirst({ where: { userId, ...target }, select: { id: true } });
 
   if (existing) {
     // deleteMany — өөр таб зэрэг устгасан байсан ч алдаа гаргахгүй
-    await prisma.bookmark.deleteMany({ where: { userId, articleId } });
+    await prisma.bookmark.deleteMany({ where: { userId, ...target } });
     return false;
   }
 
   try {
-    await prisma.bookmark.create({ data: { userId, articleId } });
+    await prisma.bookmark.create({ data: { userId, ...target } });
   } catch (e) {
     // Хоёр таб зэрэг дарвал unique зөрчил гарна — хадгалагдсан гэж үзнэ
     if (!isUniqueViolation(e)) throw e;

@@ -26,14 +26,15 @@ export async function userStats(): Promise<UserStats> {
         accounts: { select: { provider: true }, take: 1 },
       },
     }),
-    prisma.bookmark.groupBy({ by: ["articleId"], _count: { articleId: true }, orderBy: { _count: { articleId: "desc" } }, take: 10 }),
+    prisma.bookmark.groupBy({
+      by: ["articleId"], where: { articleId: { not: null } },
+      _count: { articleId: true }, orderBy: { _count: { articleId: "desc" } }, take: 10,
+    }),
   ]);
 
-  const articles = grouped.length
-    ? await prisma.article.findMany({
-        where: { id: { in: grouped.map((g) => g.articleId) } },
-        select: { id: true, slug: true, titleMn: true },
-      })
+  const ids = grouped.flatMap((g) => (g.articleId ? [g.articleId] : []));
+  const articles = ids.length
+    ? await prisma.article.findMany({ where: { id: { in: ids } }, select: { id: true, slug: true, titleMn: true } })
     : [];
   const byId = new Map(articles.map((a) => [a.id, a]));
 
@@ -51,7 +52,7 @@ export async function userStats(): Promise<UserStats> {
       provider: u.accounts[0]?.provider ?? "имэйл",
     })),
     topBookmarked: grouped.flatMap((g) => {
-      const a = byId.get(g.articleId);
+      const a = g.articleId ? byId.get(g.articleId) : undefined;
       return a ? [{ id: a.id, slug: a.slug, titleMn: a.titleMn ?? "", count: g._count.articleId }] : [];
     }),
   };

@@ -2,6 +2,7 @@
 
 import { useOptimistic, useTransition } from "react";
 import { toggleBookmark } from "@/bookmarks/actions";
+import type { BookmarkTarget } from "@/bookmarks/queries";
 import { track } from "@/lib/analytics";
 
 /**
@@ -9,12 +10,13 @@ import { track } from "@/lib/analytics";
  * сервер хариу ирэхэд баталгаажна.
  */
 export function BookmarkButton({
-  articleId,
+  target,
   saved,
   path,
   compact = false,
 }: {
-  articleId: string;
+  /** { articleId } эсвэл { guideId } */
+  target: BookmarkTarget;
   saved: boolean;
   path?: string;
   compact?: boolean;
@@ -33,8 +35,10 @@ export function BookmarkButton({
       onClick={() => {
         startTransition(async () => {
           setOptimistic(!optimistic);
-          track(optimistic ? "bookmark_remove" : "bookmark_add");
-          await toggleBookmark(articleId, path);
+          track(optimistic ? "bookmark_remove" : "bookmark_add", {
+            kind: target.guideId ? "guide" : "article",
+          });
+          await toggleBookmark(target, path);
         });
       }}
       className={

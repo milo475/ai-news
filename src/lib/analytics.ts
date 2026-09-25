@@ -50,6 +50,11 @@ export const analytics = {
   shareFacebook: (slug: string) => track("share_facebook", { slug }),
   modelView: (slug: string) => track("model_view", { slug }),
   useCaseView: (slug: string) => track("usecase_view", { slug }),
+  guideView: (slug: string) => track("guide_view", { slug }),
+  promptCopy: (slug: string) => track("prompt_copy", { slug }),
+  guideFilter: (filters: EventData) => track("guide_filter", filters),
+  bookmarkAdd: (kind: "article" | "guide") => track("bookmark_add", { kind }),
+  bookmarkRemove: (kind: "article" | "guide") => track("bookmark_remove", { kind }),
 };
 
 export interface UmamiConfig {

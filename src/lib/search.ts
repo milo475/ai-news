@@ -29,6 +29,15 @@ export interface ModelHit {
   arenaOnly: boolean;
 }
 
+export interface GuideHit {
+  slug: string;
+  title: string;
+  lead: string;
+  readMinutes: number;
+  /** ts_headline — тааралт тодруулсан хэсэг (<mark> тэгтэй) */
+  headline: string;
+}
+
 export interface ToolHit {
   slug: string;
   name: string;
@@ -42,12 +51,13 @@ export interface ToolHit {
 export interface SearchResults {
   q: string;
   articles: ArticleHit[];
+  guides: GuideHit[];
   models: ModelHit[];
   tools: ToolHit[];
   total: number;
 }
 
-const EMPTY = (q: string): SearchResults => ({ q, articles: [], models: [], tools: [], total: 0 });
+const EMPTY = (q: string): SearchResults => ({ q, articles: [], guides: [], models: [], tools: [], total: 0 });
 
 export async function search(q: string, opts: { limit?: number } = {}): Promise<SearchResults> {
   const trimmed = q.trim();
@@ -58,7 +68,7 @@ export async function search(q: string, opts: { limit?: number } = {}): Promise<
   const limit = opts.limit ?? DEFAULT_LIMIT;
   const query = Prisma.sql`to_tsquery('simple', immutable_unaccent(${ts}))`;
 
-  const [articles, models, tools] = await Promise.all([
+  const [articles, guides, models, tools] = await Promise.all([
     prisma.$queryRaw<ArticleHit[]>`
       SELECT a."slug", coalesce(a."titleMn", a."sourceTitle") AS "titleMn",
              coalesce(a."summaryMn", '') AS "summaryMn", a."kind"::text AS "kind", a."publishedAt",
@@ -67,6 +77,15 @@ export async function search(q: string, opts: { limit?: number } = {}): Promise<
       FROM "Article" a
       WHERE a."status" = 'PUBLISHED' AND a."searchVector" @@ ${query}
       ORDER BY ts_rank(a."searchVector", ${query}) DESC, a."publishedAt" DESC NULLS LAST
+      LIMIT ${limit}`,
+    // Заавар — мөнхийн контент тул хайлтад мэдээний дараа нь тавина
+    prisma.$queryRaw<GuideHit[]>`
+      SELECT g."slug", g."title", g."lead", g."readMinutes",
+             ts_headline('simple', immutable_unaccent(g."bodyMd"), ${query},
+                         'StartSel=<mark>,StopSel=</mark>,MaxFragments=1,MaxWords=28,MinWords=12') AS "headline"
+      FROM "Guide" g
+      WHERE g."status" = 'PUBLISHED' AND g."searchVector" @@ ${query}
+      ORDER BY ts_rank(g."searchVector", ${query}) DESC, g."publishedAt" DESC NULLS LAST
       LIMIT ${limit}`,
     prisma.$queryRaw<ModelHit[]>`
       SELECT m."slug", m."name", c."name" AS "companyName", m."arenaOnly"
@@ -98,9 +117,10 @@ export async function search(q: string, opts: { limit?: number } = {}): Promise<
   return {
     q: trimmed,
     articles,
+    guides,
     models,
     tools: sortedTools,
-    total: articles.length + models.length + sortedTools.length,
+    total: articles.length + guides.length + models.length + sortedTools.length,
   };
 }
 

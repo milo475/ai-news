@@ -81,6 +81,21 @@ export default async function Hailt({ searchParams }: { searchParams: Promise<{ 
         </section>
       )}
 
+      {results && results.guides.length > 0 && (
+        <section className="space-y-3">
+          <h2 className="text-lg font-semibold">Заавар <span className="text-sm text-muted">{results.guides.length}</span></h2>
+          <ul className="divide-y divide-line rounded-lg border border-line">
+            {results.guides.map((g) => (
+              <li key={g.slug} className="p-3 hover:bg-line/30">
+                <Link href={`/zaavar/${g.slug}`} className="font-medium hover:text-accent">{g.title}</Link>
+                <Headline html={g.headline} />
+                <p className="text-xs text-muted mt-1">{g.readMinutes} мин уншина</p>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
       {results && results.models.length > 0 && (
         <section className="space-y-3">
           <h2 className="text-lg font-semibold">Модель <span className="text-sm text-muted">{results.models.length}</span></h2>

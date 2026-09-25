@@ -10,6 +10,8 @@ import { getPreference, newsForInterests } from "@/bookmarks/preferences";
 import { bookmarkedIds } from "@/bookmarks/queries";
 import { showInterestBlock } from "@/bookmarks/preferences.api";
 import { CATEGORY_LABEL } from "@/agent/category";
+import { GuideGrid } from "@/components/GuideList";
+import { latestGuides } from "@/guides/queries";
 
 // Build үед DB байхгүй тул prerender хийхгүй — нүүр бүх үед шинэ өгөгдөл харуулна
 export const dynamic = "force-dynamic";
@@ -24,13 +26,14 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ t
   const asked = (await searchParams).tab ?? "";
   const tab = TABS.find((t) => t.key === asked) ?? TABS[0]!;
   const user = await currentUser();
-  const [{ date, rows }, note, news, useCases, digest, pref] = await Promise.all([
+  const [{ date, rows }, note, news, useCases, digest, pref, guides] = await Promise.all([
     getLeaderboard(10, tab.source),
     getSourceNote(tab.source),
     getLatestNews(5),
     getUseCases(6),
     getLatestDigest(),
     user ? getPreference(user.id) : null,
+    latestGuides(3),
   ]);
 
   // "Таны сонирхол" — зөвхөн нэвтэрсэн, ангилал сонгосон хэрэглэгчид
@@ -161,6 +164,16 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ t
           <NewsList items={news} savedIds={savedIds} path="/" />
         )}
       </section>
+
+      {guides.length > 0 && (
+        <section className="space-y-3">
+          <div className="flex items-baseline justify-between">
+            <h2 className="text-xl font-semibold">Шинэ заавар</h2>
+            <Link href="/zaavar" className="text-sm text-accent hover:underline">Бүх заавар →</Link>
+          </div>
+          <GuideGrid items={guides} />
+        </section>
+      )}
 
       <NewsletterForm />
     </div>

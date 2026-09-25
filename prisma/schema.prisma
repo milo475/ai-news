@@ -12,43 +12,43 @@ datasource db {
 
 /// Жагсаалтын өгөгдөл хаанаас ирснийг заана
 enum RankSource {
-  OPENROUTER_USAGE   // openrouter.ai/rankings — өдөр тутмын токены хэрэглээ
-  ARENA_ELO          // arena.ai — хүний саналын Elo
-  AA_INTELLIGENCE    // artificialanalysis.ai — оюун чадварын индекс
+  OPENROUTER_USAGE // openrouter.ai/rankings — өдөр тутмын токены хэрэглээ
+  ARENA_ELO // arena.ai — хүний саналын Elo
+  AA_INTELLIGENCE // artificialanalysis.ai — оюун чадварын индекс
 }
 
 /// Нийтлэлийн төрөл
 enum ArticleKind {
-  NEWS    // нэг эх сурвалжийн мэдээ
-  DIGEST  // долоо хоногийн нэгтгэл
+  NEWS // нэг эх сурвалжийн мэдээ
+  DIGEST // долоо хоногийн нэгтгэл
 }
 
 /// Нийтлэлийн агуулгын ангилал — зөвхөн моделийн мэдээ биш, өргөн хүрээг хамруулна
 enum ArticleCategory {
-  NEWS      // салбарын мэдээ
-  PROJECT   // AI-аар хийсэн төсөл, бүтээгдэхүүн
-  BUSINESS  // бизнес санаа, мөнгө олох жишээ
-  FACT      // сонирхолтой баримт, судалгаа
-  RISK      // аюул, хууран мэхлэлт, зохицуулалт
-  HOWTO     // хэрэглээ, заавар
+  NEWS // салбарын мэдээ
+  PROJECT // AI-аар хийсэн төсөл, бүтээгдэхүүн
+  BUSINESS // бизнес санаа, мөнгө олох жишээ
+  FACT // сонирхолтой баримт, судалгаа
+  RISK // аюул, хууран мэхлэлт, зохицуулалт
+  HOWTO // хэрэглээ, заавар
 }
 
 /// Нийтлэлийн төлөв
 enum ArticleStatus {
-  RAW        // эх сурвалжаас татсан, agent хараахан боловсруулаагүй
-  DRAFT      // agent бэлтгэсэн, хүн шалгаагүй
-  REVIEW     // хүн шалгаж байна
-  PUBLISHED  // сайт дээр гарсан
-  REJECTED   // agent үнэлээд хаясан
-  SKIPPED    // хоцрогдсон — үнэлэлгүй алгассан (LLM дуудаагүй)
+  RAW // эх сурвалжаас татсан, agent хараахан боловсруулаагүй
+  DRAFT // agent бэлтгэсэн, хүн шалгаагүй
+  REVIEW // хүн шалгаж байна
+  PUBLISHED // сайт дээр гарсан
+  REJECTED // agent үнэлээд хаясан
+  SKIPPED // хоцрогдсон — үнэлэлгүй алгассан (LLM дуудаагүй)
 }
 
 /// AI компани (OpenAI, Anthropic, Google ...)
 model Company {
   id        String   @id @default(cuid())
-  slug      String   @unique          // "openai", "anthropic"
-  name      String                    // "OpenAI"
-  nameMn    String?                   // "ОпенАИ" (заавал биш)
+  slug      String   @unique // "openai", "anthropic"
+  name      String // "OpenAI"
+  nameMn    String? // "ОпенАИ" (заавал биш)
   website   String?
   country   String?
   logoUrl   String?
@@ -61,25 +61,25 @@ model Company {
 
 /// Нэг AI модель (GPT-6 Astra, Claude Fable 5.1 ...)
 model AiModel {
-  id             String   @id @default(cuid())
-  slug           String   @unique      // OpenRouter id, URL-д хэрэглэнэ: "openai/gpt-6-astra"
-  orPermaslug    String   @unique      // OpenRouter canonical_slug: "openai/gpt-6-astra-20260903" — rankings-тай тааруулна
-  name           String                // "GPT-6 Astra"
-  nameMn         String?               // монгол нэр/тайлбар (заавал биш)
-  descriptionEn  String?               // эх сурвалжийн тайлбар
-  descriptionMn  String?               // agent-ийн монгол тайлбар
-  companyId      String
-  company        Company  @relation(fields: [companyId], references: [id])
+  id            String  @id @default(cuid())
+  slug          String  @unique // OpenRouter id, URL-д хэрэглэнэ: "openai/gpt-6-astra"
+  orPermaslug   String  @unique // OpenRouter canonical_slug: "openai/gpt-6-astra-20260903" — rankings-тай тааруулна
+  name          String // "GPT-6 Astra"
+  nameMn        String? // монгол нэр/тайлбар (заавал биш)
+  descriptionEn String? // эх сурвалжийн тайлбар
+  descriptionMn String? // agent-ийн монгол тайлбар
+  companyId     String
+  company       Company @relation(fields: [companyId], references: [id])
 
-  isOpenWeights  Boolean  @default(false)  // нээлттэй жинтэй эсэх (HF id байвал)
-  contextLength  Int?
-  modality       String?                   // "text+image->text"
-  releasedAt     DateTime?                 // OpenRouter-т нэмэгдсэн огноо
+  isOpenWeights   Boolean   @default(false) // нээлттэй жинтэй эсэх (HF id байвал)
+  contextLength   Int?
+  modality        String? // "text+image->text"
+  releasedAt      DateTime? // OpenRouter-т нэмэгдсэн огноо
   /// 1 сая токены үнэ, USD
-  inputPricePerM  Decimal? @db.Decimal(12, 6)
-  outputPricePerM Decimal? @db.Decimal(12, 6)
+  inputPricePerM  Decimal?  @db.Decimal(12, 6)
+  outputPricePerM Decimal?  @db.Decimal(12, 6)
 
-  isActive   Boolean  @default(true)   // каталогоос алга болвол false
+  isActive   Boolean  @default(true) // каталогоос алга болвол false
   /// Зөвхөн LMArena-д байдаг, OpenRouter-т байхгүй модель — хэрэглээний жагсаалтад орохгүй
   arenaOnly  Boolean  @default(false)
   lastSeenAt DateTime @default(now())
@@ -99,18 +99,18 @@ model AiModel {
 
 /// Нэг модель, нэг эх сурвалж, нэг өдрийн байр — өсөлт/уналт эндээс тооцно
 model RankingSnapshot {
-  id        String     @id @default(cuid())
-  modelId   String
-  model     AiModel    @relation(fields: [modelId], references: [id], onDelete: Cascade)
-  source    RankSource
-  date      DateTime   @db.Date      // UTC өдөр
-  rank      Int                      // 1 = хамгийн дээд
+  id         String     @id @default(cuid())
+  modelId    String
+  model      AiModel    @relation(fields: [modelId], references: [id], onDelete: Cascade)
+  source     RankSource
+  date       DateTime   @db.Date // UTC өдөр
+  rank       Int // 1 = хамгийн дээд
   /// Эх сурвалжийн оноо: токен (OPENROUTER), Elo (ARENA), индекс (AA)
-  score     Decimal    @db.Decimal(20, 4)
+  score      Decimal    @db.Decimal(20, 4)
   /// Өмнөх өдөртэй харьцуулсан өөрчлөлт (fetcher тооцно; эхний өдөр null)
-  rankDelta  Int?                    // +2 = 2 байр дээшилсэн
+  rankDelta  Int? // +2 = 2 байр дээшилсэн
   scoreDelta Decimal?   @db.Decimal(20, 4)
-  createdAt DateTime   @default(now())
+  createdAt  DateTime   @default(now())
 
   @@unique([modelId, source, date])
   @@index([source, date, rank])
@@ -118,94 +118,94 @@ model RankingSnapshot {
 
 /// Мэдээний эх сурвалж (RSS)
 model Source {
-  id        String   @id @default(cuid())
-  name      String                // "TechCrunch AI"
-  url       String   @unique      // сайтын хаяг
-  feedUrl   String?  @unique      // RSS/Atom хаяг
-  language  String   @default("en")
-  weight    Int      @default(5)  // 1–10, эх сурвалжийн найдвартай байдал
+  id              String          @id @default(cuid())
+  name            String // "TechCrunch AI"
+  url             String          @unique // сайтын хаяг
+  feedUrl         String?         @unique // RSS/Atom хаяг
+  language        String          @default("en")
+  weight          Int             @default(5) // 1–10, эх сурвалжийн найдвартай байдал
   /// Энэ эх сурвалжийн мэдээ ихэвчлэн ямар ангилалд ордог — LLM өөрөөр шийдвэл түүнийг нь авна
   defaultCategory ArticleCategory @default(NEWS)
-  needsBrowser Boolean @default(false) // JS-ээр зурагддаг сайт — бүтэн текстэд Playwright хэрэгтэй
-  isActive  Boolean  @default(true)
-  lastFetchedAt DateTime?
-  lastError     String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  needsBrowser    Boolean         @default(false) // JS-ээр зурагддаг сайт — бүтэн текстэд Playwright хэрэгтэй
+  isActive        Boolean         @default(true)
+  lastFetchedAt   DateTime?
+  lastError       String?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
 
   articles Article[]
 }
 
 /// Нийтлэл — эх мэдээ + agent-ийн монгол хураангуй
 model Article {
-  id          String          @id @default(cuid())
-  slug        String          @unique        // URL: /medee/openai-gpt-6-astra-garlaa
-  kind        ArticleKind     @default(NEWS)
-  category    ArticleCategory @default(NEWS)  // agent үнэлэх үедээ тодорхойлно
-  status      ArticleStatus   @default(DRAFT)
+  id       String          @id @default(cuid())
+  slug     String          @unique // URL: /medee/openai-gpt-6-astra-garlaa
+  kind     ArticleKind     @default(NEWS)
+  category ArticleCategory @default(NEWS) // agent үнэлэх үедээ тодорхойлно
+  status   ArticleStatus   @default(DRAFT)
 
   // Эх сурвалжийн мэдээлэл
-  sourceId     String
-  source       Source   @relation(fields: [sourceId], references: [id])
-  sourceUrl    String   @unique             // давхардал шалгах гол түлхүүр
-  sourceTitle  String
-  sourceExcerpt String?                     // RSS-ийн description, HTML-гүй (≤2000 тэмдэгт)
-  sourceText    String?                     // эх хуудаснаас Readability-ээр татсан бүтэн текст (≤8000)
-  sourceAuthor  String?
-  sourceImageUrl String?                     // эх нийтлэлийн og:image (FB_USE_SOURCE_IMAGE үед)
-  sourceHash   String                       // гарчгийн normalized hash — давхардал
+  sourceId          String
+  source            Source    @relation(fields: [sourceId], references: [id])
+  sourceUrl         String    @unique // давхардал шалгах гол түлхүүр
+  sourceTitle       String
+  sourceExcerpt     String? // RSS-ийн description, HTML-гүй (≤2000 тэмдэгт)
+  sourceText        String? // эх хуудаснаас Readability-ээр татсан бүтэн текст (≤8000)
+  sourceAuthor      String?
+  sourceImageUrl    String? // эх нийтлэлийн og:image (FB_USE_SOURCE_IMAGE үед)
+  sourceHash        String // гарчгийн normalized hash — давхардал
   publishedAtSource DateTime?
 
   // Agent-ийн гаргалт (монгол)
-  titleMn      String?                      // RAW үед хоосон — 2-р шатанд agent бөглөнө
-  summaryMn    String?                      // 1–2 өгүүлбэр (жагсаалт, FB пост)
-  bodyMn       String?                      // 150–300 үгийн хураангуй, markdown
-  relevance    Int      @default(0)         // 1–10, agent-ийн үнэлгээ
-  tags         String[] @default([])
-  scoreModel   String?                      // үнэлгээ хийсэн LLM
-  writeModel   String?                      // монголоор бичсэн LLM
-  scoreReason  String?                      // LLM-ийн нэг өгүүлбэр шалтгаан (англиар байж болно)
-  tokensUsed   Int      @default(0)         // тухайн нийтлэлд зарцуулсан нийт токен
+  titleMn     String? // RAW үед хоосон — 2-р шатанд agent бөглөнө
+  summaryMn   String? // 1–2 өгүүлбэр (жагсаалт, FB пост)
+  bodyMn      String? // 150–300 үгийн хураангуй, markdown
+  relevance   Int      @default(0) // 1–10, agent-ийн үнэлгээ
+  tags        String[] @default([])
+  scoreModel  String? // үнэлгээ хийсэн LLM
+  writeModel  String? // монголоор бичсэн LLM
+  scoreReason String? // LLM-ийн нэг өгүүлбэр шалтгаан (англиар байж болно)
+  tokensUsed  Int      @default(0) // тухайн нийтлэлд зарцуулсан нийт токен
 
   // Хэвлэлт
-  publishedAt  DateTime?
-  fbPostId     String?                      // Facebook-т тавигдсан бол
-  fbPostedAt   DateTime?                    // хэзээ постлогдсон — хоосон = дараалалд байна
-  fbAttempts   Int      @default(0)         // амжилтгүй оролдлогын тоо (3 болбол алгасна)
-  fbError      String?                      // сүүлийн алдааны мессеж
+  publishedAt   DateTime?
+  fbPostId      String? // Facebook-т тавигдсан бол
+  fbPostedAt    DateTime? // хэзээ постлогдсон — хоосон = дараалалд байна
+  fbAttempts    Int       @default(0) // амжилтгүй оролдлогын тоо (3 болбол алгасна)
+  fbError       String? // сүүлийн алдааны мессеж
   /// FB-д зориулж тусдаа LLM-ээр бичүүлсэн текст (нийтлэлийн хураангуй биш)
-  fbText       String?
+  fbText        String?
   /// A/B туршилтын хоёр дахь хувилбар — постлогдоогүй нь
-  fbTextAlt    String?
+  fbTextAlt     String?
   /// Постлосон хувилбарын hook загвар: number | contrast | question | local | forecast
-  fbHookType   String?
+  fbHookType    String?
   /// Постын карт — 1080×1350 JPEG, текст давхарласан (DB-д: web ба cron тусдаа контейнер)
-  fbImageData  Bytes?
+  fbImageData   Bytes?
   /// Тексгүй суурь зураг — вэб нийтлэлийн hero-д (16:9 огтолно)
   heroImageData Bytes?
   /// Суурь зургийг үзүүлэх зам: /api/hero-image/<id>
-  heroImageUrl String?
+  heroImageUrl  String?
   /// Карт дээр бичигдсэн headline — /admin-аас засаж, дахин үүсгэж болно
-  fbHook       String?
+  fbHook        String?
   /// Зургийг үзүүлэх зам: /api/fb-image/<id>
-  fbImageUrl   String?
+  fbImageUrl    String?
   /// Зураг ямар аргаар гарсан: ai | source | ranking
-  fbImageKind  String?
+  fbImageKind   String?
   /// Зураг үүсгэсэн огноо — өдрийн зургийн квотыг тоолоход
-  fbImageAt    DateTime?
+  fbImageAt     DateTime?
   /// AI зургийн англи prompt — /admin дээр харах, дахин үүсгэхэд
   fbImagePrompt String?
   // Instagram — FB-тэй ижил Page token, зураггүй нийтлэл IG-д орохгүй
-  igPostedAt   DateTime?
-  igMediaId    String?
-  igAttempts   Int      @default(0)
-  igError      String?
+  igPostedAt    DateTime?
+  igMediaId     String?
+  igAttempts    Int       @default(0)
+  igError       String?
 
   /// Текстийг нэг удаа сайжруулсан огноо (БЭЛТГЭХ горим) — дахин засахгүйн тулд
-  improvedAt   DateTime?
+  improvedAt DateTime?
   /// Нийтлэхэд бүрэн бэлэн болсон огноо: текст сайжирсан + fbText бичигдсэн
-  readyAt      DateTime?
-  reviewedBy   String?
+  readyAt    DateTime?
+  reviewedBy String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -214,7 +214,7 @@ model Article {
   companies Company[] @relation("ArticleCompanies")
 
   /// Энэ нийтлэл digest бол дотор нь орсон мэдээнүүд
-  bookmarks   Bookmark[]
+  bookmarks Bookmark[]
 
   digestItems DigestItem[] @relation("DigestParent")
   /// Энэ мэдээ ямар digest-үүдэд орсон бэ
@@ -236,42 +236,42 @@ model Article {
 
 /// Fetcher/agent ажиллалтын лог — эвдэрсэн эсэхийг харах
 model JobRun {
-  id         String   @id @default(cuid())
-  job        String                  // "openrouter", "rss", "agent", "pipeline"
+  id         String    @id @default(cuid())
+  job        String // "openrouter", "rss", "agent", "pipeline"
   /// Аль горимын run бэ: PUBLISH (нийтлэх) | PREPARE (бэлтгэх)
   mode       String?
-  startedAt  DateTime @default(now())
+  startedAt  DateTime  @default(now())
   finishedAt DateTime?
   ok         Boolean?
-  itemsIn    Int      @default(0)
-  itemsOut   Int      @default(0)
+  itemsIn    Int       @default(0)
+  itemsOut   Int       @default(0)
   /// Хэдэн нэгж боловсруулахыг оролдсон, тэдгээрээс хэд нь унасан (agent: нийтлэл, rss: эх сурвалж)
-  attempted  Int      @default(0)
-  failed     Int      @default(0)
+  attempted  Int       @default(0)
+  failed     Int       @default(0)
   error      String?
   /// Тухайн ажиллалтад OpenRouter-т төлсөн дүн (зураг, LLM) — зардлыг хөөхөд
-  costUsd    Decimal? @db.Decimal(10, 6)
-  pid        Int?                    // ажиллуулсан процесс — /admin-аас эхлүүлсэн үед
-  logFile    String?                 // logs/<job>-<timestamp>.log
+  costUsd    Decimal?  @db.Decimal(10, 6)
+  pid        Int? // ажиллуулсан процесс — /admin-аас эхлүүлсэн үед
+  logFile    String? // logs/<job>-<timestamp>.log
 
   @@index([job, startedAt])
 }
 
 /// AI хэрэгслийн үнийн бодлого
 enum ToolPricing {
-  FREE      // бүрэн үнэгүй
-  FREEMIUM  // үнэгүй хувилбартай, төлбөртэй нь илүү
-  PAID      // зөвхөн төлбөртэй
+  FREE // бүрэн үнэгүй
+  FREEMIUM // үнэгүй хувилбартай, төлбөртэй нь илүү
+  PAID // зөвхөн төлбөртэй
 }
 
 /// "Ямар ажилд аль AI" — ангилал. Хүн бэлтгэж, /admin-аас засна.
 model UseCase {
   id            String   @id @default(cuid())
-  slug          String   @unique          // URL: /hereglee/zurag
+  slug          String   @unique // URL: /hereglee/zurag
   nameMn        String
-  descriptionMn String                    // 1–2 өгүүлбэр
-  icon          String                    // lucide-react дүрсний нэр: "image", "code" ...
-  order         Int      @default(0)      // жагсаалтын дараалал
+  descriptionMn String // 1–2 өгүүлбэр
+  icon          String // lucide-react дүрсний нэр: "image", "code" ...
+  order         Int      @default(0) // жагсаалтын дараалал
   isActive      Boolean  @default(true)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
@@ -291,8 +291,8 @@ model AiTool {
   slug             String      @unique
   name             String
   vendor           String
-  url              String                        // хоосон = шалгах шаардлагатай
-  descriptionMn    String                        // 1 өгүүлбэр
+  url              String // хоосон = шалгах шаардлагатай
+  descriptionMn    String // 1 өгүүлбэр
   pricing          ToolPricing @default(FREEMIUM)
   worksInMongolian Boolean     @default(true)
   logoUrl          String?
@@ -314,8 +314,8 @@ model UseCaseTool {
   useCase   UseCase @relation(fields: [useCaseId], references: [id], onDelete: Cascade)
   toolId    String
   tool      AiTool  @relation(fields: [toolId], references: [id], onDelete: Cascade)
-  rank      Int                              // 1 = шилдэг
-  noteMn    String?                          // зөвхөн энэ ангилалд хамаарах тайлбар
+  rank      Int // 1 = шилдэг
+  noteMn    String? // зөвхөн энэ ангилалд хамаарах тайлбар
 
   @@id([useCaseId, toolId])
   @@index([useCaseId, rank])
@@ -373,14 +373,15 @@ model User {
   updatedAt       DateTime  @updatedAt
 
   /// Бүх төхөөрөмжөөс гарахад нэмэгдэнэ — хуучин JWT хүчингүй болно
-  sessionVersion  Int       @default(0)
+  sessionVersion Int @default(0)
 
-  accounts Account[]
-  sessions Session[]
+  accounts   Account[]
+  sessions   Session[]
   /// Ижил имэйлтэй newsletter бүртгэл байвал холбогдоно
   subscriber Subscriber?
   bookmarks  Bookmark[]
   preference UserPreference?
+  guides     Guide[]
 
   @@index([role])
 }
@@ -389,15 +390,79 @@ model User {
 model Bookmark {
   id        String   @id @default(cuid())
   userId    String
-  articleId String
+  /// articleId эсвэл guideId — яг нэг нь бөглөгдөнө (DB-д CHECK constraint)
+  articleId String?
+  guideId   String?
   createdAt DateTime @default(now())
 
-  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
-  article Article @relation(fields: [articleId], references: [id], onDelete: Cascade)
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  article Article? @relation(fields: [articleId], references: [id], onDelete: Cascade)
+  guide   Guide?   @relation(fields: [guideId], references: [id], onDelete: Cascade)
 
   @@unique([userId, articleId])
+  @@unique([userId, guideId])
   @@index([userId, createdAt])
   @@index([articleId])
+  @@index([guideId])
+}
+
+/// Мөнхийн (evergreen) гарын авлага — /zaavar
+model Guide {
+  id              String      @id @default(cuid())
+  slug            String      @unique
+  title           String
+  /// 2 өгүүлбэрийн танилцуулга — жагсаалтын карт, meta description
+  lead            String
+  /// Markdown. ## = алхам, ```prompt хашилт = хуулж болох prompt
+  bodyMd          String
+  level           GuideLevel  @default(BEGINNER)
+  /// Хэнд зориулсан: оюутан, ажилтан, бизнес эрхлэгч, багш, эцэг эх
+  audience        String[]    @default([])
+  /// Дурдагдсан хэрэгслүүд: ChatGPT, Gemini, Canva ...
+  tools           String[]    @default([])
+  /// /hereglee-ийн ангилалтай холбоно
+  usecaseSlug     String?
+  readMinutes     Int         @default(5)
+  /// Тексгүй суурь зураг — card.ts-ийн scene урсгалаар
+  heroImageData   Bytes?
+  heroImagePrompt String?
+  heroImageAt     DateTime?
+  /// [{ q, a }] — FAQ accordion + JSON-LD FAQPage
+  faq             Json        @default("[]")
+  status          GuideStatus @default(DRAFT)
+  publishedAt     DateTime?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+  views           Int         @default(0)
+  /// Ямар сэдвээр захиалсан бэ — seed давхардахгүй байх, админд харагдах
+  topic        String?
+  /// Хэн үүсгэсэн (админ). LLM бичсэн бол хоосон
+  authorUserId    String?
+  author          User?       @relation(fields: [authorUserId], references: [id], onDelete: SetNull)
+  /// Бичүүлэхэд зарцуулсан LLM-ийн зардал
+  costUsd         Float       @default(0)
+
+  bookmarks Bookmark[]
+
+  /// Хайлтын индекс — гарчиг A, lead B, бие C
+  searchVector Unsupported("tsvector")? @default(dbgenerated())
+
+  @@index([status, publishedAt])
+  @@index([level])
+  @@index([usecaseSlug])
+  @@index([topic])
+  @@index([searchVector], type: Gin)
+}
+
+enum GuideLevel {
+  BEGINNER
+  INTERMEDIATE
+  ADVANCED
+}
+
+enum GuideStatus {
+  DRAFT
+  PUBLISHED
 }
 
 /// Хэрэглэгчийн сонирхол — нүүр хуудасны хувийн блок, имэйлийн тохиргоо
@@ -459,25 +524,25 @@ model VerificationToken {
 
 /// Имэйл бүртгэлийн төлөв
 enum SubscriberStatus {
-  PENDING       // баталгаажуулах имэйл илгээсэн, хараахан дараагүй
-  ACTIVE        // баталгаажсан — имэйл хүлээн авна
-  UNSUBSCRIBED  // гарсан
+  PENDING // баталгаажуулах имэйл илгээсэн, хараахан дараагүй
+  ACTIVE // баталгаажсан — имэйл хүлээн авна
+  UNSUBSCRIBED // гарсан
 }
 
 /// Newsletter-ийн бүртгэл (double opt-in)
 model Subscriber {
-  id                String           @id @default(cuid())
-  email             String           @unique
+  id               String           @id @default(cuid())
+  email            String           @unique
   /// Ижил имэйлтэй хэрэглэгч бүртгүүлбэл холбогдоно
-  userId            String?          @unique
-  user              User?            @relation(fields: [userId], references: [id], onDelete: SetNull)
-  status            SubscriberStatus @default(PENDING)
+  userId           String?          @unique
+  user             User?            @relation(fields: [userId], references: [id], onDelete: SetNull)
+  status           SubscriberStatus @default(PENDING)
   /// Баталгаажуулах холбоосын токен — баталгаажсаны дараа null
-  confirmToken      String?          @unique
+  confirmToken     String?          @unique
   /// Бүртгэлээс гарах холбоосын токен — имэйл бүрт явна
-  unsubscribeToken  String           @unique
-  createdAt         DateTime         @default(now())
-  confirmedAt       DateTime?
+  unsubscribeToken String           @unique
+  createdAt        DateTime         @default(now())
+  confirmedAt      DateTime?
 
   @@index([status])
 }

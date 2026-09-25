@@ -191,6 +191,31 @@ async function writeScene(
 }
 
 /**
+ * Дүрслэл бичүүлээд тексгүй суурь зураг үүсгэнэ (карт ба зааврын хоёуланд).
+ */
+export async function buildHero(
+  a: ArticleForCard,
+  opts: { chat?: Chat; image?: ImageCall; recentPrompts?: string[] } = {},
+): Promise<{ hero: Buffer; prompt: string; costUsd: number }> {
+  const chat = opts.chat ?? chatJson;
+  const image = opts.image ?? chatImage;
+
+  const { scene, subject, costUsd: sceneCost } = await writeScene(a, opts.recentPrompts ?? [], chat);
+  console.log(`  зургийн сэдэв: ${subject}`);
+
+  const prompt = buildPhotoPrompt(scene);
+  const model = imageModel();
+  let out;
+  try {
+    out = await image({ model, prompt });
+  } catch (e) {
+    console.warn(`  ⚠ ${model}: ${(e as Error).message.slice(0, 120)} — ${FALLBACK_IMAGE_MODEL} оролдоно`);
+    out = await image({ model: FALLBACK_IMAGE_MODEL, prompt });
+  }
+  return { hero: await heroJpeg(out.buffer), prompt, costUsd: sceneCost + out.costUsd };
+}
+
+/**
  * Нийтлэлд карт бэлдэнэ: дүрслэл → суурь зураг → headline → давхарлалт.
  * @param opts.headline бэлэн headline (/admin-аас засаж дахин үүсгэхэд)
  */
@@ -209,21 +234,10 @@ export async function buildCard(
   const fromSource = hero !== null;
 
   if (!hero) {
-    const { scene, subject, costUsd: sceneCost } = await writeScene(a, opts.recentPrompts ?? [], chat);
-    costUsd += sceneCost;
-    console.log(`  зургийн сэдэв: ${subject}`);
-
-    prompt = buildPhotoPrompt(scene);
-    const model = imageModel();
-    let out;
-    try {
-      out = await image({ model, prompt });
-    } catch (e) {
-      console.warn(`  ⚠ ${model}: ${(e as Error).message.slice(0, 120)} — ${FALLBACK_IMAGE_MODEL} оролдоно`);
-      out = await image({ model: FALLBACK_IMAGE_MODEL, prompt });
-    }
-    costUsd += out.costUsd;
-    hero = await heroJpeg(out.buffer);
+    const built = await buildHero(a, { chat, image, recentPrompts: opts.recentPrompts });
+    hero = built.hero;
+    prompt = built.prompt;
+    costUsd += built.costUsd;
   }
 
   let headline = opts.headline?.trim() ?? "";
