@@ -35,7 +35,7 @@ test("buildCaption: холбоосын мөрийг bio-гийн мөрөөр с
 
 test("buildCaption: hashtag 5–8, суурь нь үргэлж эхэлнэ, давхардахгүй", () => {
   const caption = buildCaption(FB_TEXT, ["OpenAI", "GPT-6 Astra", "хууль", "зохицуулалт"]);
-  const tags = caption.match(/#\S+/g) ?? [];
+  const tags: string[] = caption.match(/#\S+/g) ?? [];
 
   assert.ok(tags.length >= MIN_HASHTAGS && tags.length <= MAX_HASHTAGS, `${tags.length} hashtag`);
   assert.deepEqual(tags.slice(0, IG_BASE_HASHTAGS.length), IG_BASE_HASHTAGS);

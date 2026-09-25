@@ -22,7 +22,8 @@ import { ubDateLabel } from "../jobs/day";
 import { jobRunMeta } from "../jobs/meta";
 import { articleLink, buildPost, MAX_ATTEMPTS, postsPerRun } from "./facebook.api";
 import { generateFbCopy } from "./fbcopy";
-import { imageForArticle, rankingCard, saveImage } from "./fbimage";
+import { cardForArticle, saveCard } from "./card";
+import { recentImagePrompts, rankingCard } from "./fbimage";
 import { slotPlan } from "./slot.api";
 
 const GRAPH = "https://graph.facebook.com/v21.0";
@@ -131,15 +132,17 @@ export async function publishArticleToFacebook(
   const link = articleLink(a.slug);
   let costUsd = 0;
 
-  // БЭЛТГЭХ горимд үүсгэсэн зураг байвал түүнийг шууд ашиглана — дахин үүсгэхгүй,
+  // БЭЛТГЭХ горимд үүсгэсэн карт байвал түүнийг шууд ашиглана — дахин үүсгэхгүй,
   // өдрийн зургийн квотоос ч идэхгүй. Байхгүй бол энд үүсгэнэ.
   let photo: Buffer | null = a.fbImageData ? Buffer.from(a.fbImageData) : null;
   if (!photo) {
-    const image = await imageForArticle(a.id, { now: opts.now });
-    if (image) {
-      costUsd = image.costUsd;
-      await saveImage(a.id, image);
-      photo = image.buffer;
+    try {
+      const built = await cardForArticle(a.id, { recentPrompts: await recentImagePrompts() });
+      await saveCard(a.id, built);
+      costUsd = built.costUsd;
+      photo = built.card;
+    } catch (e) {
+      console.warn(`  ⚠ карт үүссэнгүй: ${(e as Error).message.slice(0, 150)}`);
     }
   }
 

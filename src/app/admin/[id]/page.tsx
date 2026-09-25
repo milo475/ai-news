@@ -143,26 +143,56 @@ export default async function Edit({
               </p>
             )}
 
-            {/* Зураг — DB-ээс /api/fb-image/<id> замаар */}
+            {/* Карт (текст давхарласан) ба суурь зураг */}
             {a.fbImageUrl ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img
                 src={`${a.fbImageUrl}?v=${a.fbImageAt?.getTime() ?? 0}`}
-                alt="FB постын зураг"
+                alt="Постын карт"
                 className="w-full rounded border border-line"
               />
             ) : (
-              <p className="text-xs text-muted">Зураг үүсээгүй — постлохын өмнө автоматаар үүснэ.</p>
+              <p className="text-xs text-muted">Карт үүсээгүй — постлохын өмнө автоматаар үүснэ.</p>
             )}
-            <div className="flex flex-wrap items-center gap-2">
-              <form action={regenerateFbImage}>
-                <input type="hidden" name="id" value={a.id} />
-                <button className="text-xs rounded border border-line px-2 py-1 hover:bg-line/40">
-                  Зураг дахин үүсгэх
+            {a.heroImageUrl && (
+              <details>
+                <summary className="text-xs text-accent cursor-pointer">Тексгүй суурь зураг</summary>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={`${a.heroImageUrl}?v=${a.fbImageAt?.getTime() ?? 0}`}
+                  alt="Суурь зураг"
+                  className="w-full rounded border border-line mt-1"
+                />
+              </details>
+            )}
+
+            {/* Headline — карт дээрх текст */}
+            <form action={regenerateFbImage} className="space-y-2">
+              <input type="hidden" name="id" value={a.id} />
+              <label className="block space-y-1">
+                <span className="text-xs text-muted">Картын гарчиг (headline)</span>
+                <textarea
+                  name="fbHook"
+                  rows={3}
+                  defaultValue={a.fbHook ?? ""}
+                  placeholder="Хоосон бол LLM өөрөө бичнэ"
+                  className={`${input} text-xs`}
+                />
+              </label>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  name="keepPhoto"
+                  value="1"
+                  className="text-xs rounded border border-line px-2 py-1 hover:bg-line/40"
+                >
+                  Картыг дахин үүсгэх
                 </button>
-              </form>
-              {a.fbImageKind && <span className="text-xs text-muted">({a.fbImageKind})</span>}
-            </div>
+                <button className="text-xs rounded border border-line px-2 py-1 hover:bg-line/40">
+                  Зураг ч дахин үүсгэх
+                </button>
+                {a.fbImageKind && <span className="text-xs text-muted">({a.fbImageKind})</span>}
+              </div>
+            </form>
             {a.fbImagePrompt && (
               <details>
                 <summary className="text-xs text-accent cursor-pointer">Зургийн prompt</summary>

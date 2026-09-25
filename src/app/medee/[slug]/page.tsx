@@ -64,6 +64,15 @@ export default async function NewsPage({ params }: { params: Promise<Params> }) 
         )}
       </div>
 
+      {n.heroUrl && (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={n.heroUrl}
+          alt=""
+          className="w-full aspect-video object-cover rounded-lg border border-line"
+        />
+      )}
+
       <p className="text-lg text-muted leading-relaxed">{n.summaryMn}</p>
 
       <div className="text-[15px]">

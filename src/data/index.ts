@@ -46,6 +46,8 @@ export interface NewsDetail extends NewsCard {
   bodyMn: string;
   sourceUrl: string;
   sourceTitle: string;
+  /** Тексгүй суурь зураг байвал /api/hero-image/<id> */
+  heroUrl: string | null;
   models: { slug: string; name: string; nameMn: string | null }[];
   companies: { name: string }[];
 }
@@ -160,7 +162,8 @@ export async function getNewsItem(slug: string): Promise<NewsDetail | null> {
   const a = await prisma.article.findUnique({
     where: { slug },
     select: {
-      ...cardSelect, status: true, bodyMn: true, sourceUrl: true, sourceTitle: true,
+      ...cardSelect, id: true, status: true, bodyMn: true, sourceUrl: true, sourceTitle: true,
+      heroImageData: true,
       models: { select: { slug: true, name: true, nameMn: true } },
       companies: { select: { name: true } },
     },
@@ -171,6 +174,7 @@ export async function getNewsItem(slug: string): Promise<NewsDetail | null> {
     bodyMn: a.bodyMn ?? "",
     sourceUrl: a.sourceUrl,
     sourceTitle: a.sourceTitle,
+    heroUrl: a.heroImageData ? `/api/hero-image/${a.id}` : null,
     models: a.models,
     companies: a.companies,
   };

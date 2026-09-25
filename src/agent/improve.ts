@@ -16,7 +16,8 @@
 import "dotenv/config";
 import { prisma } from "../db";
 import { jobRunMeta } from "../jobs/meta";
-import { imageForArticle, imagesToday, saveImage } from "../publish/fbimage";
+import { cardForArticle, saveCard } from "../publish/card";
+import { imagesToday, recentImagePrompts } from "../publish/fbimage";
 import { imageDailyLimit } from "../publish/fbimage.api";
 import { generateFbCopy } from "../publish/fbcopy";
 import { chatJson } from "./llm";
@@ -112,15 +113,18 @@ export async function topUpImages(max = IMAGE_AHEAD): Promise<{ added: number; c
 
   for (const r of rows) {
     if ((await imagesToday()) >= imageLimit) {
-      console.log(`  өдрийн зургийн хязгаар дүүрсэн — ${rows.length - added} нийтлэл зураггүй хүлээнэ`);
+      console.log(`  өдрийн зургийн хязгаар дүүрсэн — ${rows.length - added} нийтлэл картгүй хүлээнэ`);
       break;
     }
-    const image = await imageForArticle(r.id);
-    if (!image) continue;
-    await saveImage(r.id, image);
-    added++;
-    costUsd += image.costUsd;
-    console.log(`  ✓ зураг нөхөв: ${r.titleMn} ($${image.costUsd.toFixed(3)})`);
+    try {
+      const built = await cardForArticle(r.id, { recentPrompts: await recentImagePrompts() });
+      await saveCard(r.id, built);
+      added++;
+      costUsd += built.costUsd;
+      console.log(`  ✓ карт нөхөв: ${r.titleMn} ($${built.costUsd.toFixed(3)})`);
+    } catch (e) {
+      console.warn(`  ⚠ ${r.titleMn}: ${(e as Error).message.slice(0, 120)}`);
+    }
   }
   return { added, costUsd };
 }
@@ -160,19 +164,17 @@ export async function runImprove(limit?: number): Promise<ImproveResult> {
 
         if (!c.fbText) {
           const copy = await generateFbCopy(c.id);
-          console.log(`  ✓ FB текст (hook=${copy.hookType})`);
+          console.log(`  ✓ FB текст (${copy.tokens} токен)`);
         }
 
         // Зураг зөвхөн дараагийн 2 slot-д орох нийтлэлүүдэд, өдрийн хязгаарын дотор
         let hasImage = c.fbImageData !== null;
         if (!hasImage && i < IMAGE_AHEAD && (await imagesToday()) < imageLimit) {
-          const image = await imageForArticle(c.id);
-          if (image) {
-            await saveImage(c.id, image);
-            costUsd += image.costUsd;
-            hasImage = true;
-            console.log(`  ✓ зураг ($${image.costUsd.toFixed(3)})`);
-          }
+          const built = await cardForArticle(c.id, { recentPrompts: await recentImagePrompts() });
+          await saveCard(c.id, built);
+          costUsd += built.costUsd;
+          hasImage = true;
+          console.log(`  ✓ карт ($${built.costUsd.toFixed(3)})`);
         }
 
         const done = await prisma.article.update({

@@ -179,8 +179,14 @@ model Article {
   fbTextAlt    String?
   /// Постлосон хувилбарын hook загвар: number | contrast | question | local | forecast
   fbHookType   String?
-  /// FB постын зураг — 1080×1080 JPEG, DB-д (web ба cron тусдаа контейнер учир)
+  /// Постын карт — 1080×1350 JPEG, текст давхарласан (DB-д: web ба cron тусдаа контейнер)
   fbImageData  Bytes?
+  /// Тексгүй суурь зураг — вэб нийтлэлийн hero-д (16:9 огтолно)
+  heroImageData Bytes?
+  /// Суурь зургийг үзүүлэх зам: /api/hero-image/<id>
+  heroImageUrl String?
+  /// Карт дээр бичигдсэн headline — /admin-аас засаж, дахин үүсгэж болно
+  fbHook       String?
   /// Зургийг үзүүлэх зам: /api/fb-image/<id>
   fbImageUrl   String?
   /// Зураг ямар аргаар гарсан: ai | source | ranking

@@ -5,6 +5,7 @@
  * «Дэлгэрэнгүй холбоос bio-д.» болгож сольж, hashtag-ийг 5–8 болгож өргөтгөнө.
  */
 import { hashtagOf } from "./facebook.api";
+import { FOLLOW_LINE, SOURCE_PREFIX } from "./fbcopy.api";
 
 /** Instagram-ийн caption-ий дээд урт */
 export const MAX_CAPTION_CHARS = 2_200;
@@ -32,6 +33,12 @@ const EMOJI = /[\p{Extended_Pictographic}️]/gu;
 /** «Дэлгэрэнгүй: https://...» хэлбэрийн мөр */
 const LINK_LINE = /^\s*Дэлгэрэнгүй:\s*https?:\/\/\S+\s*$/i;
 
+/** FB-д зориулсан мөрүүд — IG-д орохгүй */
+function isFbOnlyLine(line: string): boolean {
+  const t = line.trim();
+  return t === FOLLOW_LINE || t.startsWith(SOURCE_PREFIX);
+}
+
 /** Мөр нь зөвхөн hashtag-уудаас тогтож байна уу */
 function isHashtagLine(line: string): boolean {
   const words = line.trim().split(/\s+/).filter(Boolean);
@@ -49,6 +56,7 @@ export function buildCaption(fbText: string, extraTags: string[] = []): string {
   const found: string[] = [];
   for (const block of blocks) {
     if (LINK_LINE.test(block)) continue;              // холбоосын мөрийг хаяна
+    if (isFbOnlyLine(block)) continue;                // FB-ийн дагах уриалга, эх сурвалж
     if (isHashtagLine(block)) {
       found.push(...block.split(/\s+/).filter(Boolean));
       continue;

@@ -188,15 +188,42 @@ export async function regenerateFbText(formData: FormData) {
   redirect(error ? `/admin/${id}?err=${encodeURIComponent(error)}` : `/admin/${id}`);
 }
 
-/** /admin дээрээс FB зургийг дахин үүсгэх (өдрийн зургийн квотыг алгасна) */
+/**
+ * /admin дээрээс картыг дахин үүсгэх. Headline өгвөл түүгээр, үгүй бол шинээр бичүүлнэ.
+ * Зөвхөн текстийг нь солих бол суурь зураг хэвээр үлдэж, дахин зурагдана (зардалгүй).
+ */
 export async function regenerateFbImage(formData: FormData) {
   const id = String(formData.get("id"));
+  const headline = String(formData.get("fbHook") ?? "").trim();
+  const keepPhoto = formData.get("keepPhoto") === "1";
+
   let error = "";
   try {
-    const { imageForArticle, saveImage } = await import("@/publish/fbimage");
-    const image = await imageForArticle(id, { force: true });
-    if (!image) error = "Зураг үүссэнгүй — лог харна уу.";
-    else await saveImage(id, image);
+    const { cardForArticle, renderCard, saveCard } = await import("@/publish/card");
+    const { recentImagePrompts } = await import("@/publish/fbimage");
+    const { prisma: db } = await import("@/db");
+
+    const current = await db.article.findUniqueOrThrow({
+      where: { id },
+      select: { heroImageData: true, fbHook: true, fbImagePrompt: true },
+    });
+
+    // Суурь зураг байгаа бөгөөд зөвхөн текст солих бол дахин зурахад л хангалттай
+    if (keepPhoto && current.heroImageData) {
+      const text = headline || current.fbHook || "";
+      if (!text) error = "Headline хоосон байна.";
+      else {
+        const hero = Buffer.from(current.heroImageData);
+        const card = await renderCard(hero, text);
+        await saveCard(id, { card, hero, headline: text, prompt: current.fbImagePrompt ?? "", costUsd: 0 });
+      }
+    } else {
+      const built = await cardForArticle(id, {
+        recentPrompts: await recentImagePrompts(),
+        headline: headline || undefined,
+      });
+      await saveCard(id, built);
+    }
   } catch (e) {
     error = (e as Error).message;
   }
