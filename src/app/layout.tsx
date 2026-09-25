@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { AuthNav } from "@/components/AuthNav";
 import { Logo } from "@/components/Logo";
 import { SearchDialog } from "@/components/SearchDialog";
 import { ThemeToggle } from "@/components/ThemeToggle";
@@ -21,7 +22,6 @@ const NAV = [
   { href: "/jagsaalt", label: "Жагсаалт" },
   { href: "/hereglee", label: "Хэрэглээ" },
   { href: "/medee", label: "Мэдээ" },
-  { href: "/argachlal", label: "Аргачлал" },
 ];
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -44,6 +44,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               </nav>
               <SearchDialog />
               <ThemeToggle />
+              <AuthNav />
             </div>
           </div>
         </header>

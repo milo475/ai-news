@@ -64,7 +64,7 @@ USE_FIXTURES=1 npm run dev   # DB-гүй, зохиомол өгөгдлөөр UI
 npm run build && npm start
 ```
 Хуудсууд: `/` нүүр (топ 10, өсөлт/уналт), `/jagsaalt` (топ 50, шүүлтүүр), `/model/<slug>` (30 хоногийн график, үнэ),
-`/hereglee` (ямар ажилд аль AI), `/argachlal`, `/medee`.
+`/hereglee` (ямар ажилд аль AI), `/medee`, `/nevtreh`, `/burtguuleh`, `/profile`.
 
 Хуудсууд өгөгдлийг зөвхөн `src/data/index.ts`-ээс авна — DB эсвэл fixture-ийг тэнд сольдог.
 Нүүр хуудас request тутам шинэчлэгдэнэ (`force-dynamic`) — build үед DB байдаггүй, мөн deploy хийсэн
@@ -477,6 +477,9 @@ Cron сервис ажиллах бүрдээ `prisma migrate deploy` (advisory 
 | `DATABASE_URL` | `${{Postgres.DATABASE_URL}}` |
 | `ADMIN_PASSWORD` | `/admin`-ы Basic auth нууц үг. Хоосон бол `/admin` 503 |
 | `SITE_URL` | нийтийн домэйн, Facebook постын холбоост |
+| `AUTH_SECRET` | **заавал** — хэрэглэгчийн session ([Auth.js](#хэрэглэгчийн-нэвтрэлт-authjs)) |
+| `AUTH_URL` | `SITE_URL`-тай ижил |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Google-ээр нэвтрэх (заавал биш) |
 | `OPENROUTER_API_KEY` | зөвхөн `/admin` дээрх «Дахин бичүүлэх» товчинд |
 | `NEXT_PUBLIC_UMAMI_URL`, `NEXT_PUBLIC_UMAMI_WEBSITE_ID` | analytics — [Analytics (Umami)](#analytics-umami) |
 | `NEXT_TELEMETRY_DISABLED` | `1` |
@@ -544,6 +547,44 @@ image дээр байдаг. **Playwright-ийн хувилбар `package.json`
 
 > **Анхааруулга:** эхний 2–4 долоо хоног `DAILY_PUBLISH_LIMIT=0` тавьж, агентын бичсэнийг гараар
 > хянана уу. Гарчиг, тоо, нэр томьёо тогтвортой зөв гарч байгаад итгэсний дараа л асаана.
+
+## Хэрэглэгчийн нэвтрэлт (Auth.js)
+`next-auth` v5 + Prisma adapter. Session нь **JWT, 30 хоног** (Credentials provider нь database
+session дэмждэггүй). Хэрэглэгчийн хүснэгтүүд: `User`, `Account`, `Session`, `VerificationToken`.
+
+| Хувьсагч | Утга |
+|---|---|
+| `AUTH_SECRET` | **заавал** — `openssl rand -base64 32` |
+| `AUTH_URL` | сайтын үндсэн хаяг (`SITE_URL`-тай ижил). Локалд хоосон байж болно |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | хоёулаа байвал л Google-ийн товч харагдана |
+
+**Нэвтрэх аргууд**
+- Имэйл + нууц үг (bcryptjs, 8-аас доошгүй тэмдэгт, хэт түгээмэл нууц үгийг хориглоно).
+- Google OAuth — түлхүүр тохируулаагүй бол товч ч харагдахгүй. Redirect URI:
+  `<AUTH_URL>/api/auth/callback/google`.
+
+**Имэйл баталгаажуулалт.** Бүртгүүлэхэд Resend-ээр холбоос илгээнэ (24 цаг хүчинтэй);
+`RESEND_API_KEY` байхгүй бол dev-д консолд хэвлэнэ. Баталгаажаагүй хэрэглэгч **нэвтэрч чадна**,
+гэхдээ бичих үйлдэлд `requireVerified()` шаардана (коммент, prompt нэмэх — 0.2-т). Нууц үг сэргээх
+холбоос 1 цаг хүчинтэй (`/nevtreh/martsan`); сэргээсэн нь имэйлээ эзэмшдэгийг баталдаг тул
+баталгаажсанд тооцно.
+
+**Хуудсууд:** `/nevtreh`, `/burtguuleh`, `/nevtreh/martsan`, `/nevtreh/shine-nuuts-ug/<token>`,
+`/batalgaajuulah/<token>`, `/profile`. Header дээр нэвтрээгүй бол «Нэвтрэх» товч, нэвтэрсэн бол
+нэр/зурагтай цэс (Профайл, Гарах).
+
+**Аюулгүй байдал**
+- Хязгаарлалт (IP-ээр, in-memory): нэвтрэх 5/мин, бүртгэл 3/цаг, нууц үг сэргээх 3/цаг.
+- Нэвтрэх алдаа үргэлж «Имэйл эсвэл нууц үг буруу байна» — бүртгэлтэй эсэхийг задруулахгүй.
+  Бүртгэл, сэргээх хариу ч ижил зарчмаар («хэрэв энэ хаяг бүртгэлтэй бол...»).
+- CSRF-ийг Auth.js өөрөө хариуцна; форм бүр server action-аар явна.
+- `middleware.ts`: `/profile/*` нь session cookie шаардана (жинхэнэ шалгалтыг хуудас өөрөө
+  `currentUser()`-ээр хийнэ), `/admin/*` хэвээр `ADMIN_PASSWORD`-оор.
+
+**Newsletter холболт.** Бүртгүүлэхдээ «Долоо хоногийн имэйл авах» сонговол `Subscriber` үүснэ;
+ижил имэйлтэй бүртгэл аль хэдийн байвал `Subscriber.userId` нь хэрэглэгчтэй холбогдоно.
+
+**Umami event:** `login`, `register`, `verify_email`.
 
 ## Брэнд
 Нэр: **AI News**. Тэмдэг нь өсөх багана + дээш заасан сум, өнгө `--color-accent` (`#4f46e5`).
@@ -627,7 +668,7 @@ JSON API (`text/latest` split). Тэр split-ийн эхний мөрүүд нь
 
 **UI:** `/jagsaalt` болон нүүр хуудсан дээр «Хэрэглээ | Чанар» таб (`?tab=chanar`), шүүлтүүр хоёуланд
 ижил ажиллана. Моделийн хуудсанд график дээр хоёр дахь (тасархай) мөр + legend. Ишлэлийг хоёуланг нь
-зэрэгцүүлж харуулна. `/argachlal`-д Arena Elo гэж юу вэ гэдгийг тайлбарласан.
+зэрэгцүүлж харуулна. Эх сурвалжийн тайлбар (OpenRouter, LMArena) `/jagsaalt`-ын доод талд нэг мөрөөр байна.
 
 ## Долоо хоногийн тойм (digest)
 7 хоногийн нийтлэгдсэн мэдээг нэг урт нийтлэл болгож нэгтгэнэ — Facebook-д хуваалцахад

@@ -1,10 +1,21 @@
 /**
- * /admin — HTTP Basic auth. Хэрэглэгч "admin", нууц үг ADMIN_PASSWORD.
- * ADMIN_PASSWORD тохируулаагүй бол хуудсыг огт нээхгүй (503).
+ * Хамгаалалт:
+ *   /admin/*   — HTTP Basic auth (хэрэглэгч "admin", нууц үг ADMIN_PASSWORD).
+ *                ADMIN_PASSWORD тохируулаагүй бол хуудсыг огт нээхгүй (503).
+ *   /profile/* — нэвтэрсэн байх шаардлагатай. Auth.js-ийн session cookie байгаа эсэхийг
+ *                л шалгана (edge дээр DB, bcrypt ажиллуулахгүй); жинхэнэ шалгалтыг
+ *                хуудас өөрөө `currentUser()`-ээр хийнэ.
  */
 import { NextResponse, type NextRequest } from "next/server";
 
-export const config = { matcher: "/admin/:path*" };
+export const config = { matcher: ["/admin/:path*", "/profile/:path*"] };
+
+/** Auth.js-ийн session cookie (https дээр __Secure- угтвартай) */
+function hasSession(req: NextRequest): boolean {
+  return Boolean(
+    req.cookies.get("authjs.session-token") ?? req.cookies.get("__Secure-authjs.session-token"),
+  );
+}
 
 const DENY = { "WWW-Authenticate": 'Basic realm="admin", charset="UTF-8"' };
 
@@ -21,6 +32,13 @@ function timingSafeEqual(a: string, b: string): boolean {
 }
 
 export function middleware(req: NextRequest) {
+  if (req.nextUrl.pathname.startsWith("/profile")) {
+    if (hasSession(req)) return NextResponse.next();
+    const login = new URL("/nevtreh", req.url);
+    login.searchParams.set("ur", req.nextUrl.pathname);
+    return NextResponse.redirect(login);
+  }
+
   const password = process.env.ADMIN_PASSWORD;
   if (!password) {
     return new NextResponse("ADMIN_PASSWORD тохируулаагүй байна.", { status: 503 });

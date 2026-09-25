@@ -89,6 +89,18 @@ export default async function Jagsaalt({ searchParams }: { searchParams: Promise
         }
       />
       <p className="text-xs text-muted">{note} Байр бүтэн жагсаалтын байр (шүүлтээр өөрчлөгдөхгүй).</p>
+      {/* «Аргачлал» хуудсыг хассаны дараа эх сурвалжийн тайлбар энд нэг мөрөөр үлдсэн */}
+      <p className="text-xs text-muted">
+        Эх сурвалж: хэрэглээний жагсаалт{" "}
+        <a href="https://openrouter.ai/rankings" target="_blank" rel="noopener noreferrer" className="text-accent hover:underline">
+          OpenRouter
+        </a>{" "}
+        (өдөр тутмын токен, CC BY 4.0) — чанар биш хэрэглээг хэмжинэ; чанарын жагсаалт{" "}
+        <a href="https://lmarena.ai" target="_blank" rel="noopener noreferrer" className="text-accent hover:underline">
+          LMArena
+        </a>{" "}
+        (хүмүүсийн саналын Elo, долоо хоног тутам).
+      </p>
     </div>
   );
 }
