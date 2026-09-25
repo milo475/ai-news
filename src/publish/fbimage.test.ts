@@ -3,8 +3,9 @@ import assert from "node:assert/strict";
 import sharp from "sharp";
 import {
   buildImagePrompt, creditText, DEFAULT_IMAGE_DAILY_LIMIT, DEFAULT_IMAGE_MODEL, esc,
-  imageDailyLimit, imageModel, IMAGE_PROMPT_PREFIX, IMAGE_SIZE, isGenericScene, rankingCardSvg,
-  RECENT_SCENES, recentScenesBlock, sceneTooSimilar, useSourceImage,
+  EVERYDAY_ONLY, imageDailyLimit, imageModel, IMAGE_PROMPT_PREFIX, IMAGE_SIZE, isGenericScene,
+  isLabScene, rankingCardSvg, RECENT_SCENES, recentScenesBlock, SCENE_SYSTEM, sceneTooSimilar,
+  useSourceImage,
 } from "./fbimage.api";
 import { generateAiImage, squareJpeg } from "./fbimage";
 
@@ -87,6 +88,43 @@ test("isGenericScene: оффис, компьютерийн ард хүн гэх 
   ]) {
     assert.equal(isGenericScene(concrete), false, concrete);
   }
+});
+
+test("isLabScene: FACT/HOWTO/PROJECT-д лаборатори хориотой, RISK/NEWS-д зөвшөөрнө", () => {
+  assert.deepEqual(EVERYDAY_ONLY, ["FACT", "HOWTO", "PROJECT"]);
+
+  const labScenes = [
+    "A researcher's hand adjusting a dial on a physics instrument panel, with a printed diagram below.",
+    "A silicon wafer held with tweezers in a cleanroom, overhead view.",
+    "A scientist in a white coat beside a microscope in a bright laboratory.",
+    "A technician checking an oscilloscope on a test bench.",
+  ];
+  for (const scene of labScenes) {
+    for (const c of EVERYDAY_ONLY) assert.equal(isLabScene(scene, c), true, `${c}: ${scene}`);
+    // Мэргэжлийн орчин зөвшөөрөгддөг ангиллууд
+    for (const c of ["RISK", "NEWS", "BUSINESS"] as const) {
+      assert.equal(isLabScene(scene, c), false, `${c}: ${scene}`);
+    }
+  }
+
+  // Өдөр тутмын дүрслэл бүх ангилалд зүгээр
+  const everyday = [
+    "A phone on a wooden kitchen table with a hand reaching for it, morning light.",
+    "A shop owner checking orders on a laptop behind the counter.",
+    "A commuter looking at a phone on a bus, window reflections.",
+  ];
+  for (const scene of everyday) {
+    for (const c of [...EVERYDAY_ONLY, "NEWS"] as const) assert.equal(isLabScene(scene, c), false, scene);
+  }
+});
+
+test("SCENE_SYSTEM: ангиллын дүрэм prompt дотор бичигдсэн", () => {
+  assert.ok(SCENE_SYSTEM.includes("FACT, HOWTO, PROJECT"));
+  assert.ok(SCENE_SYSTEM.includes("FORBIDDEN"));
+  for (const word of ["laboratory", "cleanroom", "microscope"]) {
+    assert.ok(SCENE_SYSTEM.includes(word), word);
+  }
+  assert.ok(SCENE_SYSTEM.includes("RISK, NEWS, BUSINESS"), "мэргэжлийн орчин зөвшөөрөх ангиллууд");
 });
 
 test("sceneTooSimilar: сүүлийн постуудтай давхардсан дүрслэлийг барина", () => {

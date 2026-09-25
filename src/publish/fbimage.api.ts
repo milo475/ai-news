@@ -56,6 +56,14 @@ BANNED (too generic — never use unless the article is literally about it):
 room", "a business handshake", "a boardroom", "generic server racks", "a glowing AI brain",
 "a humanoid robot", "abstract digital background", "hands typing on a keyboard".
 
+CATEGORY RULE (stated in the user message):
+- FACT, HOWTO, PROJECT → everyday life ONLY. A laboratory, physics rig, cleanroom, microscope,
+  test bench or research facility is FORBIDDEN. Show an ordinary person using the technology where
+  they live and work: a phone in a hand, a laptop on a kitchen table, a home, a cafe, an office
+  desk, a shop counter, a street, public transport.
+- RISK, NEWS, BUSINESS → a professional setting is allowed when the article is about it
+  (a courtroom, a server room, a factory floor, a government office).
+
 Prefer the HUMAN side of the topic over a literal illustration: show who is affected and what they
 do, not the technology itself. Examples:
 - model compression / faster inference → someone using an assistant on their phone on a bus
@@ -147,12 +155,34 @@ export function sceneTooSimilar(scene: string, recent: string[], threshold = 0.3
 /** Ангилал бүрийн өнцөг — сэдвийн объектыг аль талаас нь харуулах вэ */
 export const CATEGORY_SCENE_HINT: Record<ArticleCategory, string> = {
   NEWS: "show the thing the news is about (the device, building, vehicle, material, place)",
-  PROJECT: "show the thing that was built and the tools or workbench around it",
+  PROJECT: "show an ordinary person using or showing off what was built, at home or at a work desk",
   BUSINESS: "show where the money is made: the shop floor, the goods, the machine, the counter",
-  FACT: "show the object being measured, tested or counted, and the instrument doing it",
+  FACT: "show an ordinary person in daily life who benefits from the finding — never the research itself",
   RISK: "show the calm, concrete detail at stake (a lock, a camera, a document, a fence) — no alarm, no fear",
-  HOWTO: "show the tool or material in use, close, from the user's point of view",
+  HOWTO: "show the tool in use in everyday surroundings, from the user's point of view",
 };
+
+/**
+ * Эдгээр ангилалд мэргэжлийн/судалгааны орчин хориотой — уншигч өөрийгөө таних ёстой.
+ * RISK, NEWS, BUSINESS-д нийтлэл нь тэр тухай бол зөвшөөрнө.
+ */
+export const EVERYDAY_ONLY: ArticleCategory[] = ["FACT", "HOWTO", "PROJECT"];
+
+/** Хориглох орчны түлхүүр үгс */
+const LAB_PATTERNS: RegExp[] = [
+  /\b(laborator(y|ies)|lab bench|lab coat)\b/i,
+  /\b(cleanroom|clean room)\b/i,
+  /\b(microscope|centrifuge|oscilloscope|spectrometer|pipette|petri dish)\b/i,
+  /\b(physics|scientific|research)\s+(rig|instrument|equipment|apparatus|facility|bench|panel)\b/i,
+  /\b(test bench|instrument panel|control panel|wafer|fume hood)\b/i,
+  /\b(researcher|scientist|technician)\b/i,
+];
+
+/** Тухайн ангилалд зөвшөөрөгдөхгүй мэргэжлийн орчин мөн үү */
+export function isLabScene(scene: string, category: ArticleCategory): boolean {
+  if (!EVERYDAY_ONLY.includes(category)) return false;
+  return LAB_PATTERNS.some((re) => re.test(scene));
+}
 
 /** Бүтэн prompt: тогтмол хэсэг + LLM-ийн дүрслэл */
 export function buildImagePrompt(scene: string): string {

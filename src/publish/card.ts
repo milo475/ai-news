@@ -23,8 +23,8 @@ import {
   HOOK_SYSTEM, overlaySvg, pickHook, type ScoredHook,
 } from "./card.api";
 import {
-  CATEGORY_SCENE_HINT, FALLBACK_IMAGE_MODEL, imageModel, isGenericScene, recentScenesBlock,
-  SCENE_SCHEMA, SCENE_SYSTEM, sceneTooSimilar, useSourceImage,
+  CATEGORY_SCENE_HINT, EVERYDAY_ONLY, FALLBACK_IMAGE_MODEL, imageModel, isGenericScene, isLabScene,
+  recentScenesBlock, SCENE_SCHEMA, SCENE_SYSTEM, sceneTooSimilar, useSourceImage,
 } from "./fbimage.api";
 
 const JPEG_QUALITY = 86;
@@ -130,8 +130,13 @@ async function writeScene(
   recent: string[],
   chat: Chat,
 ): Promise<{ scene: string; subject: string; costUsd: number }> {
+  const everyday = EVERYDAY_ONLY.includes(a.category);
   const base = [
     `Category: ${a.category} (${CATEGORY_LABEL[a.category]}) — ${CATEGORY_SCENE_HINT[a.category]}.`,
+    everyday
+      ? "This category is EVERYDAY ONLY: no laboratory, no cleanroom, no microscope, no research " +
+        "equipment, no scientists. Show an ordinary person in daily surroundings."
+      : "",
     `Headline: ${a.titleMn ?? ""}`,
     `Summary: ${a.summaryMn ?? ""}`,
     recentScenesBlock(recent),
@@ -152,9 +157,12 @@ async function writeScene(
           : [
               "",
               `The previous answer was rejected: "${scene}".`,
-              isGenericScene(scene)
-                ? "It was too generic. Name the concrete object or place from the article itself."
-                : "It was too close to a recent scene. Pick a different subject and camera angle.",
+              isLabScene(scene, a.category)
+                ? "A laboratory or research setting is not allowed for this category. Show the " +
+                  "person who benefits in their own surroundings (home, cafe, office, street)."
+                : isGenericScene(scene)
+                  ? "It was too generic. Name the concrete object or place from the article itself."
+                  : "It was too close to a recent scene. Pick a different subject and camera angle.",
             ]),
       ].join("\n"),
       schema: SCENE_SCHEMA,
@@ -165,8 +173,13 @@ async function writeScene(
     costUsd += out.costUsd;
     scene = out.data.scene;
     subject = out.data.subject;
-    if (!isGenericScene(scene) && !sceneTooSimilar(scene, recent)) break;
-    console.warn(`  ⚠ дүрслэл ${isGenericScene(scene) ? "хэт ерөнхий" : "өмнөхтэй төстэй"}: ${scene}`);
+    const bad =
+      isLabScene(scene, a.category) ? "лаборатори/мэргэжлийн орчин"
+      : isGenericScene(scene) ? "хэт ерөнхий"
+      : sceneTooSimilar(scene, recent) ? "өмнөхтэй төстэй"
+      : null;
+    if (!bad) break;
+    console.warn(`  ⚠ дүрслэл ${bad}: ${scene}`);
   }
   return { scene, subject, costUsd };
 }
