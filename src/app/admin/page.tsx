@@ -93,6 +93,7 @@ export default async function Admin({
         <span className="flex gap-4">
           <Link href="/admin/hereglee" className="text-sm text-accent hover:underline">Хэрэглээний жагсаалт →</Link>
           <Link href="/admin/newsletter" className="text-sm text-accent hover:underline">Newsletter →</Link>
+          <Link href="/admin/hereglegch" className="text-sm text-accent hover:underline">Хэрэглэгчид →</Link>
           {umamiUrl && (
             <a
               href={umamiUrl}

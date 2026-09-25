@@ -43,21 +43,25 @@ export const authConfig: NextAuthConfig = {
       : []),
   ],
   callbacks: {
-    async jwt({ token, user, trigger }) {
+    async jwt({ token, user }) {
       if (user?.id) token.uid = user.id;
-      // Нэвтрэх үед болон session шинэчлэхэд DB-ээс эрх/баталгаажилтыг сэргээнэ
-      if (token.uid && (user || trigger === "update")) {
-        const db = await prisma.user.findUnique({
-          where: { id: String(token.uid) },
-          select: { role: true, emailVerifiedAt: true, name: true, image: true },
-        });
-        if (db) {
-          token.role = db.role;
-          token.verified = db.emailVerifiedAt !== null;
-          token.name = db.name;
-          token.picture = db.image;
-        }
-      }
+      if (!token.uid) return token;
+
+      // Хүсэлт бүрт DB-ээс уншина: эрх, баталгаажилт шууд шинэчлэгдэх ба
+      // «бүх төхөөрөмжөөс гарах» (sessionVersion) тэр даруй үйлчилнэ.
+      const db = await prisma.user.findUnique({
+        where: { id: String(token.uid) },
+        select: { role: true, emailVerifiedAt: true, name: true, image: true, sessionVersion: true },
+      });
+      // Хэрэглэгч устсан эсвэл бүх session хүчингүй болсон
+      if (!db) return null;
+      if (typeof token.sv === "number" && token.sv !== db.sessionVersion) return null;
+
+      token.role = db.role;
+      token.verified = db.emailVerifiedAt !== null;
+      token.name = db.name;
+      token.picture = db.image;
+      token.sv = db.sessionVersion;
       return token;
     },
     async session({ session, token }) {

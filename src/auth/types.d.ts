@@ -27,6 +27,8 @@ declare module "next-auth/jwt" {
     uid?: string;
     role?: UserRole;
     verified?: boolean;
+    /** sessionVersion — «бүх төхөөрөмжөөс гарах»-д ашиглана */
+    sv?: number;
   }
 }
 

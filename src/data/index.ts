@@ -36,6 +36,8 @@ export interface UseCaseDetail extends UseCaseCard {
 }
 
 export interface NewsCard {
+  /** Хадгалах товчинд хэрэгтэй */
+  id: string;
   slug: string; titleMn: string; summaryMn: string;
   publishedAt: Date | null; sourceName: string; tags: string[];
   /** DIGEST = долоо хоногийн тойм */
@@ -54,17 +56,19 @@ export interface NewsDetail extends NewsCard {
 
 /** PUBLISHED нийтлэлийн нийтлэг select — картны талбарууд */
 const cardSelect = {
-  slug: true, titleMn: true, summaryMn: true, publishedAt: true, tags: true, kind: true,
+  id: true, slug: true, titleMn: true, summaryMn: true, publishedAt: true, tags: true, kind: true,
   source: { select: { name: true } },
 } as const;
 
 type CardRow = {
+  id: string;
   slug: string; titleMn: string | null; summaryMn: string | null;
   publishedAt: Date | null; tags: string[]; kind: "NEWS" | "DIGEST"; source: { name: string };
 };
 
 function toCard(a: CardRow): NewsCard {
   return {
+    id: a.id,
     slug: a.slug,
     titleMn: a.titleMn ?? "",
     summaryMn: a.summaryMn ?? "",
@@ -162,7 +166,7 @@ export async function getNewsItem(slug: string): Promise<NewsDetail | null> {
   const a = await prisma.article.findUnique({
     where: { slug },
     select: {
-      ...cardSelect, id: true, status: true, bodyMn: true, sourceUrl: true, sourceTitle: true,
+      ...cardSelect, status: true, bodyMn: true, sourceUrl: true, sourceTitle: true,
       heroImageData: true,
       models: { select: { slug: true, name: true, nameMn: true } },
       companies: { select: { name: true } },

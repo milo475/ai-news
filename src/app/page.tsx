@@ -5,6 +5,11 @@ import { NewsList } from "@/components/NewsList";
 import { NewsletterForm } from "@/components/NewsletterForm";
 import { UseCaseIcon } from "@/components/UseCaseIcon";
 import { fmtDate } from "@/components/format";
+import { currentUser } from "@/auth/session";
+import { getPreference, newsForInterests } from "@/bookmarks/preferences";
+import { bookmarkedIds } from "@/bookmarks/queries";
+import { showInterestBlock } from "@/bookmarks/preferences.api";
+import { CATEGORY_LABEL } from "@/agent/category";
 
 // Build үед DB байхгүй тул prerender хийхгүй — нүүр бүх үед шинэ өгөгдөл харуулна
 export const dynamic = "force-dynamic";
@@ -18,13 +23,20 @@ const TABS = [
 export default async function Home({ searchParams }: { searchParams: Promise<{ tab?: string }> }) {
   const asked = (await searchParams).tab ?? "";
   const tab = TABS.find((t) => t.key === asked) ?? TABS[0]!;
-  const [{ date, rows }, note, news, useCases, digest] = await Promise.all([
+  const user = await currentUser();
+  const [{ date, rows }, note, news, useCases, digest, pref] = await Promise.all([
     getLeaderboard(10, tab.source),
     getSourceNote(tab.source),
     getLatestNews(5),
     getUseCases(6),
     getLatestDigest(),
+    user ? getPreference(user.id) : null,
   ]);
+
+  // "Таны сонирхол" — зөвхөн нэвтэрсэн, ангилал сонгосон хэрэглэгчид
+  const interest = pref ? await newsForInterests(pref.categories, 4) : [];
+  const showInterest = showInterestBlock(user, pref?.categories ?? [], interest.length);
+  const savedIds = user ? await bookmarkedIds(user.id, [...interest, ...news].map((n) => n.id)) : undefined;
   const movers = [...rows].filter((r) => r.rankDelta !== null).sort((a, b) => (b.rankDelta ?? 0) - (a.rankDelta ?? 0));
   const top = movers[0];
   const bottom = movers[movers.length - 1];
@@ -123,6 +135,19 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ t
         </Link>
       )}
 
+      {showInterest && (
+        <section className="space-y-3">
+          <div className="flex items-baseline justify-between">
+            <h2 className="text-xl font-semibold">Таны сонирхол</h2>
+            <Link href="/profile/sonirhol" className="text-sm text-muted hover:text-ink">Сэдэв солих →</Link>
+          </div>
+          <p className="text-xs text-muted">
+            {pref!.categories.map((c) => CATEGORY_LABEL[c]).join(" · ")}
+          </p>
+          <NewsList items={interest} savedIds={savedIds} path="/" />
+        </section>
+      )}
+
       <section className="space-y-3">
         <div className="flex items-baseline justify-between">
           <h2 className="text-xl font-semibold">Сүүлийн мэдээ</h2>
@@ -133,7 +158,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ t
             Мэдээний agent удахгүй нэмэгдэнэ. Дэлхийн AI мэдээг өдөр бүр монгол хэлээр хураангуйлан хүргэх болно.
           </div>
         ) : (
-          <NewsList items={news} />
+          <NewsList items={news} savedIds={savedIds} path="/" />
         )}
       </section>
 

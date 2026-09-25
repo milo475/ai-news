@@ -214,6 +214,8 @@ model Article {
   companies Company[] @relation("ArticleCompanies")
 
   /// Энэ нийтлэл digest бол дотор нь орсон мэдээнүүд
+  bookmarks   Bookmark[]
+
   digestItems DigestItem[] @relation("DigestParent")
   /// Энэ мэдээ ямар digest-үүдэд орсон бэ
   inDigests   DigestItem[] @relation("DigestChild")
@@ -370,12 +372,47 @@ model User {
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
+  /// Бүх төхөөрөмжөөс гарахад нэмэгдэнэ — хуучин JWT хүчингүй болно
+  sessionVersion  Int       @default(0)
+
   accounts Account[]
   sessions Session[]
   /// Ижил имэйлтэй newsletter бүртгэл байвал холбогдоно
   subscriber Subscriber?
+  bookmarks  Bookmark[]
+  preference UserPreference?
 
   @@index([role])
+}
+
+/// Хэрэглэгчийн хадгалсан нийтлэл
+model Bookmark {
+  id        String   @id @default(cuid())
+  userId    String
+  articleId String
+  createdAt DateTime @default(now())
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  article Article @relation(fields: [articleId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, articleId])
+  @@index([userId, createdAt])
+  @@index([articleId])
+}
+
+/// Хэрэглэгчийн сонирхол — нүүр хуудасны хувийн блок, имэйлийн тохиргоо
+model UserPreference {
+  id          String            @id @default(cuid())
+  userId      String            @unique
+  /// Сонирхдог ангиллууд (хоосон = бүгд)
+  categories  ArticleCategory[] @default([])
+  /// /hereglee-ийн ангиллын slug-ууд
+  usecases    String[]          @default([])
+  /// Долоо хоногийн тоймыг имэйлээр авах эсэх
+  digestEmail Boolean           @default(true)
+  updatedAt   DateTime          @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 /// Auth.js — OAuth бүртгэл (Google ...)

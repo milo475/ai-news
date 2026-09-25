@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { NewsCard } from "@/data";
+import { BookmarkButton } from "./BookmarkButton";
 import { fmtDate } from "./format";
 
 export function Tags({ tags }: { tags: string[] }) {
@@ -13,7 +14,16 @@ export function Tags({ tags }: { tags: string[] }) {
   );
 }
 
-export function NewsList({ items }: { items: NewsCard[] }) {
+export function NewsList({
+  items,
+  /** Хадгалсан нийтлэлүүдийн id — нэвтэрсэн үед л дамжина */
+  savedIds,
+  path,
+}: {
+  items: NewsCard[];
+  savedIds?: Set<string>;
+  path?: string;
+}) {
   return (
     <ul className="divide-y divide-line rounded-lg border border-line">
       {items.map((n) => (
@@ -30,6 +40,11 @@ export function NewsList({ items }: { items: NewsCard[] }) {
             <span>·</span>
             <span>{n.sourceName}</span>
             <Tags tags={n.tags} />
+            {savedIds && (
+              <span className="ml-auto">
+                <BookmarkButton articleId={n.id} saved={savedIds.has(n.id)} path={path} compact />
+              </span>
+            )}
           </div>
         </li>
       ))}

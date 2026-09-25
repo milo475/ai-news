@@ -1,8 +1,11 @@
 import Link from "next/link";
+import { currentUser } from "@/auth/session";
+import { bookmarkedIds } from "@/bookmarks/queries";
 import { getNews } from "@/data";
 import { NewsList } from "@/components/NewsList";
 
-export const revalidate = 600;
+// Нэвтэрсэн хэрэглэгчийн хадгалсан төлөв хүн бүрт өөр тул кэшлэхгүй
+export const dynamic = "force-dynamic";
 export const metadata = { title: "Мэдээ" };
 
 const PER_PAGE = 20;
@@ -19,6 +22,8 @@ export default async function Medee({ searchParams }: { searchParams: Promise<{ 
   const page = pageNumber((await searchParams).page);
   const { items, total } = await getNews(page, PER_PAGE);
   const pages = Math.max(1, Math.ceil(total / PER_PAGE));
+  const user = await currentUser();
+  const savedIds = user ? await bookmarkedIds(user.id, items.map((i) => i.id)) : undefined;
 
   return (
     <div className="space-y-4">
@@ -35,7 +40,7 @@ export default async function Medee({ searchParams }: { searchParams: Promise<{ 
         </div>
       ) : (
         <>
-          <NewsList items={items} />
+          <NewsList items={items} savedIds={savedIds} path={`/medee?page=${page}`} />
           {pages > 1 && (
             <nav className="flex items-center justify-between text-sm">
               {page > 1 ? (

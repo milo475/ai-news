@@ -1,13 +1,12 @@
 import { redirect } from "next/navigation";
 import { resendVerifyAction } from "@/auth/actions";
 import { currentUser } from "@/auth/session";
-import { changePasswordAction } from "./actions";
+import { changePasswordAction, saveNameAction } from "./actions";
 import { ActionForm, input, Submit } from "@/components/AuthForm";
 import { MIN_PASSWORD } from "@/auth/password";
 import { prisma } from "@/db";
 
 export const metadata = { title: "Профайл" };
-export const dynamic = "force-dynamic";
 
 export default async function ProfilePage() {
   const user = await currentUser();
@@ -22,11 +21,17 @@ export default async function ProfilePage() {
   ]);
 
   return (
-    <div className="mx-auto max-w-lg space-y-6">
-      <h1 className="text-2xl font-semibold tracking-tight">Профайл</h1>
+    <div className="space-y-6">
+
+      <section className="rounded-lg border border-line p-4 space-y-3">
+        <h2 className="text-sm font-semibold">Нэр</h2>
+        <ActionForm action={saveNameAction} className="space-y-2">
+          <input name="name" defaultValue={user.name ?? ""} required minLength={2} className={input} />
+          <Submit>Хадгалах</Submit>
+        </ActionForm>
+      </section>
 
       <section className="rounded-lg border border-line p-4 space-y-2 text-sm">
-        <p><span className="text-muted">Нэр:</span> {user.name ?? "—"}</p>
         <p><span className="text-muted">Имэйл:</span> {user.email}</p>
         <p>
           <span className="text-muted">Төлөв:</span>{" "}

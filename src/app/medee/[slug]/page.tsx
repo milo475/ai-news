@@ -1,5 +1,8 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
+import { currentUser } from "@/auth/session";
+import { isBookmarked } from "@/bookmarks/queries";
+import { BookmarkButton } from "@/components/BookmarkButton";
 import { getNewsItem } from "@/data";
 import { Markdown } from "@/components/Markdown";
 import { ShareFacebook } from "@/components/ShareFacebook";
@@ -39,6 +42,8 @@ export default async function NewsPage({ params }: { params: Promise<Params> }) 
   const n = await getNewsItem(slug);
   if (!n) notFound();
   const shareUrl = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(`${SITE_URL}/medee/${slug}`)}`;
+  const user = await currentUser();
+  const saved = user ? await isBookmarked(user.id, n.id) : false;
 
   return (
     <article className="max-w-2xl space-y-6">
@@ -59,9 +64,10 @@ export default async function NewsPage({ params }: { params: Promise<Params> }) 
             </>
           )}
         </p>
-        {n.kind === "DIGEST" && (
-          <ShareFacebook slug={slug} href={shareUrl} />
-        )}
+        <div className="flex flex-wrap items-center gap-3 pt-1">
+          <BookmarkButton articleId={n.id} saved={saved} path={`/medee/${slug}`} />
+          {n.kind === "DIGEST" && <ShareFacebook slug={slug} href={shareUrl} />}
+        </div>
       </div>
 
       {n.heroUrl && (
