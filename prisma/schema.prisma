@@ -662,3 +662,129 @@ model NewsletterSend {
   failedCount     Int      @default(0)
   createdAt       DateTime @default(now())
 }
+
+/// —————————————————— Монгол хэлний бенчмарк (/benchmark) ——————————————————
+
+/// Нэг даалгавар. Нийтэд харуулахгүй (contamination) — зөвхөн isPublic=true нь нээлттэй.
+model BenchTask {
+  id        String        @id @default(cuid())
+  slug      String        @unique
+  title     String
+  category  BenchCategory
+  /// Моделд өгөх даалгавар
+  prompt    String
+  /// Лавлах хариулт — шүүгчид өгнө. Seed дээр LLM бичээд админ засна.
+  reference String?
+  /// 3–4 шалгуур: [{ name, weight, hint }]
+  rubric    Json          @default("[]")
+  /// Тодорхой шалгалт: { kind: "json" | "maxWords" | "cyrillic", limit?, minRatio? }
+  checker   Json?
+  weight    Int           @default(1)
+  isActive  Boolean       @default(true)
+  /// Нээлттэй жишээ даалгавар — /benchmark дээр харагдана
+  isPublic  Boolean       @default(false)
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+
+  results BenchResult[]
+
+  @@index([isActive, category])
+}
+
+/// Сар бүрийн нэг ажиллагаа
+model BenchRun {
+  id          String      @id @default(cuid())
+  /// "2026-10" — сар бүр нэг
+  month       String      @unique
+  startedAt   DateTime    @default(now())
+  finishedAt  DateTime?
+  judgeModel  String
+  judgeModel2 String?
+  costUsd     Float       @default(0)
+  status      BenchStatus @default(RUNNING)
+  /// Төсөв хэтэрсэн, алдаа гарсан тухай тэмдэглэл
+  note        String?
+  /// Автоматаар үүсгэсэн DRAFT нийтлэл
+  articleId   String?
+
+  results   BenchResult[]
+  summaries BenchModelSummary[]
+
+  @@index([status, startedAt])
+}
+
+model BenchResult {
+  id        String    @id @default(cuid())
+  runId     String
+  run       BenchRun  @relation(fields: [runId], references: [id], onDelete: Cascade)
+  /// OpenRouter-ийн модель id ("openai/gpt-6")
+  modelSlug String
+  taskId    String
+  task      BenchTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  output      String
+  latencyMs   Int    @default(0)
+  tokensIn    Int    @default(0)
+  tokensOut   Int    @default(0)
+  costUsd     Float  @default(0)
+  /// Моделийн гаргасан монгол үгийн тоо — 1000 үгийн үнэ тооцоход
+  outputWords Int    @default(0)
+
+  /// 0–10. Хоёр шүүгчтэй бол дундаж.
+  judgeScore  Float?
+  judgeNotes  String?
+  /// Хоёр дахь шүүгчийн оноо (шүүгч өөрийгөө шүүхээс сэргийлэх)
+  judgeScore2 Float?
+  /// Тодорхой шалгалтын үр дүн. false = оноо 0.
+  checkerPass Boolean?
+  /// Админ гараар өгсөн оноо — байвал judgeScore-ийг дарна
+  humanScore  Float?
+  humanNote   String?
+  /// Модель хариу өгөөгүй (timeout, алдаа)
+  error       String?
+  createdAt   DateTime @default(now())
+
+  @@unique([runId, modelSlug, taskId])
+  @@index([runId, modelSlug])
+  @@index([taskId])
+}
+
+model BenchModelSummary {
+  id              String   @id @default(cuid())
+  runId           String
+  run             BenchRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  modelSlug       String
+  /// 0–10, жигнэсэн дундаж
+  avgScore        Float
+  /// { ORCHUULGA_MN_EN: 8.3, ... }
+  scoreByCategory Json     @default("{}")
+  avgLatency      Int      @default(0)
+  /// Монгол 1000 үг гаргахад USD
+  costPer1kMn     Float    @default(0)
+  /// Хэдэн даалгавар амжилттай дууссан
+  completed       Int      @default(0)
+  rank            Int
+
+  @@unique([runId, modelSlug])
+  @@index([runId, rank])
+}
+
+enum BenchCategory {
+  ORCHUULGA_MN_EN
+  ORCHUULGA_EN_MN
+  TOVCHLOL
+  NAIRUULGA
+  ALBAN_BICHIG
+  OILGOLT
+  BODLOGO
+  SOYOL
+  ZAAVAR_DAGAH
+  JSON_GARGAH
+}
+
+enum BenchStatus {
+  RUNNING
+  DONE
+  FAILED
+  BUDGET
+}

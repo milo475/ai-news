@@ -5,6 +5,7 @@ import { NewsList } from "@/components/NewsList";
 import { RankChart } from "@/components/RankChart";
 import { fmtDate, fmtTokens } from "@/components/format";
 import { TrackEvent } from "@/components/Track";
+import { benchScoreFor } from "@/bench/queries";
 
 export const revalidate = 3600;
 
@@ -20,12 +21,13 @@ export default async function ModelPage({ params }: { params: Promise<Params> })
   const slug = (await params).slug.join("/");
   const m = await getModel(slug);
   if (!m) notFound();
-  const [history, arenaHistory, note, arenaNote, news] = await Promise.all([
+  const [history, arenaHistory, note, arenaNote, news, bench] = await Promise.all([
     getHistory(slug, 30),
     getHistory(slug, 30, "ARENA_ELO"),
     getSourceNote(),
     getSourceNote("ARENA_ELO"),
     getNewsForModel(slug, 5),
+    benchScoreFor(slug),
   ]);
   const last = history[history.length - 1];
   const best = history.length ? Math.min(...history.map((h) => h.rank)) : null;
@@ -63,6 +65,26 @@ export default async function ModelPage({ params }: { params: Promise<Params> })
         {lastArena && fact("Elo", Math.round(Number(lastArena.score)).toString())}
         {fact("Context", m.contextLength ? `${Math.round(m.contextLength / 1000)}K` : "—")}
       </div>
+
+      {bench && (
+        <section className="rounded-lg border border-accent/40 bg-accent/5 p-4 space-y-2">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <h2 className="text-lg font-semibold">Монгол хэлний оноо</h2>
+            <Link href="/benchmark" className="text-sm text-accent hover:underline">Бүтэн эрэмбэ →</Link>
+          </div>
+          <p className="text-2xl font-semibold tabular-nums">
+            {bench.score.toFixed(2)}
+            <span className="text-base text-muted font-normal"> / 10 · {bench.rank}-р байр</span>
+          </p>
+          <p className="text-xs text-muted">
+            {bench.label}-ийн хэмжилт. Орчуулга, товчлол, албан бичиг, тоон бодлого, монгол соёлын
+            даалгаварт өгсөн оноо.{" "}
+            <Link href={`/benchmark/${encodeURIComponent(slug)}`} className="text-accent hover:underline">
+              дэлгэрэнгүй
+            </Link>
+          </p>
+        </section>
+      )}
 
       <section className="space-y-2">
         <h2 className="text-lg font-semibold">Байрны өөрчлөлт, 30 хоног</h2>

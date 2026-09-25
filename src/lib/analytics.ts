@@ -57,6 +57,8 @@ export const analytics = {
   promptLike: (slug: string) => track("prompt_like", { slug }),
   promptSubmit: () => track("prompt_submit"),
   promptOpenChatGpt: (slug: string) => track("prompt_open_chatgpt", { slug }),
+  benchView: (month: string) => track("bench_view", { month }),
+  benchModelView: (model: string) => track("bench_model_view", { model }),
   bookmarkAdd: (kind: "article" | "guide" | "prompt") => track("bookmark_add", { kind }),
   bookmarkRemove: (kind: "article" | "guide" | "prompt") => track("bookmark_remove", { kind }),
 };

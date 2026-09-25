@@ -14,6 +14,7 @@ import { GuideGrid } from "@/components/GuideList";
 import { latestGuides } from "@/guides/queries";
 import { PromptOfDay } from "@/components/PromptOfDay";
 import { promptOfTheDay } from "@/prompts/queries";
+import { benchScores } from "@/bench/queries";
 
 // Build үед DB байхгүй тул prerender хийхгүй — нүүр бүх үед шинэ өгөгдөл харуулна
 export const dynamic = "force-dynamic";
@@ -40,6 +41,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ t
   ]);
 
   // "Таны сонирхол" — зөвхөн нэвтэрсэн, ангилал сонгосон хэрэглэгчид
+  const mnScores = await benchScores(rows.map((r) => r.model.slug));
   const interest = pref ? await newsForInterests(pref.categories, 4) : [];
   const showInterest = showInterestBlock(user, pref?.categories ?? [], interest.length);
   const savedIds = user ? await bookmarkedIds(user.id, [...interest, ...news].map((n) => n.id)) : undefined;
@@ -104,7 +106,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ t
             Бүтэн жагсаалт →
           </Link>
         </div>
-        <LeaderboardTable rows={rows} compact metric={tab.metric} />
+        <LeaderboardTable rows={rows} compact metric={tab.metric} benchScores={mnScores} />
         <p className="text-xs text-muted">{note}</p>
       </section>
 

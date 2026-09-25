@@ -190,6 +190,40 @@ export async function postRankingCard(now = new Date()): Promise<boolean> {
   return true;
 }
 
+/**
+ * Бенчмаркийн топ 5 карт — сард нэг удаа, шинэ хэмжилт гарсны дараа.
+ *
+ * Аль хэдийн тавигдсан, эсвэл дүн бэлэн биш бол false буцаана.
+ */
+export async function postBenchCard(): Promise<boolean> {
+  const { benchCard } = await import("./fbimage");
+  const card = await benchCard();
+  if (!card) return false;
+
+  // Сар бүр нэг удаа — өдрийн картаас тусдаа түлхүүрээр
+  const key = `bench-${card.month}`;
+  if (await prisma.fbRankingPost.findUnique({ where: { day: key } })) return false;
+
+  const { latestBoard } = await import("../bench/queries");
+  const board = await latestBoard();
+  if (!board) return false;
+
+  const site = (process.env.SITE_URL ?? "http://localhost:3000").replace(/\/+$/, "");
+  const best = board.rows[0]!;
+  const caption = [
+    `${board.label}: монгол хэлээр хамгийн сайн ажилласан AI модель бол ${best.name}.`,
+    `${board.rows.length} моделийг монгол хэлний ${board.taskCount} бодит даалгавраар тестэллээ — ` +
+      `орчуулга, товчлол, албан бичиг, тоон бодлого, монгол соёлын мэдлэг. Оноо 0-10.`,
+    `Бүтэн эрэмбэ, аргачлал: ${site}/benchmark`,
+    `#AI #ХиймэлОюун #МонголХэл`,
+  ].join("\n\n");
+
+  const fbPostId = await postPhoto(card.buffer, caption);
+  await prisma.fbRankingPost.create({ data: { day: key, fbPostId } });
+  console.log(`✓ бенчмаркийн карт → ${fbPostId}`);
+  return true;
+}
+
 /** Slot-ын ангиллаар эрэмбэлсэн дараалал — сонгосон ангиллаас олдохгүй бол бусдаас */
 async function queueForSlot(categories: ArticleCategory[], take: number) {
   const base = {

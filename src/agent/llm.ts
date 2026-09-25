@@ -154,6 +154,94 @@ export async function chatJson<T>(
 
 // ---------- Зураг үүсгэх (image output) ----------
 
+export interface ChatTextOptions {
+  model: string;
+  system?: string;
+  user: string;
+  maxTokens: number;
+  /** default 0.3 */
+  temperature?: number;
+  /** Секундээр — хугацаа хэтэрвэл таслана */
+  timeoutMs?: number;
+  reasoning?: boolean;
+}
+
+export interface ChatTextResult {
+  text: string;
+  tokensIn: number;
+  tokensOut: number;
+  costUsd: number;
+  latencyMs: number;
+}
+
+/**
+ * Энгийн текст хариу (JSON schema-гүй) — бенчмаркт модель бүрийг ижил нөхцөлд дуудна.
+ *
+ * Дахин оролдлого нь chatJson-той ижил: 429/5xx дээр 2с, 6с хүлээнэ. Хугацаа хэтэрсэн
+ * нь ч дахин оролдоно (сүлжээний түр саатал).
+ */
+export async function chatText(opts: ChatTextOptions): Promise<ChatTextResult> {
+  const apiKey = process.env.OPENROUTER_API_KEY;
+  if (!apiKey) throw new Error("OPENROUTER_API_KEY тохируулаагүй байна");
+
+  for (let attempt = 0; ; attempt++) {
+    const started = Date.now();
+    try {
+      const res = await fetch(URL_CHAT, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+          "HTTP-Referer": REFERER,
+          "X-Title": TITLE,
+        },
+        body: JSON.stringify({
+          model: opts.model,
+          messages: [
+            ...(opts.system ? [{ role: "system", content: opts.system }] : []),
+            { role: "user", content: opts.user },
+          ],
+          temperature: opts.temperature ?? 0.3,
+          max_tokens: opts.maxTokens,
+          ...(opts.reasoning === false ? { reasoning: { enabled: false } } : {}),
+        }),
+        signal: AbortSignal.timeout(opts.timeoutMs ?? 60_000),
+      });
+
+      if (!res.ok) {
+        const body = (await res.text()).slice(0, 300);
+        const err = new Error(`OpenRouter chat ${res.status}: ${body}`) as Error & { retryable?: boolean };
+        err.retryable = res.status === 429 || res.status >= 500;
+        throw err;
+      }
+
+      const json = (await res.json()) as ChatResponse & {
+        usage?: { prompt_tokens?: number; completion_tokens?: number };
+      };
+      if (json.error) throw new Error(`OpenRouter chat: ${json.error.message ?? "тодорхойгүй алдаа"}`);
+
+      const text = json.choices?.[0]?.message?.content ?? "";
+      if (!text.trim()) throw new Error("OpenRouter chat: хоосон хариу");
+
+      return {
+        text,
+        tokensIn: json.usage?.prompt_tokens ?? 0,
+        tokensOut: json.usage?.completion_tokens ?? 0,
+        costUsd: json.usage?.cost ?? 0,
+        latencyMs: Date.now() - started,
+      };
+    } catch (e) {
+      const retryable =
+        (e as { retryable?: boolean }).retryable === true ||
+        (e as Error).name === "TimeoutError" ||
+        (e as Error).name === "AbortError";
+      const wait = BACKOFF_MS[attempt];
+      if (!retryable || wait === undefined) throw e;
+      await sleep(wait);
+    }
+  }
+}
+
 export interface ChatImageResult {
   /** Зургийн эх бинари */
   buffer: Buffer;

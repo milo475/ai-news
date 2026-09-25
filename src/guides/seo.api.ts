@@ -93,7 +93,9 @@ export interface SitemapInput {
 }
 
 /** Статик хуудсууд — жагсаалт, мэдээ, хэрэглээ, заавар */
-export const STATIC_PATHS = ["", "/jagsaalt", "/medee", "/hereglee", "/zaavar", "/prompt"] as const;
+export const STATIC_PATHS = [
+  "", "/jagsaalt", "/medee", "/hereglee", "/zaavar", "/prompt", "/benchmark", "/benchmark/argachlal",
+] as const;
 
 /**
  * Бүх төрлийн хуудсыг нэг sitemap-д. Заавар нь мөнхийн контент тул priority өндөр,

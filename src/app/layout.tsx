@@ -23,6 +23,7 @@ const NAV = [
   { href: "/hereglee", label: "Хэрэглээ" },
   { href: "/zaavar", label: "Заавар" },
   { href: "/prompt", label: "Prompt" },
+  { href: "/benchmark", label: "Бенчмарк" },
   { href: "/medee", label: "Мэдээ" },
 ];
 

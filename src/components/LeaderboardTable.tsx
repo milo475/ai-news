@@ -28,13 +28,17 @@ export function LeaderboardTable({
   compact = false,
   metric = "tokens",
   empty = "Жагсаалтын өгөгдөл хараахан бэлэн болоогүй байна.",
+  /** Монгол хэлний бенчмаркийн оноо — байгаа моделиудад л харагдана */
+  benchScores,
 }: {
   rows: LeaderboardRow[];
   compact?: boolean;
   /** tokens = OpenRouter хэрэглээ, elo = LMArena Elo */
   metric?: "tokens" | "elo";
   empty?: string;
+  benchScores?: Map<string, number>;
 }) {
+  const showBench = Boolean(benchScores && benchScores.size > 0);
   const elo = metric === "elo";
   const value = (r: LeaderboardRow) => (elo ? fmtElo(r.score) : fmtTokens(r.score));
   const change = (r: LeaderboardRow) => (elo ? fmtEloDelta(r.scoreDelta) : fmtPct(r.scoreDeltaPct));
@@ -53,6 +57,11 @@ export function LeaderboardTable({
             <th className="text-left px-3 py-2">Модель</th>
             <th className="text-left px-3 py-2 hidden sm:table-cell">Компани</th>
             {!compact && <th className="text-left px-3 py-2">Төрөл</th>}
+            {showBench && (
+              <th className="text-right px-3 py-2 w-14" title="Монгол хэлний бенчмаркийн оноо, 0–10">
+                MN
+              </th>
+            )}
             <th className="text-right px-3 py-2">{elo ? "Elo" : "Токен / өдөр"}</th>
             <th className="text-right px-3 py-2 w-20 hidden sm:table-cell">Өөрчлөлт</th>
           </tr>
@@ -74,6 +83,17 @@ export function LeaderboardTable({
                   <span className={`text-xs rounded px-1.5 py-0.5 border ${r.model.isOpenWeights ? "border-up/40 text-up" : "border-line text-muted"}`}>
                     {r.model.isOpenWeights ? "нээлттэй" : "хаалттай"}
                   </span>
+                </td>
+              )}
+              {showBench && (
+                <td className="px-3 py-2 text-right tabular-nums">
+                  {benchScores!.has(r.model.slug) ? (
+                    <Link href="/benchmark" className="hover:text-accent">
+                      {benchScores!.get(r.model.slug)!.toFixed(1)}
+                    </Link>
+                  ) : (
+                    <span className="text-muted">—</span>
+                  )}
                 </td>
               )}
               <td className="px-3 py-2 text-right tabular-nums whitespace-nowrap">

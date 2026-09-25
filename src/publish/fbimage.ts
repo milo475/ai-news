@@ -16,7 +16,7 @@ import { prisma } from "../db";
 import { ubDateLabel, ubDayRange } from "../jobs/day";
 import { getLatestLeaderboard } from "../queries/leaderboard";
 import { RECENT_SCENES } from "./card.api";
-import { rankingCardSvg, type RankingRow } from "./fbimage.api";
+import { benchCardSvg, rankingCardSvg, type RankingRow } from "./fbimage.api";
 
 /** УБ цагаар өнөөдөр хэдэн зураг үүсгэсэн бэ (картын өдрийн квотод) */
 export async function imagesToday(now = new Date()): Promise<number> {
@@ -48,6 +48,26 @@ export async function rankingCard(now = new Date()): Promise<{ buffer: Buffer } 
   }));
   const svg = rankingCardSvg(cardRows, ubDateLabel(date ?? now));
   return { buffer: await sharp(Buffer.from(svg)).jpeg({ quality: 90, mozjpeg: true }).toBuffer() };
+}
+
+/**
+ * Бенчмаркийн топ 5 карт — сарын хэмжилт дууссаны дараа. Дүн байхгүй бол null.
+ */
+export async function benchCard(): Promise<{ buffer: Buffer; month: string } | null> {
+  const { latestBoard } = await import("../bench/queries");
+  const board = await latestBoard();
+  if (!board || board.rows.length < 5) return null;
+
+  const svg = benchCardSvg(
+    board.rows.slice(0, 5).map((r) => ({
+      rank: r.rank, name: r.name, company: r.company, score: r.avgScore,
+    })),
+    board.label,
+  );
+  return {
+    buffer: await sharp(Buffer.from(svg)).jpeg({ quality: 90, mozjpeg: true }).toBuffer(),
+    month: board.month,
+  };
 }
 
 if (process.argv[1]?.endsWith("fbimage.ts")) {

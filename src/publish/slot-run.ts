@@ -55,8 +55,15 @@ export async function runPublishSlot(now = new Date()): Promise<SlotResult> {
 
   console.log(`Slot: ${plan.slot} (${plan.categories.join("/")}${plan.ranking ? " + жагсаалтын карт" : ""})`);
 
-  // 1. Жагсаалтын картын өдөр — картаа тавиад дуусна
+  // 1. Жагсаалтын картын өдөр — картаа тавиад дуусна.
+  //    Шинэ бенчмарк гарсан бол тэр нь тэргүүн ээлжинд (сард нэг удаа).
   if (plan.ranking && !(await rankingPostedToday(now))) {
+    try {
+      const { postBenchCard } = await import("./facebook");
+      if (await postBenchCard()) return finish({ action: "ranking", detail: "бенчмаркийн карт" });
+    } catch (e) {
+      console.error(`✗ бенчмаркийн карт: ${(e as Error).message}`);
+    }
     try {
       if (await postRankingCard(now)) return finish({ action: "ranking", detail: "жагсаалтын карт" });
     } catch (e) {

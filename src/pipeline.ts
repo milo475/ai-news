@@ -143,6 +143,33 @@ const STEPS: Step[] = [
     },
   },
   {
+    // Сарын эхний өдөр — монгол хэлний бенчмарк. Нэг run хэдэн арван минут явна.
+    name: "bench",
+    mode: "prepare",
+    oncePerDay: true,
+    run: async () => {
+      const { currentMonth } = await import("./bench/summary.api");
+      const month = currentMonth();
+      const day = new Date(Date.now() + 8 * 3_600_000).getUTCDate();
+
+      const done = await prisma.benchRun.findFirst({
+        where: { month, status: { in: ["DONE", "BUDGET"] } },
+        select: { id: true },
+      });
+      if (done) return `${month} аль хэдийн хэмжигдсэн, алгасав`;
+      // Сарын 1-нд л автоматаар — /admin-аас гараар дуудвал энэ шалгалт алгасагдана
+      if (day !== 1 && !process.argv.includes("--only")) return `сарын ${day} — 1-нд ажиллана`;
+
+      const { runBenchmark } = await import("./bench/run");
+      const r = await runBenchmark({ month });
+      return (
+        `${r.month}: ${r.models} модель × ${r.tasks} даалгавар, $${r.costUsd.toFixed(2)}` +
+        (r.top[0] ? ` · тэргүүлэгч ${r.top[0].modelSlug} (${r.top[0].avgScore.toFixed(2)})` : "") +
+        (r.note ? ` — ${r.note}` : "")
+      );
+    },
+  },
+  {
     name: "newsletter",
     mode: "prepare",
     oncePerDay: true,
