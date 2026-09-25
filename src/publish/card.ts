@@ -19,13 +19,11 @@ import { CATEGORY_LABEL } from "../agent/category";
 import { chatImage, chatJson } from "../agent/llm";
 import { prisma } from "../db";
 import {
-  buildPhotoPrompt, CARD_H, CARD_W, CTA_FB, checkHook, fitHeadline, hookScore, HOOK_SCHEMA,
-  HOOK_SYSTEM, overlaySvg, pickHook, type ScoredHook,
+  buildPhotoPrompt, CARD_H, CARD_W, CATEGORY_SCENE_HINT, CTA_FB, checkHook, creditText,
+  EVERYDAY_ONLY, FALLBACK_IMAGE_MODEL, fitHeadline, hookScore, HOOK_SCHEMA, HOOK_SYSTEM, imageModel,
+  isGenericScene, isLabScene, overlaySvg, pickHook, recentScenesBlock, SCENE_SCHEMA, SCENE_SYSTEM,
+  sceneTooSimilar, useSourceImage, type ScoredHook,
 } from "./card.api";
-import {
-  CATEGORY_SCENE_HINT, EVERYDAY_ONLY, FALLBACK_IMAGE_MODEL, imageModel, isGenericScene, isLabScene,
-  recentScenesBlock, SCENE_SCHEMA, SCENE_SYSTEM, sceneTooSimilar, useSourceImage,
-} from "./fbimage.api";
 
 const JPEG_QUALITY = 86;
 
@@ -50,6 +48,8 @@ interface ArticleForCard {
   category: keyof typeof CATEGORY_SCENE_HINT;
   /** FB_USE_SOURCE_IMAGE=true үед суурь болгон хэрэглэнэ */
   sourceImageUrl?: string | null;
+  /** Эх сурвалжийн зураг хэрэглэсэн үед картад бичих нэр */
+  source?: { name: string } | null;
 }
 
 /** Эх сурвалжийн зургийг татна (FB_USE_SOURCE_IMAGE) */
@@ -73,11 +73,17 @@ export async function heroJpeg(input: Buffer): Promise<Buffer> {
 }
 
 /** Суурь зураг дээр gradient + headline давхарлана */
-export async function renderCard(hero: Buffer, headline: string, cta = CTA_FB): Promise<Buffer> {
+export async function renderCard(
+  hero: Buffer,
+  headline: string,
+  opts: { cta?: string; credit?: string } = {},
+): Promise<Buffer> {
   const fitted = fitHeadline(headline);
   if (!fitted) throw new Error(`Headline картад багтсангүй: ${headline}`);
 
-  const overlay = Buffer.from(overlaySvg({ lines: fitted.lines, fontSize: fitted.fontSize, cta }));
+  const overlay = Buffer.from(
+    overlaySvg({ lines: fitted.lines, fontSize: fitted.fontSize, cta: opts.cta ?? CTA_FB, credit: opts.credit }),
+  );
   return sharp(hero)
     .composite([{ input: overlay, top: 0, left: 0 }])
     .jpeg({ quality: JPEG_QUALITY, mozjpeg: true })
@@ -200,6 +206,7 @@ export async function buildCard(
   let hero: Buffer | null = null;
   let prompt = "эх сурвалжийн зураг";
   if (useSourceImage() && a.sourceImageUrl) hero = await sourceHero(a.sourceImageUrl);
+  const fromSource = hero !== null;
 
   if (!hero) {
     const { scene, subject, costUsd: sceneCost } = await writeScene(a, opts.recentPrompts ?? [], chat);
@@ -227,7 +234,12 @@ export async function buildCard(
   }
   console.log(`  headline: ${headline}`);
 
-  return { card: await renderCard(hero, headline, opts.cta), hero, headline, prompt, costUsd };
+  // Эх сурвалжийн зураг хэрэглэсэн бол картад зохиогчийг нь бичнэ
+  const credit = fromSource && a.source?.name ? creditText(a.source.name) : undefined;
+  return {
+    card: await renderCard(hero, headline, { cta: opts.cta, credit }),
+    hero, headline, prompt, costUsd,
+  };
 }
 
 /** Картыг DB-д хадгална (карт + суурь + headline + prompt) */
@@ -256,6 +268,7 @@ export async function cardForArticle(
     where: { id: articleId },
     select: {
       id: true, titleMn: true, summaryMn: true, bodyMn: true, category: true, sourceImageUrl: true,
+      source: { select: { name: true } },
     },
   })) as ArticleForCard;
   return buildCard(a, opts);

@@ -2,9 +2,11 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import sharp from "sharp";
 import {
-  buildPhotoPrompt, CARD_H, CARD_W, checkHook, CTA_FB, CTA_IG, fitHeadline, FONT_SIZES,
-  hasImpactNumber, hookScore, MAX_HOOK_CHARS, MAX_LINES, overlaySvg, PAD, PHOTO_PROMPT_NEGATIVE,
-  pickHook, PHOTO_PROMPT_PREFIX, stripDates, wrapLines, type ScoredHook,
+  buildPhotoPrompt, CARD_H, CARD_W, checkHook, creditText, CTA_FB, CTA_IG, DEFAULT_IMAGE_DAILY_LIMIT,
+  DEFAULT_IMAGE_MODEL, EVERYDAY_ONLY, fitHeadline, FONT_SIZES, hasImpactNumber, hookScore,
+  imageDailyLimit, imageModel, isGenericScene, isLabScene, MAX_HOOK_CHARS, MAX_LINES, overlaySvg,
+  PAD, PHOTO_PROMPT_NEGATIVE, PHOTO_PROMPT_PREFIX, pickHook, RECENT_SCENES, recentScenesBlock,
+  SCENE_SYSTEM, sceneTooSimilar, stripDates, useSourceImage, wrapLines, type ScoredHook,
 } from "./card.api";
 import { heroJpeg, renderCard } from "./card";
 
@@ -142,7 +144,7 @@ test("renderCard: 1080×1350 JPEG, суурь зургаас өөр (overlay з�
   assert.equal(heroMeta.width, CARD_W);
   assert.equal(heroMeta.height, CARD_H);
 
-  const card = await renderCard(hero, GOOD, CTA_FB);
+  const card = await renderCard(hero, GOOD, { cta: CTA_FB });
   const meta = await sharp(card).metadata();
   assert.equal(meta.width, CARD_W);
   assert.equal(meta.height, CARD_H);
@@ -162,4 +164,133 @@ test("renderCard: 1080×1350 JPEG, суурь зургаас өөр (overlay з�
   // Дээд сүүдэр — wordmark уншигдахаар бага зэрэг харанхуй
   const top = await region(60);
   assert.ok(top.channels[0]!.mean < middle.channels[0]!.mean, "дээд сүүдэр");
+});
+
+// ---------- Зургийн дүрслэл, тохиргоо ----------
+
+test("imageModel / imageDailyLimit / useSourceImage: env, анхдагч утга", () => {
+  assert.equal(imageModel({}), DEFAULT_IMAGE_MODEL);
+  assert.equal(imageModel({ IMAGE_MODEL: "openai/gpt-5-image" }), "openai/gpt-5-image");
+  assert.equal(imageModel({ IMAGE_MODEL: "  " }), DEFAULT_IMAGE_MODEL);
+
+  assert.equal(imageDailyLimit({}), DEFAULT_IMAGE_DAILY_LIMIT);
+  assert.equal(imageDailyLimit({ FB_IMAGE_DAILY_LIMIT: "2" }), 2);
+  assert.equal(imageDailyLimit({ FB_IMAGE_DAILY_LIMIT: "0" }), 0);        // зураг унтраалттай
+  assert.equal(imageDailyLimit({ FB_IMAGE_DAILY_LIMIT: "тав" }), DEFAULT_IMAGE_DAILY_LIMIT);
+
+  assert.equal(useSourceImage({}), false);                                 // анхдагч: AI зураг
+  assert.equal(useSourceImage({ FB_USE_SOURCE_IMAGE: "true" }), true);
+  assert.equal(useSourceImage({ FB_USE_SOURCE_IMAGE: "false" }), false);
+});
+
+test("isGenericScene: оффис, компьютерийн ард хүн гэх мэт ерөнхий дүрслэлийг барина", () => {
+  for (const generic of [
+    "A modern office with people at computers, wide shot.",
+    "A developer at two monitors reviewing code, shallow depth of field.",
+    "Hands typing on a keyboard in soft morning light.",
+    "A team in a meeting room discussing a plan.",
+    "Rows of server racks in a data centre.",
+    "A glowing digital brain over an abstract background.",
+  ]) {
+    assert.equal(isGenericScene(generic), true, generic);
+  }
+
+  for (const concrete of [
+    "A studio microphone with a waveform on the screen behind it, shallow depth of field.",
+    "A lone watchtower with a camera mast in the desert at dawn, wide shot.",
+    "A silicon wafer held with tweezers in a cleanroom, overhead view.",
+    "A small wheeled delivery robot waiting at a pedestrian crossing.",
+    // Тодорхой объект гол нь байвал «office» гэсэн үг байсан ч зүгээр
+    "A locked filing cabinet in a government office, papers visible through a slightly open drawer.",
+  ]) {
+    assert.equal(isGenericScene(concrete), false, concrete);
+  }
+});
+
+test("isLabScene: FACT/HOWTO/PROJECT-д лаборатори хориотой, RISK/NEWS-д зөвшөөрнө", () => {
+  assert.deepEqual(EVERYDAY_ONLY, ["FACT", "HOWTO", "PROJECT"]);
+
+  const labScenes = [
+    "A researcher's hand adjusting a dial on a physics instrument panel, with a printed diagram below.",
+    "A silicon wafer held with tweezers in a cleanroom, overhead view.",
+    "A scientist in a white coat beside a microscope in a bright laboratory.",
+    "A technician checking an oscilloscope on a test bench.",
+  ];
+  for (const scene of labScenes) {
+    for (const c of EVERYDAY_ONLY) assert.equal(isLabScene(scene, c), true, `${c}: ${scene}`);
+    // Мэргэжлийн орчин зөвшөөрөгддөг ангиллууд
+    for (const c of ["RISK", "NEWS", "BUSINESS"] as const) {
+      assert.equal(isLabScene(scene, c), false, `${c}: ${scene}`);
+    }
+  }
+
+  // Өдөр тутмын дүрслэл бүх ангилалд зүгээр
+  const everyday = [
+    "A phone on a wooden kitchen table with a hand reaching for it, morning light.",
+    "A shop owner checking orders on a laptop behind the counter.",
+    "A commuter looking at a phone on a bus, window reflections.",
+  ];
+  for (const scene of everyday) {
+    for (const c of [...EVERYDAY_ONLY, "NEWS"] as const) assert.equal(isLabScene(scene, c), false, scene);
+  }
+});
+
+test("SCENE_SYSTEM: ангиллын дүрэм prompt дотор бичигдсэн", () => {
+  assert.ok(SCENE_SYSTEM.includes("FACT, HOWTO, PROJECT"));
+  assert.ok(SCENE_SYSTEM.includes("FORBIDDEN"));
+  for (const word of ["laboratory", "cleanroom", "microscope"]) {
+    assert.ok(SCENE_SYSTEM.includes(word), word);
+  }
+  assert.ok(SCENE_SYSTEM.includes("RISK, NEWS, BUSINESS"), "мэргэжлийн орчин зөвшөөрөх ангиллууд");
+});
+
+test("sceneTooSimilar: сүүлийн постуудтай давхардсан дүрслэлийг барина", () => {
+  const recent = [
+    `${PHOTO_PROMPT_PREFIX}. A studio microphone with a waveform on the screen behind it, shallow depth of field.`,
+    `${PHOTO_PROMPT_PREFIX}. A lone watchtower with a camera mast in the desert at dawn, wide shot.`,
+  ];
+  assert.equal(
+    sceneTooSimilar("A studio microphone beside a waveform on a screen, soft light.", recent),
+    true,
+  );
+  assert.equal(
+    sceneTooSimilar("A silicon wafer held with tweezers in a cleanroom, overhead view.", recent),
+    false,
+  );
+  assert.equal(sceneTooSimilar("anything at all", []), false);
+
+  // Урт тогтмол угтвар давхцлыг шингэлэх ёсгүй — зөвхөн дүрслэлээ харьцуулна
+  assert.equal(
+    sceneTooSimilar(
+      buildPhotoPrompt("A studio microphone beside a waveform on a screen, soft light."),
+      recent,
+    ),
+    true,
+  );
+});
+
+test("recentScenesBlock: prompt-ийн тогтмол хэсгийг хасаж, 10-аар хязгаарлана", () => {
+  assert.equal(recentScenesBlock([]), "");
+  assert.equal(RECENT_SCENES, 10);
+
+  const many = Array.from({ length: 15 }, (_, i) => buildPhotoPrompt(`scene number ${i}`));
+  const block = recentScenesBlock(many);
+  assert.ok(block.startsWith("Recent scenes"));
+  assert.ok(!block.includes(PHOTO_PROMPT_PREFIX), "тогтмол хэсэг давтагдахгүй");
+  assert.ok(!block.includes(PHOTO_PROMPT_NEGATIVE), "хориглох жагсаалт ч давтагдахгүй");
+  assert.equal(block.split("\n").length - 1, RECENT_SCENES);
+  assert.ok(block.includes("- scene number 0") && !block.includes("- scene number 10"));
+});
+
+test("overlaySvg: эх сурвалжийн зураг хэрэглэвэл credit доод баруун буланд", () => {
+  assert.equal(creditText("The Verge AI"), "Зураг: The Verge AI");
+
+  const withCredit = overlaySvg({
+    lines: ["Мөр"], fontSize: 64, cta: CTA_FB, credit: creditText("The Verge AI"),
+  });
+  assert.ok(withCredit.includes(">Зураг: The Verge AI<"));
+  assert.ok(withCredit.includes('text-anchor="end"'), "баруун талд");
+
+  // Credit өгөөгүй бол огт гарахгүй
+  assert.ok(!overlaySvg({ lines: ["Мөр"], fontSize: 64, cta: CTA_FB }).includes("Зураг:"));
 });

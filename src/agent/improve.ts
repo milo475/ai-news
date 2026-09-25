@@ -18,7 +18,7 @@ import { prisma } from "../db";
 import { jobRunMeta } from "../jobs/meta";
 import { cardForArticle, saveCard } from "../publish/card";
 import { imagesToday, recentImagePrompts } from "../publish/fbimage";
-import { imageDailyLimit } from "../publish/fbimage.api";
+import { imageDailyLimit } from "../publish/card.api";
 import { generateFbCopy } from "../publish/fbcopy";
 import { chatJson } from "./llm";
 import {
