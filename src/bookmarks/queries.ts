@@ -6,9 +6,13 @@
 import { prisma } from "../db";
 import type { ArticleCategory } from "../generated/prisma/enums";
 import { guideCardSelect, toGuideCard, type GuideCard } from "../guides/queries";
+import { promptCardSelect, toPromptCard, type PromptCard } from "../prompts/queries";
 
 /** Хадгалах боломжтой зүйл — яг нэг талбартай */
-export type BookmarkTarget = { articleId: string; guideId?: never } | { guideId: string; articleId?: never };
+export type BookmarkTarget =
+  | { articleId: string; guideId?: never; promptId?: never }
+  | { guideId: string; articleId?: never; promptId?: never }
+  | { promptId: string; articleId?: never; guideId?: never };
 
 export interface BookmarkCard {
   id: string;
@@ -22,6 +26,9 @@ export interface BookmarkCard {
 
 /** Зааврын карт + хэзээ хадгалсан */
 export type GuideBookmarkCard = GuideCard & { savedAt: Date };
+
+/** Prompt-ын карт + хэзээ хадгалсан */
+export type PromptBookmarkCard = PromptCard & { savedAt: Date };
 
 /** Хэрэглэгчийн хадгалсан нийтлэлүүд, сүүлд хадгалсан нь эхэнд */
 export async function listBookmarks(
@@ -62,6 +69,26 @@ export async function listGuideBookmarks(userId: string): Promise<GuideBookmarkC
     select: { createdAt: true, guide: { select: guideCardSelect } },
   });
   return rows.flatMap((r) => (r.guide ? [{ ...toGuideCard(r.guide), savedAt: r.createdAt }] : []));
+}
+
+/** Хадгалсан prompt-ууд */
+export async function listPromptBookmarks(userId: string): Promise<PromptBookmarkCard[]> {
+  const rows = await prisma.bookmark.findMany({
+    where: { userId, prompt: { status: "PUBLISHED" } },
+    orderBy: { createdAt: "desc" },
+    select: { createdAt: true, prompt: { select: promptCardSelect } },
+  });
+  return rows.flatMap((r) => (r.prompt ? [{ ...toPromptCard(r.prompt), savedAt: r.createdAt }] : []));
+}
+
+/** Хадгалсан prompt-уудын id (жагсаалтын картууд) */
+export async function bookmarkedPromptIds(userId: string, promptIds: string[]): Promise<Set<string>> {
+  if (promptIds.length === 0) return new Set();
+  const rows = await prisma.bookmark.findMany({
+    where: { userId, promptId: { in: promptIds } },
+    select: { promptId: true },
+  });
+  return new Set(rows.flatMap((r) => (r.promptId ? [r.promptId] : [])));
 }
 
 /** Хадгалсан нийтлэлүүдийн ангиллаар тоолсон дүн — шүүлтүүрт */

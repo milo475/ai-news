@@ -7,6 +7,7 @@ const TABS = [
   { href: "/profile", label: "Ерөнхий" },
   { href: "/profile/hadgalsan", label: "Хадгалсан" },
   { href: "/profile/sonirhol", label: "Сонирхол" },
+  { href: "/profile/prompt", label: "Миний prompt" },
   { href: "/profile/ayuulgui", label: "Аюулгүй байдал" },
 ] as const;
 

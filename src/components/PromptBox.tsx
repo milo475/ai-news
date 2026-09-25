@@ -19,7 +19,7 @@ export function PromptBox({ text, guideSlug }: { text: string; guideSlug?: strin
             try {
               await navigator.clipboard.writeText(text);
               setCopied(true);
-              track("prompt_copy", guideSlug ? { slug: guideSlug } : undefined);
+              track("prompt_copy", { slug: guideSlug ?? "", from: "guide" });
               window.setTimeout(() => setCopied(false), 2_000);
             } catch {
               // Clipboard хаалттай (http, зөвшөөрөлгүй) — хэрэглэгч гараар сонгож хуулна

@@ -15,7 +15,7 @@ export function BookmarkButton({
   path,
   compact = false,
 }: {
-  /** { articleId } эсвэл { guideId } */
+  /** { articleId }, { guideId } эсвэл { promptId } */
   target: BookmarkTarget;
   saved: boolean;
   path?: string;
@@ -36,7 +36,7 @@ export function BookmarkButton({
         startTransition(async () => {
           setOptimistic(!optimistic);
           track(optimistic ? "bookmark_remove" : "bookmark_add", {
-            kind: target.guideId ? "guide" : "article",
+            kind: target.guideId ? "guide" : target.promptId ? "prompt" : "article",
           });
           await toggleBookmark(target, path);
         });

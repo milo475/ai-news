@@ -375,13 +375,16 @@ model User {
   /// Бүх төхөөрөмжөөс гарахад нэмэгдэнэ — хуучин JWT хүчингүй болно
   sessionVersion Int @default(0)
 
-  accounts   Account[]
-  sessions   Session[]
+  accounts      Account[]
+  sessions      Session[]
   /// Ижил имэйлтэй newsletter бүртгэл байвал холбогдоно
-  subscriber Subscriber?
-  bookmarks  Bookmark[]
-  preference UserPreference?
-  guides     Guide[]
+  subscriber    Subscriber?
+  bookmarks     Bookmark[]
+  preference    UserPreference?
+  guides        Guide[]
+  prompts       Prompt[]
+  promptLikes   PromptLike[]
+  promptReports PromptReport[]
 
   @@index([role])
 }
@@ -390,20 +393,124 @@ model User {
 model Bookmark {
   id        String   @id @default(cuid())
   userId    String
-  /// articleId эсвэл guideId — яг нэг нь бөглөгдөнө (DB-д CHECK constraint)
+  /// articleId, guideId, promptId — яг нэг нь бөглөгдөнө (DB-д CHECK constraint)
   articleId String?
   guideId   String?
+  promptId  String?
   createdAt DateTime @default(now())
 
   user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   article Article? @relation(fields: [articleId], references: [id], onDelete: Cascade)
   guide   Guide?   @relation(fields: [guideId], references: [id], onDelete: Cascade)
+  prompt  Prompt?  @relation(fields: [promptId], references: [id], onDelete: Cascade)
 
   @@unique([userId, articleId])
   @@unique([userId, guideId])
+  @@unique([userId, promptId])
   @@index([userId, createdAt])
   @@index([articleId])
   @@index([guideId])
+  @@index([promptId])
+}
+
+/// Монгол хэлний prompt-уудын сан — /prompt
+model Prompt {
+  id           String         @id @default(cuid())
+  slug         String         @unique
+  title        String
+  /// Prompt-ын бүтэн текст. {хувьсагч} хэлбэрээр хоосон нүх тавина
+  body         String
+  /// Юунд зориулсан бэ — ≤200 тэмдэгт
+  description  String
+  category     PromptCategory @default(BUSAD)
+  /// Аль хэрэгсэлд тохирох: ChatGPT, Gemini, Claude ...
+  tools        String[]       @default([])
+  language     PromptLanguage @default(MN)
+  /// body доторх {хувьсагч}-уудын нэр, бичигдсэн дарааллаар
+  variables    String[]       @default([])
+  /// Хэрэглэгч нэмсэн бол — хэн нэмсэн
+  authorUserId String?
+  author       User?          @relation(fields: [authorUserId], references: [id], onDelete: SetNull)
+  source       PromptSource   @default(USER)
+  status       PromptStatus   @default(PENDING)
+  /// Хэдэн удаа хуулсан / таалагдсан
+  copies       Int            @default(0)
+  likes        Int            @default(0)
+  /// Seed-ийн давхардал шалгах захиалсан сэдэв (Guide.topic-той ижил зарчим)
+  topic        String?
+  /// Автомат шалгалт татгалзсан бол шалтгаан
+  rejectReason String?
+  createdAt    DateTime       @default(now())
+  publishedAt  DateTime?
+  updatedAt    DateTime       @updatedAt
+
+  likedBy   PromptLike[]
+  reports   PromptReport[]
+  bookmarks Bookmark[]
+
+  /// Хайлтын индекс — гарчиг A, тайлбар B, бие C
+  searchVector Unsupported("tsvector")? @default(dbgenerated())
+
+  @@index([status, publishedAt])
+  @@index([category])
+  @@index([authorUserId, createdAt])
+  @@index([topic])
+  @@index([searchVector], type: Gin)
+}
+
+model PromptLike {
+  userId    String
+  promptId  String
+  createdAt DateTime @default(now())
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  prompt Prompt @relation(fields: [promptId], references: [id], onDelete: Cascade)
+
+  @@id([userId, promptId])
+  @@index([promptId])
+}
+
+model PromptReport {
+  id        String   @id @default(cuid())
+  userId    String
+  promptId  String
+  reason    String
+  createdAt DateTime @default(now())
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  prompt Prompt @relation(fields: [promptId], references: [id], onDelete: Cascade)
+
+  @@index([promptId])
+  @@index([userId])
+}
+
+enum PromptCategory {
+  AJIL
+  SURGALT
+  BIZNES
+  BICHIH
+  CODE
+  ZURAG
+  ORCHUULGA
+  AMIDRAL
+  BUSAD
+}
+
+enum PromptLanguage {
+  MN
+  EN
+  MIXED
+}
+
+enum PromptSource {
+  SITE
+  USER
+}
+
+enum PromptStatus {
+  PENDING
+  PUBLISHED
+  REJECTED
 }
 
 /// Мөнхийн (evergreen) гарын авлага — /zaavar
@@ -435,7 +542,7 @@ model Guide {
   updatedAt       DateTime    @updatedAt
   views           Int         @default(0)
   /// Ямар сэдвээр захиалсан бэ — seed давхардахгүй байх, админд харагдах
-  topic        String?
+  topic           String?
   /// Хэн үүсгэсэн (админ). LLM бичсэн бол хоосон
   authorUserId    String?
   author          User?       @relation(fields: [authorUserId], references: [id], onDelete: SetNull)

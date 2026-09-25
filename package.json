@@ -18,10 +18,11 @@
     "publish:facebook": "tsx src/publish/facebook.ts",
     "newsletter:send": "tsx src/newsletter/send.ts",
     "pipeline": "tsx src/pipeline.ts",
-    "test": "tsx --test src/agent/*.test.ts src/auth/*.test.ts src/bookmarks/*.test.ts src/fetchers/*.test.ts src/guides/*.test.ts src/jobs/*.test.ts src/lib/*.test.ts src/newsletter/*.test.ts src/publish/*.test.ts",
+    "test": "tsx --test src/agent/*.test.ts src/auth/*.test.ts src/bookmarks/*.test.ts src/fetchers/*.test.ts src/guides/*.test.ts src/jobs/*.test.ts src/lib/*.test.ts src/newsletter/*.test.ts src/prompts/*.test.ts src/publish/*.test.ts",
     "db:migrate": "prisma migrate dev",
     "seed:sources": "tsx src/fetchers/sources.seed.ts",
     "seed:guides": "tsx src/guides/seed.ts",
+    "seed:prompts": "tsx src/prompts/seed.ts",
     "db:seed:sources": "npm run seed:sources",
     "db:seed:usecases": "tsx src/seed/usecases.seed.ts",
     "db:generate": "prisma generate"

@@ -87,12 +87,13 @@ export interface SitemapInput {
   siteUrl: string;
   articles: { slug: string; publishedAt: Date | null; updatedAt: Date }[];
   guides: { slug: string; updatedAt: Date }[];
+  prompts: { slug: string; updatedAt: Date }[];
   models: { slug: string; updatedAt: Date }[];
   useCases: { slug: string; updatedAt: Date }[];
 }
 
 /** Статик хуудсууд — жагсаалт, мэдээ, хэрэглээ, заавар */
-export const STATIC_PATHS = ["", "/jagsaalt", "/medee", "/hereglee", "/zaavar"] as const;
+export const STATIC_PATHS = ["", "/jagsaalt", "/medee", "/hereglee", "/zaavar", "/prompt"] as const;
 
 /**
  * Бүх төрлийн хуудсыг нэг sitemap-д. Заавар нь мөнхийн контент тул priority өндөр,
@@ -114,6 +115,12 @@ export function sitemapEntries(input: SitemapInput): SitemapEntry[] {
       lastModified: g.updatedAt,
       changeFrequency: "monthly" as const,
       priority: 0.9,
+    })),
+    ...input.prompts.map((p) => ({
+      url: `${site}/prompt/${p.slug}`,
+      lastModified: p.updatedAt,
+      changeFrequency: "monthly" as const,
+      priority: 0.7,
     })),
     ...input.articles.map((a) => ({
       url: `${site}/medee/${a.slug}`,

@@ -51,10 +51,14 @@ export const analytics = {
   modelView: (slug: string) => track("model_view", { slug }),
   useCaseView: (slug: string) => track("usecase_view", { slug }),
   guideView: (slug: string) => track("guide_view", { slug }),
-  promptCopy: (slug: string) => track("prompt_copy", { slug }),
   guideFilter: (filters: EventData) => track("guide_filter", filters),
-  bookmarkAdd: (kind: "article" | "guide") => track("bookmark_add", { kind }),
-  bookmarkRemove: (kind: "article" | "guide") => track("bookmark_remove", { kind }),
+  /** Заавар доторх PromptBox ба /prompt сан хоёул нэг event-д бичнэ — from нь ялгана */
+  promptCopy: (slug: string, from: "guide" | "prompt") => track("prompt_copy", { slug, from }),
+  promptLike: (slug: string) => track("prompt_like", { slug }),
+  promptSubmit: () => track("prompt_submit"),
+  promptOpenChatGpt: (slug: string) => track("prompt_open_chatgpt", { slug }),
+  bookmarkAdd: (kind: "article" | "guide" | "prompt") => track("bookmark_add", { kind }),
+  bookmarkRemove: (kind: "article" | "guide" | "prompt") => track("bookmark_remove", { kind }),
 };
 
 export interface UmamiConfig {

@@ -94,6 +94,7 @@ export default async function Admin({
           <Link href="/admin/hereglee" className="text-sm text-accent hover:underline">Хэрэглээний жагсаалт →</Link>
           <Link href="/admin/newsletter" className="text-sm text-accent hover:underline">Newsletter →</Link>
           <Link href="/admin/zaavar" className="text-sm text-accent hover:underline">Заавар →</Link>
+          <Link href="/admin/prompt" className="text-sm text-accent hover:underline">Prompt →</Link>
           <Link href="/admin/hereglegch" className="text-sm text-accent hover:underline">Хэрэглэгчид →</Link>
           {umamiUrl && (
             <a

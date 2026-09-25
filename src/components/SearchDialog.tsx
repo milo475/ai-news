@@ -7,7 +7,7 @@ import type { SearchResults } from "@/lib/search";
 import { analytics } from "@/lib/analytics";
 
 const DEBOUNCE_MS = 200;
-const PLACEHOLDER = "Мэдээ, заавар, модель хайх…";
+const PLACEHOLDER = "Мэдээ, заавар, prompt хайх…";
 
 interface Row {
   href: string;
@@ -33,6 +33,14 @@ function toRows(r: SearchResults | null): { group: string; rows: Row[] }[] {
         href: `/zaavar/${g.slug}`,
         label: g.title,
         hint: `${g.readMinutes} мин · ${g.lead.slice(0, 60)}`,
+      })),
+    },
+    {
+      group: "Prompt",
+      rows: r.prompts.map((p) => ({
+        href: `/prompt/${p.slug}`,
+        label: p.title,
+        hint: p.description.slice(0, 70) || `${p.copies} хуулсан`,
       })),
     },
     {

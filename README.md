@@ -681,6 +681,71 @@ user-agent-аар crawler, curl, headless-ийг шүүнэ (UA огт байх�
 
 **Umami event:** `guide_view`, `prompt_copy`, `guide_filter`.
 
+## Prompt сан (/prompt)
+Монгол хэлний prompt-уудын каталог. Хэрэглэгч ч нэмнэ.
+
+**Модель:** `Prompt` — `slug`, `title`, `body`, `description` (≤200), `category` (9 ангилал),
+`tools[]`, `language` (MN/EN/MIXED), `variables[]`, `authorUserId`, `source` (SITE/USER),
+`status` (PENDING/PUBLISHED/REJECTED), `copies`, `likes`, `topic`, `rejectReason`.
+Дагалдах: `PromptLike` (userId+promptId түлхүүр), `PromptReport` (гомдол).
+
+**Хувьсагчийн гэрээ.** Текст дотор `{компанийн нэр}` гэж бичвэл бөглөх нүх болно.
+`extractVariables` нь бичигдсэн дарааллаар, давхардалгүй задална; `fillVariables` нь бөглөсөн нүхийг
+солиод бөглөөгүйг нь `{хаалт}` хэвээр үлдээнэ (хуулаад гараар нөхөж болно). Мөр таслалттай
+`{...}` нь хувьсагч биш. Хадгалах бүрд `variables` дахин тооцогдоно.
+
+**Хуудсууд**
+
+| Зам | Юу байна |
+|---|---|
+| `/prompt` | карт grid, шүүлт (ангилал, хэрэгсэл, хэл), эрэмбэ (шинэ / их хуулагдсан / их таалагдсан) |
+| `/prompt/<slug>` | бүтэн текст, хувьсагч бөглөх, ChatGPT/Gemini-д нээх, холбоотой 4 prompt + заавар |
+| `/prompt/nemeh` | нэвтэрсэн + баталгаажсан хэрэглэгч нэмнэ, урьдчилан харна |
+| `/profile/prompt` | «Миний prompt» — төлөв, татгалзсан шалтгаан, устгах |
+| `/admin/prompt` | PENDING/PUBLISHED/REJECTED таб, батлах/татгалзах/засах/устгах |
+
+Nav-д «Prompt», нүүрэнд «Өнөөдрийн prompt» (likes+copies-оор шилдэг 20-оос өдрийн дугаараар нэг нь).
+
+**Хуулах.** Нэвтрэхгүйгээр ажиллана — `copies` тоолуур л нэмэгдэнэ. Хадгалах (`Bookmark.promptId`)
+ба зүрх (`PromptLike`) нь нэвтрэхийг шаардана. `Bookmark`-ийн CHECK одоо 3 багана:
+`num_nonnulls(articleId, guideId, promptId) = 1`.
+
+`likes` багана нь `PromptLike`-ийн тоог **дахин тоолж** тусгана (increment биш) — хоёр таб зэрэг
+дарахад тоолуур бодит байдлаас салахгүй, сөрөг тоо гарахгүй.
+
+**Хэрэглэгчийн prompt.** `requireVerified()` шаардана. Хязгаар нь **өдөрт 5** — in-memory биш,
+`Prompt.createdAt`-аар УБ хоногоор DB-ээс тоолно (сервер дахин эхлэхэд тэглэгдэхгүй).
+Илгээмэгц LLM автомат шалгалт (`SCORE_MODEL`) ажиллана:
+
+- Илт муу (spam / unsafe / nonsense / not-prompt / language) → **REJECTED**, шалтгаан нь монголоор.
+- Бусад бүх тохиолдолд → **PENDING**, админ шийднэ. **LLM унасан ч PENDING** — хэрэглэгчийг
+  шийтгэхгүй. Шалгалт нь эргэлзвэл зөвшөөрдөг тал руугаа тохируулагдсан.
+
+Админ батлах/татгалзахад зохиогч руу имэйл явна (`RESEND_API_KEY` байвал; эс тэгвээс dev консол).
+
+**SEO:** metadata + canonical, JSON-LD `CreativeWork` (`text` нь prompt өөрөө, зохиогч нь
+SITE бол Organization, USER бол Person), sitemap-д `priority` 0.7. `/prompt/nemeh` нь `noindex`.
+
+**Хайлт:** `Prompt.searchVector` (гарчиг A, тайлбар B, бие C) — `/api/search`, `⌘K`, `/hailt`
+бүгдэд «Prompt» бүлэг нэмэгдсэн.
+
+```bash
+npm run seed:prompts              # 40 сайт-prompt (ангилал бүрт 4–5), ~$0.25
+npm run seed:prompts -- --only 5  # эхний 5
+```
+
+Давтан ажиллуулахад аюулгүй (`Prompt.topic`). **Production дээр** Railway-ийн web service дотроос:
+
+```bash
+railway run --service web npm run seed:prompts
+```
+
+(эсвэл Railway UI → service → Settings → `npm run seed:prompts`-ыг нэг удаагийн command болгон
+ажиллуулна. `DATABASE_URL`, `OPENROUTER_API_KEY`, `WRITE_MODEL` тухайн орчинд байх ёстой.)
+
+**Umami event:** `prompt_copy` (`from: guide|prompt`), `prompt_like`, `prompt_submit`,
+`prompt_open_chatgpt`, `prompt_view`, `prompt_filter`.
+
 ## Брэнд
 Нэр: **AI News**. Тэмдэг нь өсөх багана + дээш заасан сум, өнгө `--color-accent` (`#4f46e5`).
 

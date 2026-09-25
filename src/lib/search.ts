@@ -38,6 +38,16 @@ export interface GuideHit {
   headline: string;
 }
 
+export interface PromptHit {
+  slug: string;
+  title: string;
+  description: string;
+  category: string;
+  copies: number;
+  /** ts_headline — тааралт тодруулсан хэсэг (<mark> тэгтэй) */
+  headline: string;
+}
+
 export interface ToolHit {
   slug: string;
   name: string;
@@ -52,12 +62,14 @@ export interface SearchResults {
   q: string;
   articles: ArticleHit[];
   guides: GuideHit[];
+  prompts: PromptHit[];
   models: ModelHit[];
   tools: ToolHit[];
   total: number;
 }
 
-const EMPTY = (q: string): SearchResults => ({ q, articles: [], guides: [], models: [], tools: [], total: 0 });
+const EMPTY = (q: string): SearchResults =>
+  ({ q, articles: [], guides: [], prompts: [], models: [], tools: [], total: 0 });
 
 export async function search(q: string, opts: { limit?: number } = {}): Promise<SearchResults> {
   const trimmed = q.trim();
@@ -68,7 +80,7 @@ export async function search(q: string, opts: { limit?: number } = {}): Promise<
   const limit = opts.limit ?? DEFAULT_LIMIT;
   const query = Prisma.sql`to_tsquery('simple', immutable_unaccent(${ts}))`;
 
-  const [articles, guides, models, tools] = await Promise.all([
+  const [articles, guides, prompts, models, tools] = await Promise.all([
     prisma.$queryRaw<ArticleHit[]>`
       SELECT a."slug", coalesce(a."titleMn", a."sourceTitle") AS "titleMn",
              coalesce(a."summaryMn", '') AS "summaryMn", a."kind"::text AS "kind", a."publishedAt",
@@ -86,6 +98,14 @@ export async function search(q: string, opts: { limit?: number } = {}): Promise<
       FROM "Guide" g
       WHERE g."status" = 'PUBLISHED' AND g."searchVector" @@ ${query}
       ORDER BY ts_rank(g."searchVector", ${query}) DESC, g."publishedAt" DESC NULLS LAST
+      LIMIT ${limit}`,
+    prisma.$queryRaw<PromptHit[]>`
+      SELECT p."slug", p."title", p."description", p."category"::text AS "category", p."copies",
+             ts_headline('simple', immutable_unaccent(p."body"), ${query},
+                         'StartSel=<mark>,StopSel=</mark>,MaxFragments=1,MaxWords=28,MinWords=12') AS "headline"
+      FROM "Prompt" p
+      WHERE p."status" = 'PUBLISHED' AND p."searchVector" @@ ${query}
+      ORDER BY ts_rank(p."searchVector", ${query}) DESC, p."copies" DESC
       LIMIT ${limit}`,
     prisma.$queryRaw<ModelHit[]>`
       SELECT m."slug", m."name", c."name" AS "companyName", m."arenaOnly"
@@ -118,9 +138,10 @@ export async function search(q: string, opts: { limit?: number } = {}): Promise<
     q: trimmed,
     articles,
     guides,
+    prompts,
     models,
     tools: sortedTools,
-    total: articles.length + guides.length + models.length + sortedTools.length,
+    total: articles.length + guides.length + prompts.length + models.length + sortedTools.length,
   };
 }
 

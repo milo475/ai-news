@@ -12,6 +12,8 @@ import { showInterestBlock } from "@/bookmarks/preferences.api";
 import { CATEGORY_LABEL } from "@/agent/category";
 import { GuideGrid } from "@/components/GuideList";
 import { latestGuides } from "@/guides/queries";
+import { PromptOfDay } from "@/components/PromptOfDay";
+import { promptOfTheDay } from "@/prompts/queries";
 
 // Build үед DB байхгүй тул prerender хийхгүй — нүүр бүх үед шинэ өгөгдөл харуулна
 export const dynamic = "force-dynamic";
@@ -26,7 +28,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ t
   const asked = (await searchParams).tab ?? "";
   const tab = TABS.find((t) => t.key === asked) ?? TABS[0]!;
   const user = await currentUser();
-  const [{ date, rows }, note, news, useCases, digest, pref, guides] = await Promise.all([
+  const [{ date, rows }, note, news, useCases, digest, pref, guides, prompt] = await Promise.all([
     getLeaderboard(10, tab.source),
     getSourceNote(tab.source),
     getLatestNews(5),
@@ -34,6 +36,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ t
     getLatestDigest(),
     user ? getPreference(user.id) : null,
     latestGuides(3),
+    promptOfTheDay(),
   ]);
 
   // "Таны сонирхол" — зөвхөн нэвтэрсэн, ангилал сонгосон хэрэглэгчид
@@ -164,6 +167,8 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ t
           <NewsList items={news} savedIds={savedIds} path="/" />
         )}
       </section>
+
+      {prompt && <PromptOfDay prompt={prompt} />}
 
       {guides.length > 0 && (
         <section className="space-y-3">
