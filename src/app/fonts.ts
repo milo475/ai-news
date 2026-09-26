@@ -13,7 +13,13 @@ export const roboto = localFont({
     { path: "./fonts/Roboto-Bold.woff2", weight: "700", style: "normal" },
   ],
   variable: "--font-roboto",
-  // swap — фонт ачаалж дуустал системийн фонтоор уншигдана (LCP-г саатуулахгүй)
-  display: "swap",
+  // preload: false — next/font нь анхдагчаар <link rel=preload> нэмдэг. Гар утасны
+  // удаан сүлжээнд 2 × 42 KB нь LCP-ийн замтай зурвасын төлөө өрсөлдөж +1 с нэмдэг.
+  // Preload-гүй үед фонт CSS-ийн дараа бага эрэмбээр ирнэ.
+  preload: false,
+  // optional — фонт ~100 мс дотор бэлэн биш бол хөтөч системийн фонтоор үлдээнэ.
+  // swap нь фонт ирэхэд текстийг дахин зурдаг тул LCP тэр үед л бүртгэгддэг байсан
+  // (гар утсанд +1 с). Core Web Vitals-д LCP чухал тул optional-ыг сонгов.
+  display: "optional",
   fallback: ["ui-sans-serif", "system-ui", "-apple-system", "Segoe UI", "Noto Sans", "sans-serif"],
 });

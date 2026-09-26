@@ -45,19 +45,19 @@ const THEME_SCRIPT = `try{var t=localStorage.getItem("theme");if(t==="dark"||t==
 /** Үндсэн цэс — сайтын гол 8 хэсэг */
 const NAV = [
   { href: "/", label: "Нүүр" },
+  { href: "/jagsaalt", label: "Жагсаалт" },
   { href: "/medee", label: "Мэдээ" },
   { href: "/zaavar", label: "Заавар" },
-  { href: "/prompt", label: "Prompt" },
   { href: "/hereglel", label: "Хэрэгсэл" },
+  { href: "/prompt", label: "Prompt" },
   { href: "/benchmark", label: "Бенчмарк" },
   { href: "/mongol", label: "Монгол" },
-  { href: "/barimt", label: "Баримт" },
 ];
 
-/** Цэсэнд багтаагүй ч чухал хуудсууд — хөлд */
+/** Цэсэнд багтаагүй ч чухал хуудсууд — хөлд (нүүрнээс мөн хүрнэ) */
 const MORE = [
-  { href: "/jagsaalt", label: "Моделийн жагсаалт" },
-  { href: "/harits", label: "Харьцуулах" },
+  { href: "/barimt", label: "Өдрийн баримт" },
+  { href: "/harits", label: "Моделиудыг харьцуулах" },
   { href: "/songolt", label: "Надад ямар AI тохирох вэ?" },
   { href: "/hereglee", label: "Хэрэглээний жишээ" },
   { href: "/hailt", label: "Хайлт" },

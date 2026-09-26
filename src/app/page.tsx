@@ -121,12 +121,17 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ t
               ))}
             </span>
           </div>
-          <Link
-            href={tab.key ? `/jagsaalt?tab=${tab.key}` : "/jagsaalt"}
-            className="text-sm text-accent hover:underline"
-          >
-            Бүтэн жагсаалт →
-          </Link>
+          <span className="flex gap-4">
+            <Link href="/harits" className="text-sm text-accent hover:underline">
+              Харьцуулах →
+            </Link>
+            <Link
+              href={tab.key ? `/jagsaalt?tab=${tab.key}` : "/jagsaalt"}
+              className="text-sm text-accent hover:underline"
+            >
+              Бүтэн жагсаалт →
+            </Link>
+          </span>
         </div>
         <LeaderboardTable rows={rows} compact metric={tab.metric} benchScores={mnScores} />
         <p className="text-xs text-muted">{note}</p>

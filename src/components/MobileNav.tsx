@@ -10,8 +10,9 @@ export interface NavItem {
 }
 
 /**
- * Гар утасны цэс. Явган нар (hamburger) → доош задардаг жагсаалт.
+ * Гар утасны цэс — 8 хэсэг «Бусад» товчны доор эвхэгдэнэ.
  *
+ * Явган нарын (hamburger) оронд бичигтэй товч: юу нээгдэхийг таахгүйгээр мэднэ.
  * Зөвхөн `md`-ээс доош харагдана; ширээний компьютерт layout нь ердийн nav-ыг үзүүлнэ.
  */
 export function MobileNav({ items }: { items: NavItem[] }) {
@@ -47,15 +48,20 @@ export function MobileNav({ items }: { items: NavItem[] }) {
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
         aria-controls="mobile-nav"
-        aria-label={open ? "Цэсийг хаах" : "Цэсийг нээх"}
-        className="flex h-9 w-9 items-center justify-center rounded-md border border-line text-ink"
+        className="flex h-9 items-center gap-1 rounded-md border border-line px-2.5 text-sm text-ink"
       >
-        <svg viewBox="0 0 20 20" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
-          {open ? (
-            <path d="M5 5l10 10M15 5L5 15" strokeLinecap="round" />
-          ) : (
-            <path d="M3 6h14M3 10h14M3 14h14" strokeLinecap="round" />
-          )}
+        Бусад
+        <svg
+          viewBox="0 0 20 20"
+          width="14"
+          height="14"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          aria-hidden="true"
+          className={open ? "rotate-180" : ""}
+        >
+          <path d="M5 8l5 5 5-5" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
       </button>
 
