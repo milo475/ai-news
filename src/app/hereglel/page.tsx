@@ -158,6 +158,14 @@ export default async function ToolsPage({ searchParams }: { searchParams: Promis
         </div>
       )}
 
+      <Link
+        href="/songolt"
+        className="block rounded-lg border border-accent/40 bg-accent/5 px-4 py-2.5 text-sm hover:bg-accent/10"
+      >
+        <span className="font-medium">Аль нь танд тохирох вэ?</span>{" "}
+        <span className="text-muted">5 асуултад хариулбал 3 санал өгнө →</span>
+      </Link>
+
       {tools.length === 0 ? (
         <div className="rounded-lg border border-dashed border-line p-6 text-sm text-muted">
           {filtered

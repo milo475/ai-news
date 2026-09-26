@@ -113,6 +113,14 @@ export default async function GuidesPage({ searchParams }: { searchParams: Promi
         </div>
       )}
 
+      <Link
+        href="/songolt"
+        className="block rounded-lg border border-accent/40 bg-accent/5 px-4 py-2.5 text-sm hover:bg-accent/10"
+      >
+        <span className="font-medium">Аль хэрэгслээс эхлэхээ мэдэхгүй байна уу?</span>{" "}
+        <span className="text-muted">1 минутын асуулга →</span>
+      </Link>
+
       {guides.length === 0 ? (
         <div className="rounded-lg border border-dashed border-line p-6 text-sm text-muted">
           {filtered

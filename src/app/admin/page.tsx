@@ -98,6 +98,7 @@ export default async function Admin({
           <Link href="/admin/benchmark" className="text-sm text-accent hover:underline">Бенчмарк →</Link>
           <Link href="/admin/hereglel" className="text-sm text-accent hover:underline">Хэрэгсэл →</Link>
           <Link href="/admin/mongol" className="text-sm text-accent hover:underline">Монгол →</Link>
+          <Link href="/admin/songolt" className="text-sm text-accent hover:underline">Асуулга →</Link>
           <Link href="/admin/hereglegch" className="text-sm text-accent hover:underline">Хэрэглэгчид →</Link>
           {umamiUrl && (
             <a

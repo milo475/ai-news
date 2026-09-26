@@ -68,6 +68,17 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ t
         </p>
       </section>
 
+      <section>
+        <Link
+          href="/songolt"
+          className="flex flex-wrap items-center gap-3 rounded-lg border border-accent/40 bg-accent/5 px-4 py-3 hover:bg-accent/10"
+        >
+          <span className="font-medium">Танд ямар AI тохирох вэ?</span>
+          <span className="text-sm text-muted">1 минутын асуулга — 5 асуулт</span>
+          <span className="ml-auto text-accent text-sm">Эхлэх →</span>
+        </Link>
+      </section>
+
       {top && bottom && top !== bottom && (
         <section className="grid sm:grid-cols-2 gap-4">
           <div className="rounded-lg border border-line p-4">

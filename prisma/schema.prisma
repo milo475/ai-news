@@ -1031,3 +1031,27 @@ model MongolProject {
 
   @@index([isActive, order])
 }
+
+
+/// —————————————————— «Надад ямар AI тохирох вэ?» асуулга (/songolt) ——————————————————
+
+/// Өдрийн статистик — дуусгалтын хувь тооцоход
+model QuizDaily {
+  /// УБ цагийн огноо, "2026-09-26"
+  day      String @id
+  starts   Int    @default(0)
+  finishes Int    @default(0)
+}
+
+/// Дууссан асуулга бүрийн үр дүн — аль хэрэгсэл хамгийн их санал болгогдсоныг харах
+model QuizResult {
+  id        String   @id @default(cuid())
+  /// Хариултын код (base64url 5) — ижил код ижил үр дүн, тиймээс давхардаж болно
+  code      String
+  /// Санал болгосон хэрэгслүүдийн slug, эрэмбээр
+  toolSlugs String[] @default([])
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([code])
+}
