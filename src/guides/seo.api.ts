@@ -89,13 +89,15 @@ export interface SitemapInput {
   guides: { slug: string; updatedAt: Date }[];
   prompts: { slug: string; updatedAt: Date }[];
   tools: { slug: string; updatedAt: Date }[];
+  /** Харьцуулалтын pairKey-үүд */
+  pairs: string[];
   models: { slug: string; updatedAt: Date }[];
   useCases: { slug: string; updatedAt: Date }[];
 }
 
 /** Статик хуудсууд — жагсаалт, мэдээ, хэрэглээ, заавар */
 export const STATIC_PATHS = [
-  "", "/jagsaalt", "/medee", "/hereglee", "/zaavar", "/prompt", "/hereglel",
+  "", "/jagsaalt", "/medee", "/hereglee", "/zaavar", "/prompt", "/hereglel", "/harits",
   "/benchmark", "/benchmark/argachlal",
 ] as const;
 
@@ -125,6 +127,12 @@ export function sitemapEntries(input: SitemapInput): SitemapEntry[] {
       lastModified: p.updatedAt,
       changeFrequency: "monthly" as const,
       priority: 0.7,
+    })),
+    ...input.pairs.map((key) => ({
+      url: `${site}/harits/${key}`,
+      lastModified: now,
+      changeFrequency: "weekly" as const,
+      priority: 0.6,
     })),
     ...input.tools.map((t) => ({
       url: `${site}/hereglel/${t.slug}`,

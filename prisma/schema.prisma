@@ -71,13 +71,23 @@ model AiModel {
   companyId     String
   company       Company @relation(fields: [companyId], references: [id])
 
-  isOpenWeights   Boolean   @default(false) // нээлттэй жинтэй эсэх (HF id байвал)
-  contextLength   Int?
-  modality        String? // "text+image->text"
-  releasedAt      DateTime? // OpenRouter-т нэмэгдсэн огноо
+  isOpenWeights        Boolean   @default(false) // нээлттэй жинтэй эсэх (HF id байвал)
+  contextLength        Int?
+  modality             String? // "text+image->text"
+  releasedAt           DateTime? // OpenRouter-т нэмэгдсэн огноо
   /// 1 сая токены үнэ, USD
-  inputPricePerM  Decimal?  @db.Decimal(12, 6)
-  outputPricePerM Decimal?  @db.Decimal(12, 6)
+  inputPricePerM       Decimal?  @db.Decimal(12, 6)
+  outputPricePerM      Decimal?  @db.Decimal(12, 6)
+  /// Кэшээс уншсан оролтын үнэ (pricing.input_cache_read) — их хэмжээний хэрэглээнд чухал
+  cachedInputPricePerM Decimal?  @db.Decimal(12, 6)
+  /// architecture.input_modalities: text, image, file, audio
+  inputModalities      String[]  @default([])
+  outputModalities     String[]  @default([])
+  tokenizer            String?
+  /// top_provider.max_completion_tokens — нэг хариуны дээд хэмжээ
+  maxOutputTokens      Int?
+  /// top_provider.is_moderated — provider өөрөө контентыг шүүдэг эсэх
+  isModerated          Boolean?
 
   isActive   Boolean  @default(true) // каталогоос алга болвол false
   /// Зөвхөн LMArena-д байдаг, OpenRouter-т байхгүй модель — хэрэглээний жагсаалтад орохгүй
@@ -949,4 +959,26 @@ enum ToolStatus {
 enum ToolSource {
   SITE
   USER
+}
+
+/// —————————————————— Моделийн харьцуулалт (/harits) ——————————————————
+
+/// Хоёр моделийн харьцуулалтын LLM дүгнэлтийн кэш. Хуудас бүрд нэг мөр.
+model AiModelComparison {
+  id          String    @id @default(cuid())
+  /// "<slugA>--vs--<slugB>", slug-ийн "/" нь "~" болсон, цагаан толгойн эрэмбэтэй
+  pairKey     String    @unique
+  /// 3 өгүүлбэрийн дүгнэлт. Хоосон = хараахан үүсгээгүй.
+  summaryMn   String?
+  /// Дүгнэлт хэзээ бичигдсэн — 30 хоног хуучирвал дахин бичүүлнэ
+  generatedAt DateTime?
+  /// LLM-ийн зардал
+  costUsd     Float     @default(0)
+  /// Хэдэн удаа үзсэн — /harits дээр «хамгийн их үзэгдсэн» жагсаалтад
+  views       Int       @default(0)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([views])
+  @@index([generatedAt])
 }

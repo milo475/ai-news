@@ -1,14 +1,19 @@
 /**
- * Хамгаалалт:
+ * Хамгаалалт ба хаягийн нормчлол:
  *   /admin/*   — HTTP Basic auth (хэрэглэгч "admin", нууц үг ADMIN_PASSWORD).
  *                ADMIN_PASSWORD тохируулаагүй бол хуудсыг огт нээхгүй (503).
  *   /profile/* — нэвтэрсэн байх шаардлагатай. Auth.js-ийн session cookie байгаа эсэхийг
  *                л шалгана (edge дээр DB, bcrypt ажиллуулахгүй); жинхэнэ шалгалтыг
  *                хуудас өөрөө `currentUser()`-ээр хийнэ.
+ *   /harits/*  — харьцуулалтын хос нь цагаан толгойн эрэмбэтэй байх ёстой. Эсрэг
+ *                дараалалтай хаягийг **301**-ээр canonical руу шилжүүлнэ (хуудсыг
+ *                рендерлэхгүй). Хуудас дотор permanentRedirect() хийвэл 308 болох тул
+ *                middleware-т барина.
  */
 import { NextResponse, type NextRequest } from "next/server";
+import { isCanonicalPair, pairKey, parsePair } from "./compare/pair.api";
 
-export const config = { matcher: ["/admin/:path*", "/profile/:path*"] };
+export const config = { matcher: ["/admin/:path*", "/profile/:path*", "/harits/:pair"] };
 
 /** Auth.js-ийн session cookie (https дээр __Secure- угтвартай) */
 function hasSession(req: NextRequest): boolean {
@@ -32,7 +37,19 @@ function timingSafeEqual(a: string, b: string): boolean {
 }
 
 export function middleware(req: NextRequest) {
-  if (req.nextUrl.pathname.startsWith("/profile")) {
+  const { pathname } = req.nextUrl;
+
+  if (pathname.startsWith("/harits/")) {
+    const raw = decodeURIComponent(pathname.slice("/harits/".length));
+    const parsed = parsePair(raw);
+    // Танигдахгүй хаягийг хуудас өөрөө 404 болгоно
+    if (!parsed || isCanonicalPair(raw)) return NextResponse.next();
+    const canonical = new URL(`/harits/${pairKey(parsed[0], parsed[1])}`, req.url);
+    canonical.search = req.nextUrl.search;
+    return NextResponse.redirect(canonical, 301);
+  }
+
+  if (pathname.startsWith("/profile")) {
     if (hasSession(req)) return NextResponse.next();
     const login = new URL("/nevtreh", req.url);
     login.searchParams.set("ur", req.nextUrl.pathname);

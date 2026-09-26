@@ -18,8 +18,19 @@ export interface OrModel {
   description: string;
   context_length: number;
   hugging_face_id: string | null;
-  architecture: { modality: string };
-  pricing: { prompt: string; completion: string };  // USD / 1 токен (string)
+  architecture: {
+    modality: string;
+    input_modalities?: string[];
+    output_modalities?: string[];
+    tokenizer?: string | null;
+  };
+  /// USD / 1 токен (string). input_cache_read нь кэшлэгдсэн оролтын хямд тариф.
+  pricing: { prompt: string; completion: string; input_cache_read?: string };
+  top_provider?: {
+    context_length?: number | null;
+    max_completion_tokens?: number | null;
+    is_moderated?: boolean | null;
+  };
   alias_target?: { slug: string };                  // "~..." alias моделиуд
 }
 

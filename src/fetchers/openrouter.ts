@@ -55,6 +55,14 @@ export async function syncCatalog(): Promise<{ companies: number; models: number
       releasedAt: new Date(m.created * 1000),
       inputPricePerM: pricePerMillion(m.pricing.prompt),
       outputPricePerM: pricePerMillion(m.pricing.completion),
+      cachedInputPricePerM: m.pricing.input_cache_read
+        ? pricePerMillion(m.pricing.input_cache_read)
+        : null,
+      inputModalities: m.architecture?.input_modalities ?? [],
+      outputModalities: m.architecture?.output_modalities ?? [],
+      tokenizer: m.architecture?.tokenizer ?? null,
+      maxOutputTokens: m.top_provider?.max_completion_tokens ?? null,
+      isModerated: m.top_provider?.is_moderated ?? null,
       isActive: true,
       lastSeenAt: new Date(),
     };

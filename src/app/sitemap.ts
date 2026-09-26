@@ -10,7 +10,8 @@ export const revalidate = 86_400;
 const MODEL_LIMIT = 1_000;
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
-  const [articles, guides, prompts, tools, models, useCases] = await Promise.all([
+  const { plannedPairs } = await import("@/compare/queries");
+  const [articles, guides, prompts, tools, models, useCases, pairs] = await Promise.all([
     prisma.article.findMany({
       where: { status: "PUBLISHED" },
       select: { slug: true, publishedAt: true, updatedAt: true },
@@ -42,7 +43,10 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       select: { slug: true, updatedAt: true },
       orderBy: { order: "asc" },
     }),
+    plannedPairs(),
   ]);
 
-  return sitemapEntries({ siteUrl: siteUrl(), articles, guides, prompts, tools, models, useCases });
+  return sitemapEntries({
+    siteUrl: siteUrl(), articles, guides, prompts, tools, models, useCases, pairs,
+  });
 }

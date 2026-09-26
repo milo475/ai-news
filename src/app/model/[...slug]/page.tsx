@@ -6,6 +6,8 @@ import { RankChart } from "@/components/RankChart";
 import { fmtDate, fmtTokens } from "@/components/format";
 import { TrackEvent } from "@/components/Track";
 import { benchScoreFor } from "@/bench/queries";
+import { CompareSelect } from "@/components/CompareSelect";
+import { comparableModels } from "@/compare/queries";
 
 export const revalidate = 3600;
 
@@ -29,6 +31,12 @@ export default async function ModelPage({ params }: { params: Promise<Params> })
     getNewsForModel(slug, 5),
     benchScoreFor(slug),
   ]);
+
+  // «Харьцуулах» сонголт — хэмжилттэй топ моделиуд, өөрийгөө орхино
+  const compareOptions = (await comparableModels(20))
+    .filter((m) => m.slug !== slug)
+    .slice(0, 20)
+    .map((m) => ({ slug: m.slug, name: m.name }));
   const last = history[history.length - 1];
   const best = history.length ? Math.min(...history.map((h) => h.rank)) : null;
   const lastArena = arenaHistory[arenaHistory.length - 1];
@@ -65,6 +73,15 @@ export default async function ModelPage({ params }: { params: Promise<Params> })
         {lastArena && fact("Elo", Math.round(Number(lastArena.score)).toString())}
         {fact("Context", m.contextLength ? `${Math.round(m.contextLength / 1000)}K` : "—")}
       </div>
+
+      {compareOptions.length > 0 && (
+        <div className="flex flex-wrap items-center gap-3">
+          <CompareSelect slug={slug} options={compareOptions} />
+          <Link href="/harits" className="text-sm text-muted hover:text-ink">
+            Модель сонгох туслах →
+          </Link>
+        </div>
+      )}
 
       {bench && (
         <section className="rounded-lg border border-accent/40 bg-accent/5 p-4 space-y-2">
