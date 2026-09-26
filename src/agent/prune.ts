@@ -14,6 +14,7 @@
 import "dotenv/config";
 import { prisma } from "../db";
 import { staleBefore, STALE_RAW_DAYS } from "./raw.api";
+import { runCli } from "../lib/cli";
 
 export interface PruneResult {
   /** Хоцрогдсон гэж үзсэн хил */
@@ -46,14 +47,15 @@ export async function pruneStaleRaw(
 }
 
 if (process.argv[1]?.endsWith("prune.ts")) {
-  const daysArg = process.argv.indexOf("--days");
-  const days = daysArg > -1 ? Number(process.argv[daysArg + 1]) : STALE_RAW_DAYS;
-  const dryRun = process.argv.includes("--dry");
+  await runCli(async () => {
+    const daysArg = process.argv.indexOf("--days");
+    const days = daysArg > -1 ? Number(process.argv[daysArg + 1]) : STALE_RAW_DAYS;
+    const dryRun = process.argv.includes("--dry");
 
-  const r = await pruneStaleRaw({ days, dryRun });
-  console.log(
-    `${dryRun ? "[dry] " : ""}${r.skipped} хоцрогдсон RAW ${dryRun ? "олдлоо" : "SKIPPED боллоо"} ` +
-      `(${days} хоногоос хуучин, хил ${r.before.toISOString().slice(0, 10)}).`,
-  );
-  await prisma.$disconnect();
+    const r = await pruneStaleRaw({ days, dryRun });
+    console.log(
+      `${dryRun ? "[dry] " : ""}${r.skipped} хоцрогдсон RAW ${dryRun ? "олдлоо" : "SKIPPED боллоо"} ` +
+        `(${days} хоногоос хуучин, хил ${r.before.toISOString().slice(0, 10)}).`,
+    );
+  });
 }

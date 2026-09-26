@@ -7,7 +7,7 @@
  * Давтан ажиллуулахад аюулгүй: Prompt.topic-оор давхардлыг шалгана.
  */
 import "dotenv/config";
-import { chatJson } from "../agent/llm";
+import { chatJson, isAuthError } from "../agent/llm";
 import { prisma } from "../db";
 import { slugify } from "../agent/slug";
 import { extractVariables } from "./prompt.api";
@@ -16,6 +16,7 @@ import {
   checkSeed, sanitizeSeed, SEED_SCHEMA, SEED_SYSTEM, SEED_TOPICS, type SeedDraft, type SeedTopic,
 } from "./seed.api";
 import { PROMPT_CATEGORY_HINT, PROMPT_CATEGORY_LABEL } from "./prompt.api";
+import { runCli } from "../lib/cli";
 
 type Chat = typeof chatJson;
 
@@ -102,6 +103,8 @@ export async function seedPrompts(opts: { only?: number } = {}): Promise<SeedRes
       r.created.push({ slug, topic: t.topic });
       console.log(`   ✓ /prompt/${slug} — ${variables.length} хувьсагч ($${costUsd.toFixed(4)})`);
     } catch (e) {
+      // Түлхүүр буруу/хүчингүй бол дараагийнх нь ч мөн л унана — шууд зогсоно
+      if (isAuthError(e)) throw e;
       const error = (e as Error).message.slice(0, 160);
       r.failed.push({ topic: t.topic, error });
       console.warn(`   ✗ ${error}`);
@@ -111,11 +114,12 @@ export async function seedPrompts(opts: { only?: number } = {}): Promise<SeedRes
 }
 
 if (process.argv[1]?.endsWith("seed.ts") && process.argv[1]?.includes("prompts")) {
-  const onlyArg = process.argv.indexOf("--only");
-  const r = await seedPrompts({ only: onlyArg > -1 ? Number(process.argv[onlyArg + 1]) : undefined });
-  console.log(
-    `\n${r.created.length} шинэ, ${r.skipped.length} алгассан, ${r.failed.length} амжилтгүй — ` +
-    `нийт $${r.costUsd.toFixed(3)}`,
-  );
-  await prisma.$disconnect();
+  await runCli(async () => {
+    const onlyArg = process.argv.indexOf("--only");
+    const r = await seedPrompts({ only: onlyArg > -1 ? Number(process.argv[onlyArg + 1]) : undefined });
+    console.log(
+      `\n${r.created.length} шинэ, ${r.skipped.length} алгассан, ${r.failed.length} амжилтгүй — ` +
+      `нийт $${r.costUsd.toFixed(3)}`,
+    );
+  });
 }

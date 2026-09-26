@@ -10,6 +10,7 @@ import {
 import { benchBudget, canStartModel, estimateCost, overBudget } from "./budget.api";
 import { extraModels, judgeModel, judgeModel2, pickModels } from "./models.api";
 import { SEED_TASKS } from "./seed.api";
+import { describePlan, isMonth, parseArgs } from "./reset.api";
 
 // ——— Checker ———
 
@@ -352,4 +353,41 @@ test("assembleArticle: хүснэгт, хэсгүүд, холбоос", async ()
   assert.match(md, /- \*\*Товчлол\*\* — Тайлбар\./);
   assert.match(md, /https:\/\/ai-news\.mn\/benchmark\/argachlal/);
   assert.match(md, /https:\/\/ai-news\.mn\/benchmark\)/);
+});
+
+// ——— bench:reset ———
+
+test("isMonth: зөвхөн YYYY-MM", () => {
+  for (const ok of ["2026-09", "2026-01", "2026-12"]) assert.equal(isMonth(ok), true, ok);
+  for (const bad of ["2026-13", "2026-00", "2026-9", "26-09", "2026-09-01", "", "DROP TABLE"]) {
+    assert.equal(isMonth(bad), false, bad);
+  }
+});
+
+test("parseArgs: --month, --yes, --with-published", () => {
+  assert.deepEqual(parseArgs(["node", "reset.ts"]), {
+    month: undefined, yes: false, withPublished: false,
+  });
+  assert.deepEqual(parseArgs(["node", "reset.ts", "--month", "2026-09", "--yes"]), {
+    month: "2026-09", yes: true, withPublished: false,
+  });
+  assert.deepEqual(parseArgs(["node", "reset.ts", "--month", "  2026-09  ", "--with-published"]), {
+    month: "2026-09", yes: false, withPublished: true,
+  });
+  // --month утгагүй үлдвэл undefined (одоогийн сар руу унана)
+  assert.equal(parseArgs(["node", "reset.ts", "--month"]).month, undefined);
+});
+
+test("describePlan: юу устахыг тодорхой хэлнэ", () => {
+  const base = { month: "2026-09", runId: "r1", status: "FAILED", results: 510, summaries: 0 };
+  const draft = describePlan({ ...base, articleSlug: "bench-2026-09", keptArticleSlug: null });
+  assert.ok(draft.some((l) => l.includes("510 үр дүн")));
+  assert.ok(draft.some((l) => l.includes("DRAFT нийтлэл /medee/bench-2026-09")));
+
+  const published = describePlan({ ...base, articleSlug: null, keptArticleSlug: "bench-2026-09" });
+  assert.ok(published.some((l) => l.includes("НИЙТЛЭГДСЭН")));
+  assert.ok(published.some((l) => l.includes("--with-published")));
+
+  const none = describePlan({ ...base, articleSlug: null, keptArticleSlug: null });
+  assert.ok(none.some((l) => l.includes("нийтлэл үүсээгүй")));
 });

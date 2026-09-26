@@ -16,6 +16,8 @@ import { enrichTool } from "./enrich";
 import { uniqueToolSlug } from "./mutations";
 import { SEED_TOOLS } from "./seed.api";
 import type { MongolianSupport, ToolPlan } from "../generated/prisma/enums";
+import { isAuthError } from "../agent/llm";
+import { runCli } from "../lib/cli";
 
 export interface SeedResult {
   created: { name: string; slug: string }[];
@@ -101,6 +103,8 @@ export async function seedTools(
         r.created.push({ name: t.name, slug: created.slug });
         console.log(`   ✓ /hereglel/${created.slug} ($${e.costUsd.toFixed(4)})`);
       } catch (e) {
+        // Түлхүүр буруу/хүчингүй бол дараагийнх нь ч мөн л унана — шууд зогсоно
+        if (isAuthError(e)) throw e;
         const error = (e as Error).message.slice(0, 160);
         r.failed.push({ name: t.name, error });
         console.warn(`   ✗ ${error}`);
@@ -156,25 +160,26 @@ export async function linkAlternatives(): Promise<number> {
 }
 
 if (process.argv[1]?.endsWith("seed.ts") && process.argv[1]?.includes("tools")) {
-  const onlyArg = process.argv.indexOf("--only");
-  const r = await seedTools({
-    only: onlyArg > -1 ? Number(process.argv[onlyArg + 1]) : undefined,
-    withLogo: !process.argv.includes("--no-logo"),
-    logosOnly: process.argv.includes("--logos-only"),
-  });
+  await runCli(async () => {
+    const onlyArg = process.argv.indexOf("--only");
+    const r = await seedTools({
+      only: onlyArg > -1 ? Number(process.argv[onlyArg + 1]) : undefined,
+      withLogo: !process.argv.includes("--no-logo"),
+      logosOnly: process.argv.includes("--logos-only"),
+    });
 
-  console.log(
-    `\n${r.created.length} шинэ, ${r.skipped.length} алгассан, ${r.failed.length} амжилтгүй · ` +
-    `${r.logos} лого татсан, ${r.noLogo.length} логогүй · ${r.linked} хувилбарын холбоос · ` +
-    `$${r.costUsd.toFixed(3)}`,
-  );
-  if (r.deadSites.length > 0) {
-    console.warn(`\n⚠ Хариу өгөөгүй сайтууд (админ шалгана уу):`);
-    for (const d of r.deadSites) console.warn(`  ${d.name} — ${d.status ?? "холбогдсонгүй"}`);
-  }
-  if (r.blockedSites.length > 0) {
-    console.log(`\nБотыг хориглосон (сайт нь зүгээр): ${r.blockedSites.join(", ")}`);
-  }
-  if (r.noLogo.length > 0) console.log(`\nЛого олдсонгүй (үсгэн avatar): ${r.noLogo.join(", ")}`);
-  await prisma.$disconnect();
+    console.log(
+      `\n${r.created.length} шинэ, ${r.skipped.length} алгассан, ${r.failed.length} амжилтгүй · ` +
+      `${r.logos} лого татсан, ${r.noLogo.length} логогүй · ${r.linked} хувилбарын холбоос · ` +
+      `$${r.costUsd.toFixed(3)}`,
+    );
+    if (r.deadSites.length > 0) {
+      console.warn(`\n⚠ Хариу өгөөгүй сайтууд (админ шалгана уу):`);
+      for (const d of r.deadSites) console.warn(`  ${d.name} — ${d.status ?? "холбогдсонгүй"}`);
+    }
+    if (r.blockedSites.length > 0) {
+      console.log(`\nБотыг хориглосон (сайт нь зүгээр): ${r.blockedSites.join(", ")}`);
+    }
+    if (r.noLogo.length > 0) console.log(`\nЛого олдсонгүй (үсгэн avatar): ${r.noLogo.join(", ")}`);
+  });
 }

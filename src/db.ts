@@ -1,7 +1,12 @@
 import { PrismaPg } from "@prisma/adapter-pg";
 import { databaseUrl } from "./env";
 import { PrismaClient } from "./generated/prisma/client";
+import { loadEnv } from "./lib/env";
 import { poolMax } from "./lib/pool.api";
+
+// databaseUrl() уншихаас ӨМНӨ: Railway Console (SSH shell) дээр DATABASE_URL
+// дутуу байдаг тул PID 1-ийн орчноос нөхнө. Тохируулсан байвал юу ч хийхгүй.
+loadEnv();
 
 /**
  * Холболтын сан.

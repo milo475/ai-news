@@ -8,7 +8,8 @@
  * Төсөв (BENCH_BUDGET_USD) хэтэрвэл эхэлсэн моделиудаа дуусгаад зогсоно.
  */
 import "dotenv/config";
-import { chatJson, chatText } from "../agent/llm";
+import { chatJson, chatText, isAuthError } from "../agent/llm";
+import { runCli } from "../lib/cli";
 import { prisma } from "../db";
 import { jobRunMeta } from "../jobs/meta";
 import { benchModels } from "./models";
@@ -110,112 +111,173 @@ async function execute(opts: RunOptions, jobId: string): Promise<RunSummary> {
   let stopped: string | null = null;
   const scored: ScoredResult[] = [];
 
-  for (const [mi, modelSlug] of models.entries()) {
-    if (!canStartModel(spent, budget, tasks.length)) {
-      stopped = `Төсөв дүүрсэн тул ${models.length - mi} модель тестлэгдсэнгүй ($${spent.toFixed(2)}/$${budget.toFixed(2)})`;
-      console.warn(`⚠ ${stopped}`);
-      break;
-    }
-    console.log(`\n[${mi + 1}/${models.length}] ${modelSlug}`);
-
-    for (const task of tasks) {
-      const rubric = parseRubric(task.rubric);
-      const checker = parseChecker(task.checker);
-
-      let output = "";
-      let latencyMs = 0;
-      let tokensIn = 0;
-      let tokensOut = 0;
-      let costUsd = 0;
-      let error: string | null = null;
-
-      try {
-        const r = await text({
-          model: modelSlug,
-          system: TASK_SYSTEM,
-          user: task.prompt,
-          maxTokens: TASK_MAX_TOKENS,
-          temperature: 0,
-          timeoutMs: TASK_TIMEOUT_MS,
-        });
-        output = r.text;
-        latencyMs = r.latencyMs;
-        tokensIn = r.tokensIn;
-        tokensOut = r.tokensOut;
-        costUsd = r.costUsd;
-        spent += r.costUsd;
-      } catch (e) {
-        error = (e as Error).message.slice(0, 200);
-        console.warn(`   ✗ ${task.slug}: ${error}`);
+  /** Модель бүрийг даалгавруудаар нь дуудна. Дундуур шидвэл run нь FAILED болно. */
+  async function runModels(): Promise<void> {
+    for (const [mi, modelSlug] of models.entries()) {
+      if (!canStartModel(spent, budget, tasks.length)) {
+        stopped = `Төсөв дүүрсэн тул ${models.length - mi} модель тестлэгдсэнгүй ($${spent.toFixed(2)}/$${budget.toFixed(2)})`;
+        console.warn(`⚠ ${stopped}`);
+        break;
       }
+      console.log(`\n[${mi + 1}/${models.length}] ${modelSlug}`);
 
-      const check = error ? null : runChecker(checker, output);
+      for (const task of tasks) {
+        const rubric = parseRubric(task.rubric);
+        const checker = parseChecker(task.checker);
 
-      // Хариу өгөөгүй, эсвэл тодорхой шалгалт унасан бол шүүгчийг зовоохгүй (зардал хэмнэнэ)
-      let judgeScore: number | null = null;
-      let judgeScore2: number | null = null;
-      let judgeNotes: string | null = null;
-      if (!error && check?.pass !== false) {
+        let output = "";
+        let latencyMs = 0;
+        let tokensIn = 0;
+        let tokensOut = 0;
+        let costUsd = 0;
+        let error: string | null = null;
+
         try {
-          const v = await judge(
-            { taskTitle: task.title, prompt: task.prompt, reference: task.reference, rubric, output },
-            { modelSlug, judgeModel: jModel, judgeModel2: jModel2 },
-            { chat },
-          );
-          judgeScore = v.score;
-          judgeScore2 = v.score2;
-          judgeNotes = v.note;
-          spent += v.costUsd;
+          const r = await text({
+            model: modelSlug,
+            system: TASK_SYSTEM,
+            user: task.prompt,
+            maxTokens: TASK_MAX_TOKENS,
+            temperature: 0,
+            timeoutMs: TASK_TIMEOUT_MS,
+          });
+          output = r.text;
+          latencyMs = r.latencyMs;
+          tokensIn = r.tokensIn;
+          tokensOut = r.tokensOut;
+          costUsd = r.costUsd;
+          spent += r.costUsd;
         } catch (e) {
-          judgeNotes = `шүүгч ажиллсангүй: ${(e as Error).message.slice(0, 120)}`;
-          console.warn(`   ⚠ ${task.slug}: ${judgeNotes}`);
+          // Түлхүүр буруу бол 30 даалгавар × 17 модель бүгд ижил унана — шууд зогсоно
+          if (isAuthError(e)) throw e;
+          error = (e as Error).message.slice(0, 200);
+          console.warn(`   ✗ ${task.slug}: ${error}`);
         }
-      } else if (check?.pass === false) {
-        judgeNotes = `Тодорхой шалгалт унасан: ${check.detail}`;
+
+        const check = error ? null : runChecker(checker, output);
+
+        // Хариу өгөөгүй, эсвэл тодорхой шалгалт унасан бол шүүгчийг зовоохгүй (зардал хэмнэнэ)
+        let judgeScore: number | null = null;
+        let judgeScore2: number | null = null;
+        let judgeNotes: string | null = null;
+        if (!error && check?.pass !== false) {
+          try {
+            const v = await judge(
+              { taskTitle: task.title, prompt: task.prompt, reference: task.reference, rubric, output },
+              { modelSlug, judgeModel: jModel, judgeModel2: jModel2 },
+              { chat },
+            );
+            judgeScore = v.score;
+            judgeScore2 = v.score2;
+            judgeNotes = v.note;
+            spent += v.costUsd;
+          } catch (e) {
+            if (isAuthError(e)) throw e;
+            judgeNotes = `шүүгч ажиллсангүй: ${(e as Error).message.slice(0, 120)}`;
+            console.warn(`   ⚠ ${task.slug}: ${judgeNotes}`);
+          }
+        } else if (check?.pass === false) {
+          judgeNotes = `Тодорхой шалгалт унасан: ${check.detail}`;
+        }
+
+        const outputWords = wordCount(output);
+        await prisma.benchResult.create({
+          data: {
+            runId: run.id, modelSlug, taskId: task.id, output: output.slice(0, 20_000),
+            latencyMs, tokensIn, tokensOut, costUsd, outputWords,
+            judgeScore, judgeScore2, judgeNotes,
+            checkerPass: check ? check.pass : null,
+            error,
+          },
+        });
+
+        scored.push({
+          modelSlug, category: task.category, weight: task.weight,
+          latencyMs, costUsd, outputWords, judgeScore, checkerPass: check?.pass ?? null, error,
+        });
       }
 
-      const outputWords = wordCount(output);
-      await prisma.benchResult.create({
-        data: {
-          runId: run.id, modelSlug, taskId: task.id, output: output.slice(0, 20_000),
-          latencyMs, tokensIn, tokensOut, costUsd, outputWords,
-          judgeScore, judgeScore2, judgeNotes,
-          checkerPass: check ? check.pass : null,
-          error,
-        },
-      });
-
-      scored.push({
-        modelSlug, category: task.category, weight: task.weight,
-        latencyMs, costUsd, outputWords, judgeScore, checkerPass: check?.pass ?? null, error,
-      });
+      const mine = scored.filter((s) => s.modelSlug === modelSlug);
+      const done = mine.filter((r) => !r.error).length;
+      if (done === 0) {
+        // Нэг ч даалгавар хариу өгөөгүй — дундаж «0.00/10» гэж бичих нь худал мэдээлэл
+        console.warn(`   ✗ ${modelSlug}: 0/${mine.length} даалгавар хариу өгсөнгүй — дүн гаргахгүй`);
+        continue;
+      }
+      const avg = summarize(mine)[0];
+      console.log(`   дүн ${avg?.avgScore.toFixed(2)}/10 · ${done}/${mine.length} · $${spent.toFixed(3)} нийт`);
     }
-
-    const mine = scored.filter((s) => s.modelSlug === modelSlug);
-    const avg = summarize(mine)[0];
-    console.log(`   дүн ${avg?.avgScore.toFixed(2)}/10 · $${spent.toFixed(3)} нийт`);
   }
 
-  const summaries = summarize(scored);
-  await prisma.benchModelSummary.createMany({
-    data: summaries.map((s) => ({
-      runId: run.id, modelSlug: s.modelSlug, avgScore: s.avgScore,
-      scoreByCategory: s.scoreByCategory, avgLatency: s.avgLatency,
-      costPer1kMn: s.costPer1kMn, completed: s.completed, rank: s.rank,
-    })),
-  });
+  try {
+    await runModels();
+  } catch (e) {
+    // Дундуур тасарсан (түлхүүр буруу гэх мэт) — run нь үүрд RUNNING үлдэх ёсгүй
+    await prisma.benchRun.update({
+      where: { id: run.id },
+      data: {
+        finishedAt: new Date(), status: "FAILED", costUsd: spent,
+        note: (e as Error).message.slice(0, 500),
+      },
+    });
+    throw e;
+  }
 
-  const status = stopped ? "BUDGET" : "DONE";
+  // Нэг ч даалгавар хариу өгөөгүй моделийг дүгнэхгүй — 0.00/10 гэсэн «үр дүн»
+  // жагсаалтад гарч, худал мэдээлэл болдог (401 үед яг ингэж болсон)
+  const answered = new Set(scored.filter((s) => !s.error).map((s) => s.modelSlug));
+  const scoredOk = scored.filter((s) => answered.has(s.modelSlug));
+  const emptyModels = [...new Set(scored.map((s) => s.modelSlug))].filter((m) => !answered.has(m));
+  const summaries = summarize(scoredOk);
+
+  // Бүх модель бүтэлгүйтсэн — run нь амжилтгүй. Дүгнэлт, нийтлэл үүсгэхгүй.
+  const allFailed = summaries.length === 0 && scored.length > 0;
+  const failNote = allFailed
+    ? `Бүх модель (${emptyModels.length}) нэг ч даалгаварт хариу өгсөнгүй — түлхүүр, тариф, сүлжээгээ шалгана уу`
+    : null;
+
+  if (!allFailed) {
+    await prisma.benchModelSummary.createMany({
+      data: summaries.map((s) => ({
+        runId: run.id, modelSlug: s.modelSlug, avgScore: s.avgScore,
+        scoreByCategory: s.scoreByCategory, avgLatency: s.avgLatency,
+        costPer1kMn: s.costPer1kMn, completed: s.completed, rank: s.rank,
+      })),
+    });
+  }
+
+  const status = allFailed ? "FAILED" : stopped ? "BUDGET" : "DONE";
+  const notes = [stopped, emptyModels.length > 0 ? `хариу өгөөгүй: ${emptyModels.join(", ")}` : null]
+    .filter(Boolean)
+    .join(" · ");
+  const note = failNote ?? (notes || null);
+
   await prisma.benchRun.update({
     where: { id: run.id },
-    data: { finishedAt: new Date(), costUsd: spent, status, note: stopped },
+    data: { finishedAt: new Date(), costUsd: spent, status, note },
   });
 
   const result: RunSummary = {
     month, runId: run.id, models: summaries.length, tasks: tasks.length,
-    results: scored.length, costUsd: spent, status, note: stopped,
+    results: scored.length, costUsd: spent, status, note,
     top: summaries.slice(0, 5).map((s) => ({ modelSlug: s.modelSlug, avgScore: s.avgScore })),
   };
+
+  if (allFailed) {
+    await prisma.jobRun.update({
+      where: { id: jobId },
+      data: {
+        finishedAt: new Date(), ok: false,
+        itemsIn: models.length * tasks.length, itemsOut: 0,
+        attempted: scored.length, failed: scored.length,
+        costUsd: spent, error: failNote,
+      },
+    });
+    console.error(`
+✗ ${failNote}`);
+    console.error("  Дүгнэлт ч, нийтлэл ч үүсгэсэнгүй. Засаад дахин: npm run bench");
+    return result;
+  }
 
   if (opts.writeArticle !== false && summaries.length >= 3) {
     try {
@@ -234,7 +296,7 @@ async function execute(opts: RunOptions, jobId: string): Promise<RunSummary> {
       finishedAt: new Date(), ok: true,
       itemsIn: models.length * tasks.length, itemsOut: scored.length,
       costUsd: spent,
-      ...(stopped ? { error: stopped } : {}),
+      ...(note ? { error: note } : {}),
     },
   });
 
@@ -257,12 +319,15 @@ if (process.argv[1]?.endsWith("run.ts") && process.argv[1]?.includes("bench")) {
   const taskLimit = arg("tasks") ? Number(arg("tasks")) : undefined;
   const budgetUsd = arg("budget") ? Number(arg("budget")) : undefined;
 
-  await runBenchmark({
-    month: arg("month"),
-    models,
-    taskLimit,
-    budgetUsd,
-    writeArticle: !process.argv.includes("--no-article"),
+  await runCli(async () => {
+    const r = await runBenchmark({
+      month: arg("month"),
+      models,
+      taskLimit,
+      budgetUsd,
+      writeArticle: !process.argv.includes("--no-article"),
+    });
+    // Бүх модель бүтэлгүйтсэн бол cron/CI үүнийг алдаа гэж мэдэх ёстой
+    if (r.status === "FAILED") throw new Error(r.note ?? "бенчмарк амжилтгүй");
   });
-  await prisma.$disconnect();
 }

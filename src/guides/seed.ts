@@ -11,6 +11,8 @@ import "dotenv/config";
 import { prisma } from "../db";
 import { createGuide } from "./write";
 import type { GuideLevel } from "../generated/prisma/enums";
+import { isAuthError } from "../agent/llm";
+import { runCli } from "../lib/cli";
 
 export interface SeedTopic {
   topic: string;
@@ -76,6 +78,8 @@ export async function seedGuides(opts: { withHero?: boolean; only?: number } = {
       r.costUsd += g.costUsd;
       console.log(`   ✓ /zaavar/${g.slug} ($${g.costUsd.toFixed(3)})`);
     } catch (e) {
+      // Түлхүүр буруу/хүчингүй бол дараагийнх нь ч мөн л унана — шууд зогсоно
+      if (isAuthError(e)) throw e;
       const error = (e as Error).message.slice(0, 160);
       r.failed.push({ topic: t.topic, error });
       console.warn(`   ✗ ${error}`);
@@ -85,15 +89,16 @@ export async function seedGuides(opts: { withHero?: boolean; only?: number } = {
 }
 
 if (process.argv[1]?.endsWith("seed.ts") && process.argv[1]?.includes("guides")) {
-  const onlyArg = process.argv.indexOf("--only");
-  const r = await seedGuides({
-    withHero: !process.argv.includes("--no-hero"),
-    only: onlyArg > -1 ? Number(process.argv[onlyArg + 1]) : undefined,
+  await runCli(async () => {
+    const onlyArg = process.argv.indexOf("--only");
+    const r = await seedGuides({
+      withHero: !process.argv.includes("--no-hero"),
+      only: onlyArg > -1 ? Number(process.argv[onlyArg + 1]) : undefined,
+    });
+    console.log(
+      `\n${r.created.length} шинэ, ${r.skipped.length} алгассан, ${r.failed.length} амжилтгүй — ` +
+      `нийт $${r.costUsd.toFixed(3)}`,
+    );
+    console.log("Бүгд НООРОГ байна: /admin/zaavar дээрээс уншаад нийтэлнэ үү.");
   });
-  console.log(
-    `\n${r.created.length} шинэ, ${r.skipped.length} алгассан, ${r.failed.length} амжилтгүй — ` +
-    `нийт $${r.costUsd.toFixed(3)}`,
-  );
-  console.log("Бүгд НООРОГ байна: /admin/zaavar дээрээс уншаад нийтэлнэ үү.");
-  await prisma.$disconnect();
 }

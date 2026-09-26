@@ -14,6 +14,8 @@
 import "dotenv/config";
 import "../publish/fonts";
 import { prisma } from "../db";
+import { isAuthError } from "../agent/llm";
+import { runCli } from "../lib/cli";
 
 export interface BackfillResult {
   created: { slug: string; from: "hero" | "new" }[];
@@ -104,6 +106,8 @@ export async function backfillCards(
       }
       r.created.push({ slug: a.slug, from });
     } catch (e) {
+      // Түлхүүр буруу/хүчингүй бол дараагийнх нь ч мөн л унана — шууд зогсоно
+      if (isAuthError(e)) throw e;
       const error = (e as Error).message.slice(0, 160);
       r.failed.push({ slug: a.slug, error });
       console.warn(`   ✗ ${error}`);
@@ -113,15 +117,16 @@ export async function backfillCards(
 }
 
 if (process.argv[1]?.endsWith("backfill.ts")) {
-  const limitArg = process.argv.indexOf("--limit");
-  const r = await backfillCards({
-    limit: limitArg > -1 ? Number(process.argv[limitArg + 1]) : undefined,
-    dry: process.argv.includes("--dry"),
+  await runCli(async () => {
+    const limitArg = process.argv.indexOf("--limit");
+    const r = await backfillCards({
+      limit: limitArg > -1 ? Number(process.argv[limitArg + 1]) : undefined,
+      dry: process.argv.includes("--dry"),
+    });
+    const fromHero = r.created.filter((c) => c.from === "hero").length;
+    console.log(
+      `\n${r.created.length} карт (${fromHero} суурь зургаас, ${r.created.length - fromHero} шинэ), ` +
+      `${r.failed.length} амжилтгүй — $${r.costUsd.toFixed(3)}`,
+    );
   });
-  const fromHero = r.created.filter((c) => c.from === "hero").length;
-  console.log(
-    `\n${r.created.length} карт (${fromHero} суурь зургаас, ${r.created.length - fromHero} шинэ), ` +
-    `${r.failed.length} амжилтгүй — $${r.costUsd.toFixed(3)}`,
-  );
-  await prisma.$disconnect();
 }

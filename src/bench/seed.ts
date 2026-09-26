@@ -8,11 +8,12 @@
  * Лавлах хариултыг /admin/benchmark дээрээс гараар засаж болно.
  */
 import "dotenv/config";
-import { chatText } from "../agent/llm";
+import { chatText, isAuthError } from "../agent/llm";
 import { prisma } from "../db";
 import { Prisma } from "../generated/prisma/client";
 import { SEED_TASKS } from "./seed.api";
 import { judgeModel } from "./models.api";
+import { runCli } from "../lib/cli";
 
 /** Лавлах хариулт нь жишиг тул хамгийн хүчтэй моделиор бичүүлнэ */
 function referenceModel(): string {
@@ -83,6 +84,8 @@ export async function seedBenchTasks(
       r.costUsd += out.costUsd;
       console.log(`${i + 1}/${SEED_TASKS.length} ✓ ${t.slug} — лавлах ${out.text.length} тэмдэгт ($${out.costUsd.toFixed(4)})`);
     } catch (e) {
+      // Түлхүүр буруу/хүчингүй бол дараагийнх нь ч мөн л унана — шууд зогсоно
+      if (isAuthError(e)) throw e;
       const error = (e as Error).message.slice(0, 160);
       r.failed.push({ slug: t.slug, error });
       console.warn(`${i + 1}/${SEED_TASKS.length} ✗ ${t.slug}: ${error}`);
@@ -92,14 +95,15 @@ export async function seedBenchTasks(
 }
 
 if (process.argv[1]?.endsWith("seed.ts") && process.argv[1]?.includes("bench")) {
-  const modelArg = process.argv.indexOf("--model");
-  const r = await seedBenchTasks({
-    withReference: !process.argv.includes("--no-reference"),
-    model: modelArg > -1 ? process.argv[modelArg + 1] : undefined,
+  await runCli(async () => {
+    const modelArg = process.argv.indexOf("--model");
+    const r = await seedBenchTasks({
+      withReference: !process.argv.includes("--no-reference"),
+      model: modelArg > -1 ? process.argv[modelArg + 1] : undefined,
+    });
+    console.log(
+      `\n${r.created} шинэ, ${r.updated} шинэчилсэн, ${r.references} лавлах хариулт, ` +
+      `${r.failed.length} амжилтгүй — $${r.costUsd.toFixed(3)}`,
+    );
   });
-  console.log(
-    `\n${r.created} шинэ, ${r.updated} шинэчилсэн, ${r.references} лавлах хариулт, ` +
-    `${r.failed.length} амжилтгүй — $${r.costUsd.toFixed(3)}`,
-  );
-  await prisma.$disconnect();
 }

@@ -34,7 +34,8 @@
     "db:seed:usecases": "tsx src/seed/usecases.seed.ts",
     "db:generate": "prisma generate",
     "audit:seo": "node scripts/audit-seo.mjs",
-    "report:weekly": "tsx src/admin/report.ts"
+    "report:weekly": "tsx src/admin/report.ts",
+    "bench:reset": "tsx src/bench/reset.ts"
   },
   "keywords": [],
   "author": "",

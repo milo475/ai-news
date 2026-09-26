@@ -4,6 +4,7 @@
  * DB-гүй. Дуудагч нь ямар модель, ямар schema хэрэглэхээ өөрөө шийднэ.
  * Лимит/түр алдаа (429, 5xx) болон JSON задлах алдаанд 2 удаа дахин оролдоно.
  */
+import { loadEnv } from "../lib/env";
 import { siteUrl } from "../lib/site";
 
 const URL_CHAT = "https://openrouter.ai/api/v1/chat/completions";
@@ -12,6 +13,64 @@ const TITLE = "AI News";
 
 /** Дахин оролдох хүлээлт: 2с, 6с. Гурав дахь удаад алдааг дамжуулна. */
 const BACKOFF_MS = [2_000, 6_000];
+
+/**
+ * Түлхүүр буруу, хүчингүй эсвэл огт байхгүй (401/403).
+ *
+ * Дахин оролдоод, өөр модель сонгоод, дараагийн зүйл рүү үсэрч ч ЯМАР ч тус болохгүй —
+ * бүх дуудлага яг ижил унана. Тиймээс дуудагч нар үүнийг барьж авалгүй дамжуулж,
+ * скрипт ЭХНИЙ алдаан дээр зогсох ёстой (эс тэгвээс 80 даалгавар «0 оноотой
+ * амжилттай» гэж DB-д бичигддэг).
+ */
+export class LlmAuthError extends Error {
+  /** HTTP статус; 0 = түлхүүр огт тохируулаагүй */
+  readonly status: number;
+
+  constructor(status: number, detail: string) {
+    super(
+      status === 0
+        ? `OPENROUTER_API_KEY тохируулаагүй байна${detail ? ` (${detail})` : ""}`
+        : `OpenRouter ${status}: түлхүүр буруу эсвэл эрх хүрэхгүй — ${detail}`,
+    );
+    this.name = "LlmAuthError";
+    this.status = status;
+  }
+}
+
+export function isAuthError(e: unknown): e is LlmAuthError {
+  return e instanceof LlmAuthError;
+}
+
+/**
+ * Нэг удаа 401 гармагц бусад дуудлага сүлжээнд огт хүрэхгүй.
+ * (Загварын түвшинд түгжинэ — процесс дуустал.)
+ */
+let authFailure: LlmAuthError | null = null;
+
+/** Түлхүүрийг уншиж, өмнө нь 401 гарсан эсэхийг шалгана */
+function apiKeyOrThrow(): string {
+  if (authFailure) throw authFailure;
+  // Railway Console дээр env дутуу байж болно — PID 1-ээс нөхнө (нэг л удаа)
+  loadEnv();
+  const key = process.env.OPENROUTER_API_KEY?.trim();
+  if (!key) {
+    authFailure = new LlmAuthError(0, "Railway Console дээр бол үйлчилгээний Variables-ыг шалгана уу");
+    throw authFailure;
+  }
+  return key;
+}
+
+/** 401/403 бол түгжээг тавиад алдааг буцаана, үгүй бол null */
+function authErrorFor(status: number, body: string): LlmAuthError | null {
+  if (status !== 401 && status !== 403) return null;
+  authFailure = new LlmAuthError(status, body.slice(0, 200));
+  return authFailure;
+}
+
+/** Тестэд түгжээг сэргээнэ */
+export function resetAuthFailure(): void {
+  authFailure = null;
+}
 
 export interface ChatJsonOptions {
   model: string;
@@ -75,6 +134,8 @@ async function callOnce<T>(
 
   if (!res.ok) {
     const body = (await res.text()).slice(0, 300);
+    const auth = authErrorFor(res.status, body);
+    if (auth) throw auth;
     const err = new Error(`OpenRouter chat ${res.status}: ${body}`) as Error & {
       retryable?: boolean;
       reasoningRejected?: boolean;
@@ -120,8 +181,7 @@ async function callOnce<T>(
 export async function chatJson<T>(
   opts: ChatJsonOptions,
 ): Promise<{ data: T; tokens: number; costUsd: number }> {
-  const apiKey = process.env.OPENROUTER_API_KEY;
-  if (!apiKey) throw new Error("OPENROUTER_API_KEY тохируулаагүй байна");
+  const apiKey = apiKeyOrThrow();
 
   let call = opts;
   let noReasoning = opts.reasoning === false;
@@ -182,8 +242,7 @@ export interface ChatTextResult {
  * нь ч дахин оролдоно (сүлжээний түр саатал).
  */
 export async function chatText(opts: ChatTextOptions): Promise<ChatTextResult> {
-  const apiKey = process.env.OPENROUTER_API_KEY;
-  if (!apiKey) throw new Error("OPENROUTER_API_KEY тохируулаагүй байна");
+  const apiKey = apiKeyOrThrow();
 
   for (let attempt = 0; ; attempt++) {
     const started = Date.now();
@@ -211,6 +270,8 @@ export async function chatText(opts: ChatTextOptions): Promise<ChatTextResult> {
 
       if (!res.ok) {
         const body = (await res.text()).slice(0, 300);
+        const auth = authErrorFor(res.status, body);
+        if (auth) throw auth;
         const err = new Error(`OpenRouter chat ${res.status}: ${body}`) as Error & { retryable?: boolean };
         err.retryable = res.status === 429 || res.status >= 500;
         throw err;
@@ -264,8 +325,7 @@ interface ImageResponse {
  * Хариу нь data:image/...;base64 URL хэлбэрээр ирдэг.
  */
 export async function chatImage(opts: { model: string; prompt: string }): Promise<ChatImageResult> {
-  const apiKey = process.env.OPENROUTER_API_KEY;
-  if (!apiKey) throw new Error("OPENROUTER_API_KEY тохируулаагүй байна");
+  const apiKey = apiKeyOrThrow();
 
   const res = await fetch(URL_CHAT, {
     method: "POST",
@@ -281,7 +341,12 @@ export async function chatImage(opts: { model: string; prompt: string }): Promis
       messages: [{ role: "user", content: opts.prompt }],
     }),
   });
-  if (!res.ok) throw new Error(`OpenRouter image ${res.status}: ${(await res.text()).slice(0, 300)}`);
+  if (!res.ok) {
+    const body = (await res.text()).slice(0, 300);
+    const auth = authErrorFor(res.status, body);
+    if (auth) throw auth;
+    throw new Error(`OpenRouter image ${res.status}: ${body}`);
+  }
 
   const json = (await res.json()) as ImageResponse;
   if (json.error) throw new Error(`OpenRouter image: ${json.error.message ?? "тодорхойгүй алдаа"}`);

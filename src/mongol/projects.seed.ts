@@ -13,6 +13,7 @@
 import "dotenv/config";
 import { prisma } from "../db";
 import { userAgent } from "../lib/site";
+import { runCli } from "../lib/cli";
 
 export interface SeedProject {
   slug: string;
@@ -140,9 +141,10 @@ export async function seedProjects(opts: { check?: boolean } = {}): Promise<Seed
 }
 
 if (process.argv[1]?.endsWith("projects.seed.ts")) {
-  const r = await seedProjects({ check: !process.argv.includes("--no-check") });
-  console.log(
-    `\n${r.created.length} шинэ, ${r.updated.length} шинэчилсэн, ${r.skipped.length} оруулаагүй`,
-  );
-  await prisma.$disconnect();
+  await runCli(async () => {
+    const r = await seedProjects({ check: !process.argv.includes("--no-check") });
+    console.log(
+      `\n${r.created.length} шинэ, ${r.updated.length} шинэчилсэн, ${r.skipped.length} оруулаагүй`,
+    );
+  });
 }
