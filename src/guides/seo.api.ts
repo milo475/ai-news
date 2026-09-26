@@ -91,6 +91,8 @@ export interface SitemapInput {
   tools: { slug: string; updatedAt: Date }[];
   /** Харьцуулалтын pairKey-үүд */
   pairs: string[];
+  /** Картын хуудсууд (/barimt/<slug>) */
+  cards: { slug: string; updatedAt: Date }[];
   models: { slug: string; updatedAt: Date }[];
   useCases: { slug: string; updatedAt: Date }[];
 }
@@ -98,7 +100,7 @@ export interface SitemapInput {
 /** Статик хуудсууд — жагсаалт, мэдээ, хэрэглээ, заавар */
 export const STATIC_PATHS = [
   "", "/jagsaalt", "/medee", "/hereglee", "/zaavar", "/prompt", "/hereglel", "/harits",
-  "/benchmark", "/benchmark/argachlal",
+  "/barimt", "/benchmark", "/benchmark/argachlal",
 ] as const;
 
 /**
@@ -127,6 +129,12 @@ export function sitemapEntries(input: SitemapInput): SitemapEntry[] {
       lastModified: p.updatedAt,
       changeFrequency: "monthly" as const,
       priority: 0.7,
+    })),
+    ...input.cards.map((c) => ({
+      url: `${site}/barimt/${c.slug}`,
+      lastModified: c.updatedAt,
+      changeFrequency: "monthly" as const,
+      priority: 0.5,
     })),
     ...input.pairs.map((key) => ({
       url: `${site}/harits/${key}`,

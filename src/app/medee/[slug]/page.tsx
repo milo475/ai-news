@@ -9,6 +9,9 @@ import { ShareFacebook } from "@/components/ShareFacebook";
 import { Tags } from "@/components/NewsList";
 import { NewsletterForm } from "@/components/NewsletterForm";
 import { fmtDate } from "@/components/format";
+import { CardShare } from "@/components/CardShare";
+import { sharePlatforms } from "@/gallery/card.api";
+import { getCard } from "@/gallery/queries";
 
 export const revalidate = 3600;
 
@@ -43,7 +46,10 @@ export default async function NewsPage({ params }: { params: Promise<Params> }) 
   if (!n) notFound();
   const shareUrl = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(`${SITE_URL}/medee/${slug}`)}`;
   const user = await currentUser();
-  const saved = user ? await isBookmarked(user.id, { articleId: n.id }) : false;
+  const [saved, card] = await Promise.all([
+    user ? isBookmarked(user.id, { articleId: n.id }) : Promise.resolve(false),
+    getCard(slug),
+  ]);
 
   return (
     <article className="max-w-2xl space-y-6">
@@ -99,6 +105,44 @@ export default async function NewsPage({ params }: { params: Promise<Params> }) 
             {n.companies.map((c) => (
               <span key={c.name} className="text-muted">{c.name}</span>
             ))}
+          </div>
+        </section>
+      )}
+
+      {card && (
+        <section className="space-y-3 border-t border-line pt-4">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <h2 className="text-sm font-semibold">Энэ мэдээний карт</h2>
+            <Link href={`/barimt/${slug}`} className="text-sm text-accent hover:underline">
+              Картын хуудас →
+            </Link>
+          </div>
+          <div className="flex flex-wrap gap-4 items-start">
+            <Link href={`/barimt/${slug}`} className="shrink-0">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={`/api/fb-image/${card.id}`}
+                alt={card.hook}
+                width={1080}
+                height={1350}
+                loading="lazy"
+                className="w-40 aspect-4/5 object-cover rounded-lg border border-line"
+              />
+            </Link>
+            <div className="space-y-2 min-w-48 flex-1">
+              <p className="text-sm text-muted">
+                Facebook, Instagram-д тавьсан карт. Татаж, хуваалцаж, сайтдаа тавьж болно.
+              </p>
+              <CardShare
+                articleId={card.id}
+                slug={slug}
+                title={card.hook}
+                url={`${SITE_URL}/barimt/${slug}`}
+                imageUrl={`/api/fb-image/${card.id}`}
+                platforms={sharePlatforms()}
+                appId={process.env.FB_APP_ID?.trim() || undefined}
+              />
+            </div>
           </div>
         </section>
       )}

@@ -143,6 +143,17 @@ const STEPS: Step[] = [
     },
   },
   {
+    // FB постын reaction/share — /barimt-ийн «долоо хоногийн шилдэг»-т
+    name: "fbstats",
+    mode: "prepare",
+    oncePerDay: true,
+    run: async () => {
+      const { syncFbStats } = await import("./gallery/fb-stats");
+      const r = await syncFbStats();
+      return r.skipped ?? `${r.checked} пост шалгав, ${r.updated} шинэчлэв, алдаа ${r.failed}`;
+    },
+  },
+  {
     // Сарын эхний өдөр — монгол хэлний бенчмарк. Нэг run хэдэн арван минут явна.
     name: "bench",
     mode: "prepare",

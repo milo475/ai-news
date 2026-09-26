@@ -205,6 +205,12 @@ model Article {
   fbImageAt     DateTime?
   /// AI зургийн англи prompt — /admin дээр харах, дахин үүсгэхэд
   fbImagePrompt String?
+  /// FB постын reaction/share — Graph API-аас өдөрт нэг удаа синк (/barimt-ийн «шилдэг»)
+  fbLikes       Int       @default(0)
+  fbShares      Int       @default(0)
+  fbStatsAt     DateTime?
+  /// Галерейгээс карт татсан/хуулсан тоо — FB тоо байхгүй үед эрэмбийн сурвалж
+  cardCopies    Int       @default(0)
   // Instagram — FB-тэй ижил Page token, зураггүй нийтлэл IG-д орохгүй
   igPostedAt    DateTime?
   igMediaId     String?
@@ -235,6 +241,8 @@ model Article {
 
   @@index([kind, status, publishedAt])
   @@index([status, fbPostedAt])
+  /// /barimt галерей — карттай нийтлэлүүдийг шинээс хуучин руу
+  @@index([status, fbImageAt])
   @@index([status, category, publishedAt])
   @@index([status, readyAt])
   @@index([status, igPostedAt])

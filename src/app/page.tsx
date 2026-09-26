@@ -15,6 +15,8 @@ import { latestGuides } from "@/guides/queries";
 import { PromptOfDay } from "@/components/PromptOfDay";
 import { promptOfTheDay } from "@/prompts/queries";
 import { benchScores } from "@/bench/queries";
+import { CardStrip } from "@/components/CardStrip";
+import { latestCards } from "@/gallery/queries";
 
 // Build үед DB байхгүй тул prerender хийхгүй — нүүр бүх үед шинэ өгөгдөл харуулна
 export const dynamic = "force-dynamic";
@@ -29,7 +31,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ t
   const asked = (await searchParams).tab ?? "";
   const tab = TABS.find((t) => t.key === asked) ?? TABS[0]!;
   const user = await currentUser();
-  const [{ date, rows }, note, news, useCases, digest, pref, guides, prompt] = await Promise.all([
+  const [{ date, rows }, note, news, useCases, digest, pref, guides, prompt, cards] = await Promise.all([
     getLeaderboard(10, tab.source),
     getSourceNote(tab.source),
     getLatestNews(5),
@@ -38,6 +40,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ t
     user ? getPreference(user.id) : null,
     latestGuides(3),
     promptOfTheDay(),
+    latestCards(3),
   ]);
 
   // "Таны сонирхол" — зөвхөн нэвтэрсэн, ангилал сонгосон хэрэглэгчид
@@ -169,6 +172,16 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ t
           <NewsList items={news} savedIds={savedIds} path="/" />
         )}
       </section>
+
+      {cards.length > 0 && (
+        <section className="space-y-3">
+          <div className="flex items-baseline justify-between">
+            <h2 className="text-xl font-semibold">Өдрийн баримт</h2>
+            <Link href="/barimt" className="text-sm text-accent hover:underline">Бүх карт →</Link>
+          </div>
+          <CardStrip items={cards} />
+        </section>
+      )}
 
       {prompt && <PromptOfDay prompt={prompt} />}
 

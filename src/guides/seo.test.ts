@@ -96,6 +96,7 @@ test("sitemapEntries: мэдээ, заавар, модель, хэрэглээ �
     prompts: [{ slug: "prompt-1", updatedAt: now }],
     tools: [{ slug: "chatgpt", updatedAt: now }],
     pairs: ["anthropic~claude-opus-5--vs--openai~gpt-5.1"],
+    cards: [{ slug: "medee-1", updatedAt: now }],
     models: [{ slug: "openai/gpt-6", updatedAt: now }],
     useCases: [{ slug: "zurag", updatedAt: now }],
   });
@@ -110,6 +111,7 @@ test("sitemapEntries: мэдээ, заавар, модель, хэрэглээ �
     urls.includes(`${SITE}/harits/anthropic~claude-opus-5--vs--openai~gpt-5.1`),
     "харьцуулалт",
   );
+  assert.ok(urls.includes(`${SITE}/barimt/medee-1`), "карт");
   assert.ok(urls.includes(`${SITE}/model/openai/gpt-6`), "модель (slug дотор / байна)");
   assert.ok(urls.includes(`${SITE}/hereglee/zurag`), "хэрэглээ");
 

@@ -26,6 +26,7 @@ const NAV = [
   { href: "/prompt", label: "Prompt" },
   { href: "/benchmark", label: "Бенчмарк" },
   { href: "/medee", label: "Мэдээ" },
+  { href: "/barimt", label: "Баримт" },
 ];
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

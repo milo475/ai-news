@@ -968,6 +968,71 @@ canonical нь цагаан толгойн эрэмбэтэй хаяг.
 
 **Umami event:** `compare_view`, `compare_pick`.
 
+## «Өдрийн баримт» галерей (/barimt)
+FB/IG-д тавьдаг картуудыг сайт дээр үзүүлж, хуваалцуулна. **Шинэ контент үүсгэхгүй** — байгаа
+`Article.fbImageData`-г ашиглана.
+
+**Хуудсууд**
+
+| Зам | Юу байна |
+|---|---|
+| `/barimt` | 4:5 картын grid, infinite scroll (cursor, 24-өөр), ангиллын шүүлт, «Долоо хоногийн шилдэг», lightbox |
+| `/barimt/<slug>` | нэг картын хуудас. **OG зураг = карт өөрөө (1080×1350)** — FB/IG-д хуваалцахад яг карт preview болно |
+| `/barimt/<slug>/embed` | iframe-д зориулсан цэвэр хуудас |
+| `/api/barimt?cursor=…` | галерейн дараагийн хуудас (JSON) |
+
+Nav-д «Баримт», нүүрэнд «Өдрийн баримт» 3 картын хэвтээ зурвас, нийтлэлийн хуудсанд
+«Энэ мэдээний карт» + хуваалцах.
+
+**Cursor pagination, offset биш.** Cursor нь `(fbImageAt, id)`. Offset нь шинэ карт нэмэгдэхэд
+хуудас гулсаж давхардал/цоорхой үүсгэдэг. `PAGE_SIZE + 1` мөр уншиж, илүү нь байвал дараагийн
+cursor гаргана — «дараагийн хуудас байгаа эсэх»-ийг тусдаа `count` query-гүйгээр мэднэ.
+Танигдахгүй cursor нь эхний хуудсыг буцаана (хоосон хуудас гаргахгүй).
+
+**Хуваалцах.** Facebook, X, Telegram, Messenger — бүгд нийтийн share dialog, нэвтрэх шаардлагагүй.
+Messenger нь `FB_APP_ID` шаарддаг тул тохируулаагүй бол **харагдахгүй** (`sharePlatforms`).
+Мөн «Зураг татах», «Зураг хуулах» (clipboard, дэмждэггүй хөтөч дээр «Татаж авна уу» болно),
+«Embed код».
+
+**«Долоо хоногийн шилдэг».** `fbLikes + fbShares × 3` (share нь хүн өөрийн хуудсанд тавьсан
+гэсэн хүчтэй дохио). FB-ийн тоо 0 бол **картын татсан тоо** (`cardCopies`) хэрэглэгдэнэ.
+Оноогүй карт жагсаалтад орохгүй — хоосон блок гаргахгүй.
+
+```bash
+npm run fb:stats   # FB reaction/share синк (pipeline-д fbstats алхам, өдөрт 1 удаа)
+```
+
+`FB_PAGE_ACCESS_TOKEN` тохируулаагүй бол чимээгүй алгасна — галерей нь татсан тоогоор эрэмбэлэгдэнэ.
+Graph-ийн хариунд `error` байвал тоолуурыг **0 болгож дарж бичихгүй** (`parseStats` → `null`) —
+эс тэгвээс бодит өгөгдөл алдагдана.
+
+**Embed нь route handler (page биш).** `/barimt/<slug>/embed` нь бэлэн HTML буцаана —
+сайтын layout, nav, аналитикийн скрипт орохгүй. Бусад сайтын хуудсанд ажиллах тул:
+
+- `<script>`, inline handler **огт байхгүй**; гарчгийг `esc()`-ээр escape хийнэ.
+- CSP: `script-src 'none'`, `frame-ancestors *`, `form-action 'none'`, `base-uri 'none'`.
+- `X-Frame-Options` **тавихгүй** — тавивал `frame-ancestors`-ыг дарж embed-ыг хаана.
+- `X-Robots-Tag: noindex` — embed хуудас хайлтад орохгүй.
+
+**Хуучин нийтлэлүүдэд карт нөхөх**
+
+```bash
+npm run backfill:cards               # сүүлийн 30 карттгүй PUBLISHED нийтлэлд
+npm run backfill:cards -- --limit 5
+npm run backfill:cards -- --dry      # юу хийхээ л хэвлэнэ
+```
+
+Суурь зураг (`heroImageData`) байвал **зөвхөн текст давхарлана** — LLM, зургийн зардал гарахгүй.
+Байхгүй бол шинээр (~$0.04/ширхэг). Идемпотент: `fbImageAt` байгаа нийтлэл дараалалд орохгүй.
+Өдрийн зургийн квотоос (`FB_IMAGE_DAILY_LIMIT`) **хамааралгүй** — энэ нь нэг удаагийн нөхөн
+ажил, автомат pipeline биш.
+
+**SEO:** `ImageObject` JSON-LD (`contentUrl` нь карт, `associatedArticle` нь мэдээ, 1080×1350),
+sitemap-д карт бүр, `/barimt` статик хуудас.
+
+**Umami event:** `card_view`, `card_share_facebook` / `_x` / `_telegram` / `_messenger`,
+`card_download`, `card_embed_copy`, `card_filter`.
+
 ## Брэнд
 Нэр: **AI News**. Тэмдэг нь өсөх багана + дээш заасан сум, өнгө `--color-accent` (`#4f46e5`).
 
