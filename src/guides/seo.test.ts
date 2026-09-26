@@ -94,6 +94,7 @@ test("sitemapEntries: мэдээ, заавар, модель, хэрэглээ �
     articles: [{ slug: "medee-1", publishedAt: now, updatedAt: now }],
     guides: [{ slug: "zaavar-1", updatedAt: now }],
     prompts: [{ slug: "prompt-1", updatedAt: now }],
+    tools: [{ slug: "chatgpt", updatedAt: now }],
     models: [{ slug: "openai/gpt-6", updatedAt: now }],
     useCases: [{ slug: "zurag", updatedAt: now }],
   });
@@ -103,6 +104,7 @@ test("sitemapEntries: мэдээ, заавар, модель, хэрэглээ �
   assert.ok(urls.includes(`${SITE}/medee/medee-1`), "мэдээ");
   assert.ok(urls.includes(`${SITE}/zaavar/zaavar-1`), "заавар");
   assert.ok(urls.includes(`${SITE}/prompt/prompt-1`), "prompt");
+  assert.ok(urls.includes(`${SITE}/hereglel/chatgpt`), "хэрэгсэл");
   assert.ok(urls.includes(`${SITE}/model/openai/gpt-6`), "модель (slug дотор / байна)");
   assert.ok(urls.includes(`${SITE}/hereglee/zurag`), "хэрэглээ");
 

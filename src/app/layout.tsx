@@ -20,7 +20,7 @@ const THEME_SCRIPT = `try{var t=localStorage.getItem("theme");if(t==="dark"||t==
 const NAV = [
   { href: "/", label: "Нүүр" },
   { href: "/jagsaalt", label: "Жагсаалт" },
-  { href: "/hereglee", label: "Хэрэглээ" },
+  { href: "/hereglel", label: "Хэрэгсэл" },
   { href: "/zaavar", label: "Заавар" },
   { href: "/prompt", label: "Prompt" },
   { href: "/benchmark", label: "Бенчмарк" },

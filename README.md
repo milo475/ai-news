@@ -829,6 +829,80 @@ railway run --service web npm run bench -- --month 2026-10
 
 **Umami event:** `bench_view`, `bench_model_view`.
 
+## AI хэрэгслийн каталог (/hereglel)
+Монгол хэрэглэгчид зориулсан AI хэрэгслийн бүрэн каталог: үнэ, **монгол хэлний дэмжлэг**,
+платформ, хэрэглэгчийн үнэлгээ. Дараа affiliate орлогын суурь.
+
+**`/hereglee` vs `/hereglel`.** Хоёр нь өөр зорилготой: `/hereglee` нь «юунд ашиглах вэ» гэсэн
+редакцийн товч жагсаалт (хуучин `AiTool` модель), `/hereglel` нь бүрэн каталог (шинэ `Tool`
+модель). Андуурахгүйн тулд nav-д **«Хэрэгсэл»** (каталог) л байна; `/hereglee` нь нүүрнээс
+холбогдож, хуудас бүр дээр тухайн ангиллын каталогийн топ 5-ыг харуулна
+(`categoryForUseCase` нь usecase slug-ийг `ToolCategory`-той холбоно).
+
+**Модель:** `Tool` — `slug`, `name`, `tagline` (≤80), `descriptionMd`, `website`, `logoData`
+(64×64), `categories[]` (14 ангилал), `pricing` (FREE/FREEMIUM/TRIAL/PAID), `priceFrom`,
+`mongolianSupport` (NONE/PARTIAL/GOOD), `platforms[]`, `mnNoteMd`, `affiliateUrl`, `rating`,
+`reviewCount`, `upvotes`, `status`, `source`, `topic`. Дагалдах: `ToolReview` (toolId+userId
+unique), `ToolClick` (toolId+day unique), `ToolUpvote` (userId+toolId).
+
+`ToolPlan` нь `AiTool`-ийн хуучин `ToolPricing`-ээс тусдаа — TRIAL нэмэгдсэн.
+
+**Хуудсууд**
+
+| Зам | Юу байна |
+|---|---|
+| `/hereglel` | карт grid, шүүлт (ангилал, үнэ, MN дэмжлэг, платформ), эрэмбэ (алдартай/шинэ/үнэлгээ) |
+| `/hereglel/<slug>` | толгой, үнэ/платформ хүснэгт, тайлбар, «Монгол хэрэглэгчид анхаарах», хувилбарууд, холбоотой заавар/prompt, шүүмж |
+| `/hereglel/<a>-vs-<b>` | хоёр хэрэгслийг хажуу хажуугаар (Б.2-ын суурь) |
+| `/hereglel/nemeh` | хэрэглэгч санал болгоно — LLM автоматаар бөглөж PENDING болгоно |
+| `/admin/hereglel` | батлах, засах, affiliateUrl, лого дахин татах, «LLM-ээр шинэчлэх», шүүмж хянах |
+
+Харьцуулалт нь тусдаа route биш — `[slug]` дотор `parseVersusSlug` нь `-vs-`-ийг таньдаг.
+Тусдаа сегмент байвал `chatgpt-vs-claude` хоёр route-д зэрэг таарч зөрчилдөнө.
+
+**«Алдартай» эрэмбэ** = `upvotes × 3 + сүүлийн 30 хоногийн товшилт`. Upvote нь хэрэглэгчийн
+санаатай үйлдэл тул товшилтоос хүндтэй. Товшилт нь DB-д байдаг тул SQL-ээр эрэмбэлэх
+боломжгүй — оноог кодод бодож эрэмбэлнэ.
+
+**Товшилт.** «Вэбсайт руу →» товч нэвтрэхгүй ч ажиллана, `ToolClick`-д өдрөөр нэгтгэгдэнэ.
+Affiliate холбоос үед `rel="sponsored nofollow"` + хуудсан дээр ил тод тайлбар.
+
+**Upvote, шүүмж.** `upvotes` ба `rating`/`reviewCount` баганууд increment биш — бүртгэлийн
+бодит тооноос **дахин бодогдоно**, тиймээс зэрэг дарахад тоолуур бодит байдлаас салахгүй.
+Шүүмж нь `requireVerified()` шаардана, нэг хэрэглэгч нэг хэрэгсэлд нэг шүүмж (дахин бичвэл
+шинэчлэгдэнэ). Текст байвал А.2-ын LLM moderation ажиллана — илт муу бол PENDING болж
+админ хянана. **PENDING шүүмж дүнд орохгүй.**
+
+**Лого.** Дараалал: сайтын HTML дахь `<link rel="icon">` → `/favicon.ico` → Google s2 favicons.
+Бүгд бүтэхгүй бол нэрнээс тогтвортой өнгөтэй **үсгэн avatar**. SVG дотор `<script>` байвал
+хүлээж авахгүй; `/api/tool-logo/<slug>` нь `sandbox` CSP-тэй.
+
+**Bookmark**-ийн CHECK одоо 4 багана: `num_nonnulls(articleId, guideId, promptId, toolId) = 1`.
+
+**SEO:** `SoftwareApplication` JSON-LD — `offers` (үнэ мэдэгдэхгүй бол огт бичихгүй, 0 гэвэл
+хуурамч), `aggregateRating` (шүүмж байвал), `sameAs` нь хэрэгслийн сайт. metadata: «X — үнэ,
+монгол хэлний дэмжлэг, хувилбарууд». sitemap-д `priority` 0.8.
+
+```bash
+npm run seed:tools                 # 80 хэрэгсэл + LLM тайлбар + лого (~$0.6)
+npm run seed:tools -- --only 5     # эхний 5
+npm run seed:tools -- --no-logo    # лого татахгүй (хурдан)
+npm run seed:tools -- --logos-only # байгаа хэрэгслүүдийн логыг л татна
+```
+
+**Production дээр:**
+
+```bash
+railway run --service web npm run seed:tools
+```
+
+Давтан ажиллуулахад аюулгүй (`Tool.topic`). Seed нь вэбсайт бүрийг шалгаж, **404/5xx/холболтгүй**
+сайтыг логд тэмдэглэнэ; 403/405/429 нь «ботыг хориглов» гэсэн үг тул эвдэрсэнд тооцохгүй
+(Cloudflare-ийн ард байгаа сайтууд ингэдэг).
+
+**Umami event:** `tool_view`, `tool_click_out` (`affiliate` талбартай), `tool_upvote`,
+`tool_review`, `tool_filter`, `tool_submit`, `tool_versus_view`.
+
 ## Брэнд
 Нэр: **AI News**. Тэмдэг нь өсөх багана + дээш заасан сум, өнгө `--color-accent` (`#4f46e5`).
 

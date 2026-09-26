@@ -385,6 +385,9 @@ model User {
   prompts       Prompt[]
   promptLikes   PromptLike[]
   promptReports PromptReport[]
+  tools         Tool[]
+  toolReviews   ToolReview[]
+  toolUpvotes   ToolUpvote[]
 
   @@index([role])
 }
@@ -393,24 +396,28 @@ model User {
 model Bookmark {
   id        String   @id @default(cuid())
   userId    String
-  /// articleId, guideId, promptId — яг нэг нь бөглөгдөнө (DB-д CHECK constraint)
+  /// articleId, guideId, promptId, toolId — яг нэг нь бөглөгдөнө (DB-д CHECK constraint)
   articleId String?
   guideId   String?
   promptId  String?
+  toolId    String?
   createdAt DateTime @default(now())
 
   user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   article Article? @relation(fields: [articleId], references: [id], onDelete: Cascade)
   guide   Guide?   @relation(fields: [guideId], references: [id], onDelete: Cascade)
   prompt  Prompt?  @relation(fields: [promptId], references: [id], onDelete: Cascade)
+  tool    Tool?    @relation(fields: [toolId], references: [id], onDelete: Cascade)
 
   @@unique([userId, articleId])
   @@unique([userId, guideId])
   @@unique([userId, promptId])
+  @@unique([userId, toolId])
   @@index([userId, createdAt])
   @@index([articleId])
   @@index([guideId])
   @@index([promptId])
+  @@index([toolId])
 }
 
 /// Монгол хэлний prompt-уудын сан — /prompt
@@ -444,9 +451,11 @@ model Prompt {
   publishedAt  DateTime?
   updatedAt    DateTime       @updatedAt
 
-  likedBy   PromptLike[]
-  reports   PromptReport[]
-  bookmarks Bookmark[]
+  likedBy      PromptLike[]
+  reports      PromptReport[]
+  bookmarks    Bookmark[]
+  /// Каталогийн хэрэгслүүдтэй холбоос (tools нь нэрсийн массив тул өөр нэр)
+  catalogTools Tool[]         @relation("PromptTools")
 
   /// Хайлтын индекс — гарчиг A, тайлбар B, бие C
   searchVector Unsupported("tsvector")? @default(dbgenerated())
@@ -549,7 +558,9 @@ model Guide {
   /// Бичүүлэхэд зарцуулсан LLM-ийн зардал
   costUsd         Float       @default(0)
 
-  bookmarks Bookmark[]
+  bookmarks    Bookmark[]
+  /// Каталогийн хэрэгслүүдтэй холбоос (tools нь нэрсийн массив тул өөр нэр)
+  catalogTools Tool[]     @relation("GuideTools")
 
   /// Хайлтын индекс — гарчиг A, lead B, бие C
   searchVector Unsupported("tsvector")? @default(dbgenerated())
@@ -787,4 +798,155 @@ enum BenchStatus {
   DONE
   FAILED
   BUDGET
+}
+
+/// —————————————————— AI хэрэгслийн каталог (/hereglel) ——————————————————
+
+/// Нэг хэрэгсэл. `AiTool` нь /hereglee-ийн хуучин жижиг жагсаалт — энэ нь бүрэн каталог.
+model Tool {
+  id                String           @id @default(cuid())
+  slug              String           @unique
+  name              String
+  /// Нэг мөрийн тайлбар, ≤80 тэмдэгт
+  tagline           String
+  descriptionMd     String
+  website           String
+  /// 64×64 favicon (PNG/SVG). Олдохгүй бол үсгэн avatar зурна.
+  logoData          Bytes?
+  logoType          String?
+  logoAt            DateTime?
+  categories        ToolCategory[]   @default([])
+  pricing           ToolPlan         @default(FREEMIUM)
+  /// USD/сар, хамгийн хямд төлбөртэй хувилбар
+  priceFrom         Float?
+  mongolianSupport  MongolianSupport @default(PARTIAL)
+  /// web / ios / android / desktop / api
+  platforms         String[]         @default([])
+  /// Монгол хэрэглэгчид анхаарах зүйлс (LLM бичнэ, админ засна)
+  mnNoteMd          String?
+  affiliateUrl      String?
+  /// Хэрэглэгчийн шүүмжийн дундаж, 1–5
+  rating            Float            @default(0)
+  reviewCount       Int              @default(0)
+  upvotes           Int              @default(0)
+  status            ToolStatus       @default(PENDING)
+  source            ToolSource       @default(USER)
+  submittedByUserId String?
+  submittedBy       User?            @relation(fields: [submittedByUserId], references: [id], onDelete: SetNull)
+  /// Seed давхардлаас хамгаалах захиалсан нэр
+  topic             String?
+  rejectReason      String?
+  createdAt         DateTime         @default(now())
+  publishedAt       DateTime?
+  updatedAt         DateTime         @updatedAt
+
+  /// Хувилбарууд — хоёр тал нь бие биеэ заана
+  alternativesTo Tool[] @relation("ToolAlternatives")
+  alternativeOf  Tool[] @relation("ToolAlternatives")
+
+  relatedGuides  Guide[]  @relation("GuideTools")
+  relatedPrompts Prompt[] @relation("PromptTools")
+
+  reviews   ToolReview[]
+  clicks    ToolClick[]
+  upvotedBy ToolUpvote[]
+  bookmarks Bookmark[]
+
+  /// Хайлтын индекс — нэр A, tagline B, тайлбар C
+  searchVector Unsupported("tsvector")? @default(dbgenerated())
+
+  @@index([status, publishedAt])
+  @@index([status, upvotes])
+  @@index([pricing])
+  @@index([mongolianSupport])
+  @@index([topic])
+  @@index([searchVector], type: Gin)
+}
+
+model ToolReview {
+  id           String     @id @default(cuid())
+  toolId       String
+  tool         Tool       @relation(fields: [toolId], references: [id], onDelete: Cascade)
+  userId       String
+  user         User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// 1–5
+  stars        Int
+  /// ≤500 тэмдэгт
+  text         String?
+  status       ToolStatus @default(PENDING)
+  rejectReason String?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  /// Нэг хэрэглэгч нэг хэрэгсэлд нэг шүүмж
+  @@unique([toolId, userId])
+  @@index([toolId, status])
+  @@index([userId])
+}
+
+/// Upvote — нэг хэрэглэгч нэг хэрэгсэлд нэг удаа (upvotes багана үүнээс тоологдоно)
+model ToolUpvote {
+  userId    String
+  toolId    String
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tool Tool @relation(fields: [toolId], references: [id], onDelete: Cascade)
+
+  @@id([userId, toolId])
+  @@index([toolId])
+}
+
+/// Вэбсайт/affiliate товшилт — өдрөөр нэгтгэнэ
+model ToolClick {
+  id     String @id @default(cuid())
+  toolId String
+  tool   Tool   @relation(fields: [toolId], references: [id], onDelete: Cascade)
+  /// УБ цагийн огноо, "2026-09-26"
+  day    String
+  count  Int    @default(0)
+
+  @@unique([toolId, day])
+  @@index([day])
+}
+
+enum ToolCategory {
+  CHAT
+  BICHIH
+  ZURAG
+  VIDEO
+  AUDIO
+  CODE
+  OFFICE
+  SURGALT
+  MARKETING
+  BIZNES
+  ORCHUULGA
+  HAILT
+  AGENT
+  BUSAD
+}
+
+/// AiTool-ийн ToolPricing-ээс тусдаа — TRIAL нэмэгдсэн
+enum ToolPlan {
+  FREE
+  FREEMIUM
+  PAID
+  TRIAL
+}
+
+enum MongolianSupport {
+  NONE
+  PARTIAL
+  GOOD
+}
+
+enum ToolStatus {
+  PENDING
+  PUBLISHED
+}
+
+enum ToolSource {
+  SITE
+  USER
 }

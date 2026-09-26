@@ -4,6 +4,9 @@ import { getNewsForUseCase, getUseCase, type UseCaseToolRow } from "@/data";
 import { NewsList } from "@/components/NewsList";
 import { UseCaseIcon } from "@/components/UseCaseIcon";
 import { TrackEvent } from "@/components/Track";
+import { ToolGrid } from "@/components/ToolList";
+import { categoryForUseCase } from "@/tools/tool.api";
+import { topToolsForCategory } from "@/tools/queries";
 
 export const revalidate = 3600;
 
@@ -24,7 +27,11 @@ export async function generateMetadata({ params }: { params: Promise<Params> }) 
 export default async function UseCasePage({ params }: { params: Promise<Params> }) {
   const u = await getUseCase((await params).slug);
   if (!u) notFound();
-  const news = await getNewsForUseCase(u.slug, u.nameMn, 5);
+  const category = categoryForUseCase(u.slug);
+  const [news, catalogTools] = await Promise.all([
+    getNewsForUseCase(u.slug, u.nameMn, 5),
+    category ? topToolsForCategory(category, 5) : Promise.resolve([]),
+  ]);
 
   return (
     <div className="space-y-8">
@@ -71,6 +78,24 @@ export default async function UseCasePage({ params }: { params: Promise<Params> 
           </li>
         ))}
       </ul>
+
+      {catalogTools.length > 0 && (
+        <section className="space-y-3">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <h2 className="text-lg font-semibold">Каталогийн топ хэрэгслүүд</h2>
+            <Link
+              href={`/hereglel?angilal=${categoryForUseCase(u.slug)}`}
+              className="text-sm text-accent hover:underline"
+            >
+              Бүх хэрэгсэл →
+            </Link>
+          </div>
+          <p className="text-sm text-muted">
+            Үнэ, монгол хэлний дэмжлэг, хэрэглэгчийн үнэлгээтэй бүрэн каталог.
+          </p>
+          <ToolGrid items={catalogTools} cols={2} />
+        </section>
+      )}
 
       {news.length > 0 && (
         <section className="space-y-3">

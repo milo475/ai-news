@@ -88,13 +88,15 @@ export interface SitemapInput {
   articles: { slug: string; publishedAt: Date | null; updatedAt: Date }[];
   guides: { slug: string; updatedAt: Date }[];
   prompts: { slug: string; updatedAt: Date }[];
+  tools: { slug: string; updatedAt: Date }[];
   models: { slug: string; updatedAt: Date }[];
   useCases: { slug: string; updatedAt: Date }[];
 }
 
 /** Статик хуудсууд — жагсаалт, мэдээ, хэрэглээ, заавар */
 export const STATIC_PATHS = [
-  "", "/jagsaalt", "/medee", "/hereglee", "/zaavar", "/prompt", "/benchmark", "/benchmark/argachlal",
+  "", "/jagsaalt", "/medee", "/hereglee", "/zaavar", "/prompt", "/hereglel",
+  "/benchmark", "/benchmark/argachlal",
 ] as const;
 
 /**
@@ -123,6 +125,12 @@ export function sitemapEntries(input: SitemapInput): SitemapEntry[] {
       lastModified: p.updatedAt,
       changeFrequency: "monthly" as const,
       priority: 0.7,
+    })),
+    ...input.tools.map((t) => ({
+      url: `${site}/hereglel/${t.slug}`,
+      lastModified: t.updatedAt,
+      changeFrequency: "weekly" as const,
+      priority: 0.8,
     })),
     ...input.articles.map((a) => ({
       url: `${site}/medee/${a.slug}`,

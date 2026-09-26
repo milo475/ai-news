@@ -10,7 +10,9 @@ const SLOW_MS = 300;
 export async function GET(req: Request) {
   const q = (new URL(req.url).searchParams.get("q") ?? "").trim();
   if (q.length < MIN_QUERY) {
-    return NextResponse.json({ q, articles: [], guides: [], prompts: [], models: [], tools: [], total: 0 });
+    return NextResponse.json({
+      q, articles: [], guides: [], prompts: [], catalogTools: [], models: [], tools: [], total: 0,
+    });
   }
 
   const t0 = Date.now();

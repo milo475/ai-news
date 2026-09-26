@@ -7,7 +7,7 @@ import type { SearchResults } from "@/lib/search";
 import { analytics } from "@/lib/analytics";
 
 const DEBOUNCE_MS = 200;
-const PLACEHOLDER = "Мэдээ, заавар, prompt хайх…";
+const PLACEHOLDER = "Хэрэгсэл, заавар, prompt хайх…";
 
 interface Row {
   href: string;
@@ -41,6 +41,14 @@ function toRows(r: SearchResults | null): { group: string; rows: Row[] }[] {
         href: `/prompt/${p.slug}`,
         label: p.title,
         hint: p.description.slice(0, 70) || `${p.copies} хуулсан`,
+      })),
+    },
+    {
+      group: "Хэрэгсэл",
+      rows: r.catalogTools.map((t) => ({
+        href: `/hereglel/${t.slug}`,
+        label: t.name,
+        hint: t.tagline.slice(0, 70),
       })),
     },
     {

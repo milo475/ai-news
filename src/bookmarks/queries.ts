@@ -7,12 +7,14 @@ import { prisma } from "../db";
 import type { ArticleCategory } from "../generated/prisma/enums";
 import { guideCardSelect, toGuideCard, type GuideCard } from "../guides/queries";
 import { promptCardSelect, toPromptCard, type PromptCard } from "../prompts/queries";
+import { toolCardSelect, toToolCard, type ToolCard } from "../tools/queries";
 
 /** Хадгалах боломжтой зүйл — яг нэг талбартай */
 export type BookmarkTarget =
-  | { articleId: string; guideId?: never; promptId?: never }
-  | { guideId: string; articleId?: never; promptId?: never }
-  | { promptId: string; articleId?: never; guideId?: never };
+  | { articleId: string; guideId?: never; promptId?: never; toolId?: never }
+  | { guideId: string; articleId?: never; promptId?: never; toolId?: never }
+  | { promptId: string; articleId?: never; guideId?: never; toolId?: never }
+  | { toolId: string; articleId?: never; guideId?: never; promptId?: never };
 
 export interface BookmarkCard {
   id: string;
@@ -29,6 +31,9 @@ export type GuideBookmarkCard = GuideCard & { savedAt: Date };
 
 /** Prompt-ын карт + хэзээ хадгалсан */
 export type PromptBookmarkCard = PromptCard & { savedAt: Date };
+
+/** Хэрэгслийн карт + хэзээ хадгалсан */
+export type ToolBookmarkCard = ToolCard & { savedAt: Date };
 
 /** Хэрэглэгчийн хадгалсан нийтлэлүүд, сүүлд хадгалсан нь эхэнд */
 export async function listBookmarks(
@@ -89,6 +94,16 @@ export async function bookmarkedPromptIds(userId: string, promptIds: string[]): 
     select: { promptId: true },
   });
   return new Set(rows.flatMap((r) => (r.promptId ? [r.promptId] : [])));
+}
+
+/** Хадгалсан хэрэгслүүд */
+export async function listToolBookmarks(userId: string): Promise<ToolBookmarkCard[]> {
+  const rows = await prisma.bookmark.findMany({
+    where: { userId, tool: { status: "PUBLISHED" } },
+    orderBy: { createdAt: "desc" },
+    select: { createdAt: true, tool: { select: toolCardSelect } },
+  });
+  return rows.flatMap((r) => (r.tool ? [{ ...toToolCard(r.tool), savedAt: r.createdAt }] : []));
 }
 
 /** Хадгалсан нийтлэлүүдийн ангиллаар тоолсон дүн — шүүлтүүрт */

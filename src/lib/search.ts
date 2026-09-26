@@ -48,6 +48,16 @@ export interface PromptHit {
   headline: string;
 }
 
+/** Каталогийн хэрэгсэл (/hereglel) — хуучин ToolHit нь /hereglee-ийн жагсаалт */
+export interface CatalogToolHit {
+  slug: string;
+  name: string;
+  tagline: string;
+  pricing: string;
+  mongolianSupport: string;
+  rating: number;
+}
+
 export interface ToolHit {
   slug: string;
   name: string;
@@ -63,13 +73,14 @@ export interface SearchResults {
   articles: ArticleHit[];
   guides: GuideHit[];
   prompts: PromptHit[];
+  catalogTools: CatalogToolHit[];
   models: ModelHit[];
   tools: ToolHit[];
   total: number;
 }
 
 const EMPTY = (q: string): SearchResults =>
-  ({ q, articles: [], guides: [], prompts: [], models: [], tools: [], total: 0 });
+  ({ q, articles: [], guides: [], prompts: [], catalogTools: [], models: [], tools: [], total: 0 });
 
 export async function search(q: string, opts: { limit?: number } = {}): Promise<SearchResults> {
   const trimmed = q.trim();
@@ -80,7 +91,7 @@ export async function search(q: string, opts: { limit?: number } = {}): Promise<
   const limit = opts.limit ?? DEFAULT_LIMIT;
   const query = Prisma.sql`to_tsquery('simple', immutable_unaccent(${ts}))`;
 
-  const [articles, guides, prompts, models, tools] = await Promise.all([
+  const [articles, guides, prompts, catalogTools, models, tools] = await Promise.all([
     prisma.$queryRaw<ArticleHit[]>`
       SELECT a."slug", coalesce(a."titleMn", a."sourceTitle") AS "titleMn",
              coalesce(a."summaryMn", '') AS "summaryMn", a."kind"::text AS "kind", a."publishedAt",
@@ -106,6 +117,14 @@ export async function search(q: string, opts: { limit?: number } = {}): Promise<
       FROM "Prompt" p
       WHERE p."status" = 'PUBLISHED' AND p."searchVector" @@ ${query}
       ORDER BY ts_rank(p."searchVector", ${query}) DESC, p."copies" DESC
+      LIMIT ${limit}`,
+    // Каталогийн хэрэгсэл — нэр A, tagline B, тайлбар C
+    prisma.$queryRaw<CatalogToolHit[]>`
+      SELECT t."slug", t."name", t."tagline", t."pricing"::text AS "pricing",
+             t."mongolianSupport"::text AS "mongolianSupport", t."rating"
+      FROM "Tool" t
+      WHERE t."status" = 'PUBLISHED' AND t."searchVector" @@ ${query}
+      ORDER BY ts_rank(t."searchVector", ${query}) DESC, t."upvotes" DESC
       LIMIT ${limit}`,
     prisma.$queryRaw<ModelHit[]>`
       SELECT m."slug", m."name", c."name" AS "companyName", m."arenaOnly"
@@ -139,9 +158,12 @@ export async function search(q: string, opts: { limit?: number } = {}): Promise<
     articles,
     guides,
     prompts,
+    catalogTools,
     models,
     tools: sortedTools,
-    total: articles.length + guides.length + prompts.length + models.length + sortedTools.length,
+    total:
+      articles.length + guides.length + prompts.length + catalogTools.length +
+      models.length + sortedTools.length,
   };
 }
 

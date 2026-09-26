@@ -1,11 +1,12 @@
 import Link from "next/link";
 import { requireUser } from "@/auth/session";
 import {
-  bookmarkCategories, listBookmarks, listGuideBookmarks, listPromptBookmarks,
+  bookmarkCategories, listBookmarks, listGuideBookmarks, listPromptBookmarks, listToolBookmarks,
 } from "@/bookmarks/queries";
 import { BookmarkButton } from "@/components/BookmarkButton";
 import { GuideGrid } from "@/components/GuideList";
 import { PromptGrid } from "@/components/PromptList";
+import { ToolGrid } from "@/components/ToolList";
 import { likedPromptIds } from "@/prompts/queries";
 import { CATEGORIES, CATEGORY_LABEL } from "@/agent/category";
 import { fmtDate } from "@/components/format";
@@ -24,18 +25,20 @@ export default async function SavedPage({
   // Танигдахгүй ангилал ирвэл шүүлтгүй бүтэн жагсаалт
   const filter = (CATEGORIES as string[]).includes(asked ?? "") ? (asked as ArticleCategory) : undefined;
 
-  const [items, groups, guides, prompts] = await Promise.all([
+  const [items, groups, guides, prompts, tools] = await Promise.all([
     listBookmarks(user.id, filter),
     bookmarkCategories(user.id),
     listGuideBookmarks(user.id),
     listPromptBookmarks(user.id),
+    listToolBookmarks(user.id),
   ]);
   const articleTotal = groups.reduce((n, g) => n + g.count, 0);
-  const total = articleTotal + guides.length + prompts.length;
+  const total = articleTotal + guides.length + prompts.length + tools.length;
 
   // ?angilal=zaavar | prompt — зөвхөн тэр төрлийг харуулна
   const onlyGuides = asked === "zaavar";
   const onlyPrompts = asked === "prompt";
+  const onlyTools = asked === "heregsel";
   const likedIds = prompts.length > 0 ? await likedPromptIds(user.id, prompts.map((p) => p.id)) : undefined;
 
   if (total === 0) {
@@ -43,7 +46,8 @@ export default async function SavedPage({
     return (
       <div className="space-y-4">
         <div className="rounded-lg border border-dashed border-line p-6 text-sm text-muted">
-          Одоохондоо хадгалсан зүйл алга. Мэдээ, заавар, prompt-ын хажуугийн ☆ товчийг дарж хадгална.
+          Одоохондоо хадгалсан зүйл алга. Мэдээ, заавар, prompt, хэрэгслийн хажуугийн ☆ товчийг
+          дарж хадгална.
         </div>
         {latest.length > 0 && (
           <section className="space-y-2">
@@ -71,7 +75,7 @@ export default async function SavedPage({
         <Link
           href="/profile/hadgalsan"
           className={`rounded-full border px-2.5 py-1 ${
-            filter || onlyGuides || onlyPrompts
+            filter || onlyGuides || onlyPrompts || onlyTools
               ? "border-line text-muted hover:text-ink"
               : "border-accent text-accent"
           }`}
@@ -98,6 +102,16 @@ export default async function SavedPage({
             Prompt <span className="tabular-nums">{prompts.length}</span>
           </Link>
         )}
+        {tools.length > 0 && (
+          <Link
+            href="/profile/hadgalsan?angilal=heregsel"
+            className={`rounded-full border px-2.5 py-1 ${
+              onlyTools ? "border-accent text-accent" : "border-line text-muted hover:text-ink"
+            }`}
+          >
+            Хэрэгсэл <span className="tabular-nums">{tools.length}</span>
+          </Link>
+        )}
         {groups.map((g) => (
           <Link
             key={g.category}
@@ -111,14 +125,21 @@ export default async function SavedPage({
         ))}
       </nav>
 
-      {guides.length > 0 && !filter && !onlyPrompts && (
+      {tools.length > 0 && !filter && !onlyGuides && !onlyPrompts && (
+        <section className="space-y-2">
+          <h2 className="text-sm font-semibold">Хэрэгсэл</h2>
+          <ToolGrid items={tools} savedIds={new Set(tools.map((t) => t.id))} path={path} cols={2} />
+        </section>
+      )}
+
+      {guides.length > 0 && !filter && !onlyPrompts && !onlyTools && (
         <section className="space-y-2">
           <h2 className="text-sm font-semibold">Заавар</h2>
           <GuideGrid items={guides} savedIds={new Set(guides.map((g) => g.id))} path={path} cols={2} />
         </section>
       )}
 
-      {prompts.length > 0 && !filter && !onlyGuides && (
+      {prompts.length > 0 && !filter && !onlyGuides && !onlyTools && (
         <section className="space-y-2">
           <h2 className="text-sm font-semibold">Prompt</h2>
           <PromptGrid
@@ -130,7 +151,7 @@ export default async function SavedPage({
         </section>
       )}
 
-      {onlyGuides || onlyPrompts ? null : items.length === 0 ? (
+      {onlyGuides || onlyPrompts || onlyTools ? null : items.length === 0 ? (
         // Ангиллаар шүүсэн үед л «хоосон» гэж хэлнэ — шүүлтгүй үед заавар/prompt нь доор байна
         filter ? (
           <div className="rounded-lg border border-dashed border-line p-6 text-sm text-muted">
@@ -139,7 +160,7 @@ export default async function SavedPage({
         ) : null
       ) : (
         <section className="space-y-2">
-          {(guides.length > 0 || prompts.length > 0) && !filter && (
+          {(guides.length > 0 || prompts.length > 0 || tools.length > 0) && !filter && (
             <h2 className="text-sm font-semibold">Мэдээ</h2>
           )}
         <ul className="divide-y divide-line rounded-lg border border-line">

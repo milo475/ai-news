@@ -59,8 +59,12 @@ export const analytics = {
   promptOpenChatGpt: (slug: string) => track("prompt_open_chatgpt", { slug }),
   benchView: (month: string) => track("bench_view", { month }),
   benchModelView: (model: string) => track("bench_model_view", { model }),
-  bookmarkAdd: (kind: "article" | "guide" | "prompt") => track("bookmark_add", { kind }),
-  bookmarkRemove: (kind: "article" | "guide" | "prompt") => track("bookmark_remove", { kind }),
+  toolView: (slug: string) => track("tool_view", { slug }),
+  toolClickOut: (slug: string, affiliate: boolean) => track("tool_click_out", { slug, affiliate }),
+  toolUpvote: (slug: string) => track("tool_upvote", { slug }),
+  toolReview: (slug: string, stars: number) => track("tool_review", { slug, stars }),
+  bookmarkAdd: (kind: "article" | "guide" | "prompt" | "tool") => track("bookmark_add", { kind }),
+  bookmarkRemove: (kind: "article" | "guide" | "prompt" | "tool") => track("bookmark_remove", { kind }),
 };
 
 export interface UmamiConfig {
