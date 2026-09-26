@@ -143,6 +143,37 @@ const STEPS: Step[] = [
     },
   },
   {
+    // RSS-гүй дотоодын сайтууд — listUrl + CSS selector-оор (24 цагт нэг удаа)
+    name: "html",
+    mode: "prepare",
+    run: async () => {
+      const { runHtml } = await import("./fetchers/html");
+      const r = await runHtml();
+      return `${r.sources} эх сурвалж, ${r.found} холбоос → ${r.saved} шинэ, алдаа ${r.failed}`;
+    },
+  },
+  {
+    // Дотоодын мэдээ — ерөнхий 3-ын ДЭЭР тусдаа квот (DAILY_LOCAL_LIMIT).
+    // FB slot-д орохгүй, зөвхөн /mongol ба нүүрэнд гарна.
+    name: "local",
+    mode: "prepare",
+    oncePerDay: true,
+    run: async () => {
+      const { pickLocal, localQuotaLeft } = await import("./agent/quota");
+      const left = await localQuotaLeft();
+      if (left <= 0) return "дотоод квот дүүрсэн";
+      const picked = await pickLocal();
+      if (!picked) return "нийтлэхэд бэлэн дотоод мэдээ алга";
+
+      const a = await prisma.article.update({
+        where: { id: picked.id },
+        data: { status: "PUBLISHED", publishedAt: new Date(), reviewedBy: "auto-local" },
+        select: { slug: true, titleMn: true, relevance: true },
+      });
+      return `"${a.titleMn}" → /medee/${a.slug} (оноо ${a.relevance})`;
+    },
+  },
+  {
     // FB постын reaction/share — /barimt-ийн «долоо хоногийн шилдэг»-т
     name: "fbstats",
     mode: "prepare",

@@ -59,6 +59,7 @@ export const analytics = {
   promptOpenChatGpt: (slug: string) => track("prompt_open_chatgpt", { slug }),
   benchView: (month: string) => track("bench_view", { month }),
   benchModelView: (model: string) => track("bench_model_view", { model }),
+  mongolView: () => track("mongol_view"),
   cardView: (slug: string) => track("card_view", { slug }),
   cardShare: (platform: string, slug: string) => track(`card_share_${platform}`, { slug }),
   cardDownload: (slug: string) => track("card_download", { slug }),

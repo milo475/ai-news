@@ -137,6 +137,11 @@ model Source {
   /// Энэ эх сурвалжийн мэдээ ихэвчлэн ямар ангилалд ордог — LLM өөрөөр шийдвэл түүнийг нь авна
   defaultCategory ArticleCategory @default(NEWS)
   needsBrowser    Boolean         @default(false) // JS-ээр зурагддаг сайт — бүтэн текстэд Playwright хэрэгтэй
+  /// MN = дотоодын хэвлэл (/mongol), GLOBAL = дэлхийн
+  region          Region          @default(GLOBAL)
+  /// RSS байхгүй сайт: нийтлэлийн холбоосуудыг энэ хуудаснаас CSS selector-оор татна
+  listUrl         String?
+  linkSelector    String?
   isActive        Boolean         @default(true)
   lastFetchedAt   DateTime?
   lastError       String?
@@ -165,6 +170,10 @@ model Article {
   sourceImageUrl    String? // эх нийтлэлийн og:image (FB_USE_SOURCE_IMAGE үед)
   sourceHash        String // гарчгийн normalized hash — давхардал
   publishedAtSource DateTime?
+  /// Эх сурвалжийн region-ыг удамшуулна — /mongol, квот, шүүлтэд
+  region            Region    @default(GLOBAL)
+  /// Дотоодын мэдээ эсэх (region = MN). Хайлт, квотод хурдан шүүхэд.
+  isLocal           Boolean   @default(false)
 
   // Agent-ийн гаргалт (монгол)
   titleMn     String? // RAW үед хоосон — 2-р шатанд agent бөглөнө
@@ -243,6 +252,8 @@ model Article {
   @@index([status, fbPostedAt])
   /// /barimt галерей — карттай нийтлэлүүдийг шинээс хуучин руу
   @@index([status, fbImageAt])
+  /// /mongol — дотоод мэдээ шинээс хуучин руу
+  @@index([region, status, publishedAt])
   @@index([status, category, publishedAt])
   @@index([status, readyAt])
   @@index([status, igPostedAt])
@@ -989,4 +1000,34 @@ model AiModelComparison {
 
   @@index([views])
   @@index([generatedAt])
+}
+
+/// Дотоодын vs дэлхийн эх сурвалж
+enum Region {
+  MN
+  GLOBAL
+}
+
+/// —————————————————— Монголын AI төсөл, компаниуд (/mongol) ——————————————————
+
+/// Гараар хөтөлдөг жагсаалт. LLM-ээр таамаглахгүй — зөвхөн баталгаажсан мэдээлэл.
+model MongolProject {
+  id          String    @id @default(cuid())
+  slug        String    @unique
+  name        String
+  /// 1–2 өгүүлбэр
+  description String
+  website     String
+  /// Чөлөөт текст: «хэлний технологи», «төрийн үйлчилгээ», «нийгэмлэг» гэх мэт
+  category    String
+  logoData    Bytes?
+  logoType    String?
+  logoAt      DateTime?
+  isFeatured  Boolean   @default(false)
+  isActive    Boolean   @default(true)
+  order       Int       @default(0)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([isActive, order])
 }

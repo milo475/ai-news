@@ -26,6 +26,7 @@ const NAV = [
   { href: "/prompt", label: "Prompt" },
   { href: "/benchmark", label: "Бенчмарк" },
   { href: "/medee", label: "Мэдээ" },
+  { href: "/mongol", label: "Монгол" },
   { href: "/barimt", label: "Баримт" },
 ];
 

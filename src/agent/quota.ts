@@ -63,12 +63,61 @@ function scoreWhere() {
   return { OR: minScoreGroups().map((g) => ({ category: { in: g.categories }, relevance: { gte: g.score } })) };
 }
 
-/** УБ цагаар өнөөдөр нийтлэгдсэн мэдээний тоо (DIGEST ордоггүй) */
+/**
+ * УБ цагаар өнөөдөр нийтлэгдсэн мэдээний тоо (DIGEST ордоггүй).
+ *
+ * Дотоодын мэдээ **тусдаа квоттой** тул ерөнхий тооллогод орохгүй — эс тэгвээс
+ * Монголын нэг мэдээ дэлхийн нэг мэдээг хөөнө.
+ */
 export async function publishedToday(now = new Date()): Promise<number> {
   const { start, end } = ubDayRange(now);
   return prisma.article.count({
-    where: { kind: "NEWS", status: "PUBLISHED", publishedAt: { gte: start, lt: end } },
+    where: {
+      kind: "NEWS", status: "PUBLISHED", isLocal: false,
+      publishedAt: { gte: start, lt: end },
+    },
   });
+}
+
+/** Өнөөдөр нийтлэгдсэн ДОТООД мэдээний тоо */
+export async function localPublishedToday(now = new Date()): Promise<number> {
+  const { start, end } = ubDayRange(now);
+  return prisma.article.count({
+    where: {
+      kind: "NEWS", status: "PUBLISHED", isLocal: true,
+      publishedAt: { gte: start, lt: end },
+    },
+  });
+}
+
+/**
+ * Дотоод мэдээний квотад зай байгаа эсэх.
+ *
+ * DAILY_LOCAL_LIMIT=0 бол дотоод мэдээ автоматаар нийтлэгдэхгүй (гараар л).
+ */
+export async function localQuotaLeft(now = new Date()): Promise<number> {
+  const { dailyLocalLimit } = await import("../mongol/filter.api");
+  return Math.max(0, dailyLocalLimit() - (await localPublishedToday(now)));
+}
+
+/**
+ * Нийтлэхэд бэлэн дотоод мэдээ сонгоно. Ерөнхий квотоос тусдаа — FB slot-д орохгүй,
+ * зөвхөн /mongol ба нүүрэнд гарна.
+ */
+export async function pickLocal(now = new Date()): Promise<{ id: string } | null> {
+  if ((await localQuotaLeft(now)) <= 0) return null;
+
+  const { LOCAL_MIN_SCORE } = await import("../mongol/filter.api");
+  const row = await prisma.article.findFirst({
+    where: {
+      kind: "NEWS", status: "DRAFT", isLocal: true,
+      titleMn: { not: null },
+      relevance: { gte: LOCAL_MIN_SCORE },
+    },
+    orderBy: [{ relevance: "desc" }, { publishedAtSource: "desc" }, { createdAt: "desc" }],
+    select: { id: true },
+  });
+  return row;
 }
 
 /**
@@ -82,13 +131,15 @@ export async function pickForSlot(
   const { start, end } = ubDayRange(now);
 
   const todayRows = (await prisma.article.findMany({
-    where: { kind: "NEWS", status: "PUBLISHED", publishedAt: { gte: start, lt: end } },
+    where: { kind: "NEWS", status: "PUBLISHED", isLocal: false, publishedAt: { gte: start, lt: end } },
     select: SELECT,
   })) as ArticleRow[];
 
+  // Дотоод мэдээ FB slot-д орохгүй — тусдаа квоттой (pickLocal)
   const baseWhere = {
     kind: "NEWS" as const,
     status: "DRAFT" as const,
+    isLocal: false,
     sourceText: { not: null },
     ...scoreWhere(),
   };
@@ -125,15 +176,19 @@ export async function pickForPrepare(need: number, now = new Date()): Promise<st
 
   const [todayRows, readyRows, pool] = (await Promise.all([
     prisma.article.findMany({
-      where: { kind: "NEWS", status: "PUBLISHED", publishedAt: { gte: start, lt: end } },
+      where: { kind: "NEWS", status: "PUBLISHED", isLocal: false, publishedAt: { gte: start, lt: end } },
       select: SELECT,
     }),
     prisma.article.findMany({
-      where: { kind: "NEWS", status: "DRAFT", readyAt: { not: null } },
+      where: { kind: "NEWS", status: "DRAFT", isLocal: false, readyAt: { not: null } },
       select: SELECT,
     }),
+    // Дотоод мэдээ буферт орохгүй — тусдаа квоттой, FB slot-д гарахгүй
     prisma.article.findMany({
-      where: { kind: "NEWS", status: "DRAFT", readyAt: null, sourceText: { not: null }, ...scoreWhere() },
+      where: {
+        kind: "NEWS", status: "DRAFT", isLocal: false, readyAt: null,
+        sourceText: { not: null }, ...scoreWhere(),
+      },
       orderBy: [{ relevance: "desc" }, { publishedAtSource: "desc" }, { createdAt: "desc" }],
       take: CANDIDATE_POOL,
       select: SELECT,

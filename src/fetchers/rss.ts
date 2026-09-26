@@ -9,7 +9,7 @@
 import "dotenv/config";
 import { randomBytes } from "node:crypto";
 import { prisma } from "../db";
-import type { ArticleCategory } from "../generated/prisma/enums";
+import type { ArticleCategory, Region } from "../generated/prisma/enums";
 import { jobRunMeta } from "../jobs/meta";
 import { closeBrowser, fetchFullText, textFromFeedHtml } from "./fulltext.api";
 import { fetchFeed, normalizeUrl, titleHash, type FeedItem } from "./rss.api";
@@ -41,13 +41,17 @@ interface SourceResult {
   dupeUrl: number;    // ижил хаягаар өмнө орсон
   dupeTitle: number;  // өөр хаяг, ижил гарчиг (өөр сайт дамжуулсан)
   old: number;        // MAX_AGE_DAYS-ээс хуучин
+  offTopic: number;   // MN эх сурвалжаас AI/технологийн бус
   fullText: number;   // бүтэн текст олдсон
   error: string;
 }
 
 /** Нэг эх сурвалжийн item-үүдийг RAW нийтлэл болгож хадгална */
 async function saveItems(
-  source: { id: string; needsBrowser: boolean; defaultCategory: ArticleCategory },
+  source: {
+    id: string; name: string; needsBrowser: boolean; defaultCategory: ArticleCategory;
+    region: Region;
+  },
   items: FeedItem[],
   res: SourceResult,
 ): Promise<void> {
@@ -59,6 +63,16 @@ async function saveItems(
     if (await prisma.article.findUnique({ where: { sourceUrl }, select: { id: true } })) {
       res.dupeUrl++;
       continue;
+    }
+
+    // Дотоодын эх сурвалж нь ерөнхий мэдээний сайт — AI/технологийн шүүлт хийнэ.
+    // Гарчиг дээр таарвал шууд, эс тэгвээс feed-ийн lead дээр шалгана.
+    if (source.region === "MN") {
+      const { prefilter } = await import("../mongol/filter.api");
+      if (!prefilter(item.title, item.excerpt ?? "").pass) {
+        res.offTopic++;
+        continue;
+      }
     }
 
     const full = await fetchFullText(sourceUrl, { browser: source.needsBrowser });
@@ -79,6 +93,9 @@ async function saveItems(
         status: "RAW",
         // agent үнэлэхдээ өөрчилж болно — эхлээд эх сурвалжийн анхдагч
         category: source.defaultCategory,
+        // Эх сурвалжийн region-ыг удамшуулна — /mongol, квот, шүүлтэд
+        region: source.region,
+        isLocal: source.region === "MN",
         sourceId: source.id,
         sourceUrl,
         sourceTitle: item.title,
@@ -103,7 +120,7 @@ export async function fetchAllSources(): Promise<SourceResult[]> {
 
   const results: SourceResult[] = [];
   for (const source of sources) {
-    const res: SourceResult = { name: source.name, items: 0, saved: 0, dupeUrl: 0, dupeTitle: 0, old: 0, fullText: 0, error: "" };
+    const res: SourceResult = { name: source.name, items: 0, saved: 0, dupeUrl: 0, dupeTitle: 0, old: 0, offTopic: 0, fullText: 0, error: "" };
     results.push(res);
     try {
       const items = await fetchFeed(source.feedUrl!);
@@ -138,6 +155,7 @@ export async function runRss(): Promise<{ items: number; saved: number; sources:
         "Хаяг давхардсан": r.dupeUrl,
         "Гарчиг давхардсан": r.dupeTitle,
         Хуучин: r.old,
+        "Сэдвийн бус": r.offTopic,
         "Бүтэн текст": r.fullText,
         Алдаа: r.error ? r.error.slice(0, 60) : "",
       })),

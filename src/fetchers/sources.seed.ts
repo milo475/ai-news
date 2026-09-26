@@ -12,13 +12,19 @@
  */
 import "dotenv/config";
 import { prisma } from "../db";
-import type { ArticleCategory } from "../generated/prisma/enums";
+import type { ArticleCategory, Region } from "../generated/prisma/enums";
 
 export interface SeedSource {
   name: string;
   url: string;
-  feedUrl: string;
+  /** RSS/Atom хаяг. HTML fetcher-ээр татдаг эх сурвалжид хоосон. */
+  feedUrl?: string;
   weight: number;
+  /** MN = дотоодын хэвлэл (/mongol) */
+  region?: Region;
+  /** RSS байхгүй сайт: жагсаалтын хуудас + CSS selector (src/fetchers/html.ts) */
+  listUrl?: string;
+  linkSelector?: string;
   /** Энэ эх сурвалжийн мэдээ ихэвчлэн ямар ангилалд ордог (LLM өөрөөр шийдвэл түүнийг нь авна) */
   category?: ArticleCategory;
   /** Зөвхөн шинээр үүсгэхэд хэрэглэнэ (RSS нь ажиллахгүй эх сурвалж) */
@@ -28,6 +34,36 @@ export interface SeedSource {
 }
 
 export const SOURCES: SeedSource[] = [
+  // ════════ Монголын хэвлэл (region: MN) ════════
+  // 2026-09-26: RSS байгаа эсэхийг тус бүрд шалгасан. Дотоодын сайтууд ерөнхий
+  // мэдээний сайт тул AI/технологийн шүүлт (src/mongol/filter.api.ts) хийгдэнэ.
+
+  // ---- RSS-тэй ----
+  // application/xml, /rss ба /rss.xml хоёул ажиллана
+  { name: "iKon.mn", url: "https://ikon.mn", feedUrl: "https://ikon.mn/rss", weight: 6, region: "MN" },
+  // ITOIM — технологи, медиад тусгайлсан тул хамгийн өндөр жин
+  { name: "ITOIM", url: "https://itoim.mn", feedUrl: "https://itoim.mn/rss.xml", weight: 8, region: "MN" },
+  { name: "Eguur.mn", url: "https://eguur.mn", feedUrl: "https://eguur.mn/feed/", weight: 5, region: "MN" },
+
+  // ---- RSS байхгүй → HTML fetcher (listUrl + linkSelector) ----
+  { name: "News.mn", url: "https://news.mn", weight: 6, region: "MN", listUrl: "https://news.mn", linkSelector: "article a" },
+  // Бизнес, технологийн тойм — «AI Academy» зэрэг дотоодын төслүүдийг бичдэг
+  { name: "Unread.today", url: "https://unread.today", weight: 7, region: "MN", listUrl: "https://unread.today", linkSelector: "h3 a" },
+  { name: "UB Life", url: "http://ublife.mn", weight: 4, region: "MN", listUrl: "http://ublife.mn", linkSelector: "article a" },
+  { name: "МУИС", url: "https://num.edu.mn", weight: 5, region: "MN", listUrl: "https://num.edu.mn/news", linkSelector: "article a" },
+
+  // ---- Одоохондоо ажиллахгүй (шалгасан, шалтгаантай) ----
+  // 2026-09-26: жагсаалт нь JS-ээр зурагддаг — static HTML-д холбоос 0.
+  // HTML fetcher нь Playwright хэрэглэдэггүй тул одоохондоо унтраав.
+  { name: "Gogo.mn", url: "https://gogo.mn", weight: 6, region: "MN", listUrl: "https://gogo.mn", linkSelector: "article a", isActive: false },
+  { name: "Zindaa.mn", url: "https://zindaa.mn", weight: 5, region: "MN", listUrl: "https://zindaa.mn", linkSelector: "article a", isActive: false },
+  // 2026-09-26: montsame.mn нь бот бүрд 403 буцаана (robots.txt ч татагдахгүй).
+  { name: "МОНЦАМЭ", url: "https://montsame.mn", weight: 6, region: "MN", listUrl: "https://montsame.mn/mn/list/159", linkSelector: "article a", isActive: false },
+  // 2026-09-26: ШУТИС-ийн мэдээний хуудас static HTML-д холбоос гаргахгүй.
+  { name: "ШУТИС", url: "https://www.must.edu.mn", weight: 5, region: "MN", listUrl: "https://www.must.edu.mn/mn/news", linkSelector: "article a", isActive: false },
+  // 2026-09-26: crc.gov.mn-ийн мэдээний listing олдсонгүй (/n/news → 404, нүүр дээр 0).
+  { name: "ХХЗХ", url: "https://crc.gov.mn", weight: 5, region: "MN", listUrl: "https://crc.gov.mn", linkSelector: "article a", isActive: false },
+
   // ---- Компанийн албан ёсны ----
   { name: "OpenAI Blog", url: "https://openai.com/blog", feedUrl: "https://openai.com/blog/rss.xml", weight: 9, needsBrowser: true },
   // 2026-09-20: anthropic.com дээр RSS/Atom олдсонгүй (rss.xml, feed.xml, news/rss.xml бүгд 404;
@@ -73,12 +109,20 @@ export async function seedSources(): Promise<{ created: number; updated: number;
     const row = await prisma.source.upsert({
       where: { url: s.url },
       create: {
-        name: s.name, url: s.url, feedUrl: s.feedUrl, weight: s.weight,
+        name: s.name, url: s.url, feedUrl: s.feedUrl ?? null, weight: s.weight,
         defaultCategory: s.category ?? "NEWS",
+        region: s.region ?? "GLOBAL",
+        listUrl: s.listUrl ?? null, linkSelector: s.linkSelector ?? null,
+        language: s.region === "MN" ? "mn" : "en",
         isActive: s.isActive ?? true, needsBrowser: s.needsBrowser ?? false,
       },
-      // Гараар тохируулсан isActive/weight-ийг дарж бичихгүй; defaultCategory нь seed-ийн мэдэлд
-      update: { name: s.name, feedUrl: s.feedUrl, defaultCategory: s.category ?? "NEWS", needsBrowser: s.needsBrowser ?? false },
+      // Гараар тохируулсан isActive/weight-ийг дарж бичихгүй; бусад нь seed-ийн мэдэлд
+      update: {
+        name: s.name, feedUrl: s.feedUrl ?? null, defaultCategory: s.category ?? "NEWS",
+        region: s.region ?? "GLOBAL",
+        listUrl: s.listUrl ?? null, linkSelector: s.linkSelector ?? null,
+        needsBrowser: s.needsBrowser ?? false,
+      },
       select: { isActive: true, weight: true, defaultCategory: true },
     });
     if (existing) updated++;

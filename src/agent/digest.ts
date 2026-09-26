@@ -104,8 +104,16 @@ export async function runDigest(publish = false): Promise<{ created: boolean; sl
     const to = new Date();
     const since = new Date(to.getTime() - DAYS * 86_400_000);
 
+    // Дотоодын мэдээ тусдаа хэсэгт орно — дэлхийн мэдээний тоймд хольж будлиулахгүй
+    const localRows = await prisma.article.findMany({
+      where: { kind: "NEWS", status: "PUBLISHED", isLocal: true, publishedAt: { gte: since } },
+      orderBy: [{ relevance: "desc" }, { publishedAt: "desc" }],
+      take: 5,
+      select: { slug: true, titleMn: true, summaryMn: true, relevance: true, source: { select: { name: true } } },
+    });
+
     const rows = await prisma.article.findMany({
-      where: { kind: "NEWS", status: "PUBLISHED", publishedAt: { gte: since } },
+      where: { kind: "NEWS", status: "PUBLISHED", isLocal: false, publishedAt: { gte: since } },
       orderBy: [{ relevance: "desc" }, { publishedAt: "desc" }],
       take: MAX_ARTICLES,
       select: { id: true, slug: true, titleMn: true, summaryMn: true, relevance: true, source: { select: { name: true } } },
@@ -142,7 +150,14 @@ export async function runDigest(publish = false): Promise<{ created: boolean; sl
       maxTokens: 4000, temperature: 0.4, reasoning: false,
     });
 
-    const body = assembleBody(data, changes, items);
+    const local: DigestSource[] = localRows.map((a) => ({
+      slug: a.slug,
+      titleMn: a.titleMn ?? "",
+      summaryMn: a.summaryMn ?? "",
+      relevance: a.relevance,
+      sourceName: a.source.name,
+    }));
+    const body = assembleBody(data, changes, items, local);
     const slug = await uniqueSlug(slugify(data.titleMn) || `digest-${label.replace(/\D+/g, "-")}`);
 
     const digest = await prisma.article.create({

@@ -17,6 +17,7 @@ import { promptOfTheDay } from "@/prompts/queries";
 import { benchScores } from "@/bench/queries";
 import { CardStrip } from "@/components/CardStrip";
 import { latestCards } from "@/gallery/queries";
+import { localNews } from "@/mongol/queries";
 
 // Build үед DB байхгүй тул prerender хийхгүй — нүүр бүх үед шинэ өгөгдөл харуулна
 export const dynamic = "force-dynamic";
@@ -31,7 +32,8 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ t
   const asked = (await searchParams).tab ?? "";
   const tab = TABS.find((t) => t.key === asked) ?? TABS[0]!;
   const user = await currentUser();
-  const [{ date, rows }, note, news, useCases, digest, pref, guides, prompt, cards] = await Promise.all([
+  const [{ date, rows }, note, news, useCases, digest, pref, guides, prompt, cards, mongol] =
+    await Promise.all([
     getLeaderboard(10, tab.source),
     getSourceNote(tab.source),
     getLatestNews(5),
@@ -41,6 +43,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ t
     latestGuides(3),
     promptOfTheDay(),
     latestCards(3),
+    localNews(3),
   ]);
 
   // "Таны сонирхол" — зөвхөн нэвтэрсэн, ангилал сонгосон хэрэглэгчид
@@ -172,6 +175,16 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ t
           <NewsList items={news} savedIds={savedIds} path="/" />
         )}
       </section>
+
+      {mongol.length > 0 && (
+        <section className="space-y-3">
+          <div className="flex items-baseline justify-between">
+            <h2 className="text-xl font-semibold">Монголд</h2>
+            <Link href="/mongol" className="text-sm text-accent hover:underline">Бүх дотоод мэдээ →</Link>
+          </div>
+          <NewsList items={mongol} savedIds={savedIds} path="/" />
+        </section>
+      )}
 
       {cards.length > 0 && (
         <section className="space-y-3">

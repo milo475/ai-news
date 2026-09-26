@@ -13,6 +13,9 @@ import { ubDayRange } from "../jobs/day";
 import { jobRunMeta } from "../jobs/meta";
 import type { ArticleCategory } from "../generated/prisma/enums";
 import { categoryPromptBlock, toCategory } from "./category";
+import {
+  checkLocal, LOCAL_MIN_SCORE, LOCAL_SCHEMA, LOCAL_SYSTEM, localUser, type LocalOutput,
+} from "../mongol/filter.api";
 import { relaxedScore } from "./quota.api";
 import { closeBrowser, fetchFullText } from "../fetchers/fulltext.api";
 import { chatJson } from "./llm";
@@ -186,6 +189,63 @@ export interface ProcessResult {
  * skipScore: үнэлгээг алгасаж шууд бичнэ (relevance хэвээр) — admin-ы «Дахин бичүүлэх».
  * Алдаа гарвал throw — дуудагч нь нийтлэлийг RAW хэвээр үлдээнэ.
  */
+/**
+ * Дотоодын нийтлэлийг товчлон найруулна.
+ *
+ * Шалгуур давахгүй бол нэг удаа дахин бичүүлнэ (гол шалгуур — эх сурвалжийн нэр биед
+ * дурдагдсан эсэх). Хоёр дахь удаад ч давахгүй бол хэвээр хадгалж админд үлдээнэ —
+ * контент нь байгаа, зөвхөн иш татах нь дутуу.
+ */
+async function writeLocal(
+  a: { sourceTitle: string; sourceExcerpt: string | null; sourceText: string | null; source: { name: string } },
+  addTokens: (model: string, tokens: number) => void,
+  addCost: (usd: number) => void,
+): Promise<{ data: WriteOut; tokens: number; costUsd: number }> {
+  const user = localUser({
+    sourceName: a.source.name,
+    title: a.sourceTitle,
+    excerpt: a.sourceExcerpt ?? "",
+    text: a.sourceText ?? a.sourceExcerpt ?? "",
+  });
+
+  let last: { data: LocalOutput; tokens: number; costUsd: number } | null = null;
+  let problems: string[] = [];
+
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const out = await chatJson<LocalOutput>({
+      model: WRITE_MODEL,
+      system: LOCAL_SYSTEM,
+      user: attempt === 0 ? user : `${user}\n\nӨмнөх оролдлого амжилтгүй: ${problems.join("; ")}`,
+      schema: LOCAL_SCHEMA,
+      maxTokens: 4_000,
+      temperature: attempt === 0 ? 0.4 : 0.6,
+      reasoning: false,
+    });
+    addTokens(WRITE_MODEL, out.tokens);
+    addCost(out.costUsd);
+    last = out;
+
+    const found = checkLocal(out.data, a.source.name);
+    if (found.length === 0) break;
+    problems = found.map((f) => f.detail);
+    console.warn(`  ⚠ дотоод товчлол: ${problems.join("; ")}`);
+  }
+
+  const data = last!.data;
+  return {
+    data: {
+      titleMn: data.titleMn,
+      summaryMn: data.summaryMn,
+      bodyMn: data.bodyMn,
+      tags: data.tags,
+      mentionedCompanies: [],
+      mentionedModels: [],
+    },
+    tokens: last!.tokens,
+    costUsd: last!.costUsd,
+  };
+}
+
 export async function processOne(
   articleId: string,
   opts: {
@@ -253,8 +313,12 @@ export async function processOne(
       },
     });
 
-    // PROJECT/HOWTO контент жин багатай эх сурвалжаас ирдэг тул тэдэнд босго нэгээр доогуур
-    if (scoreValue < relaxedScore(THRESHOLD, category)) {
+    // Дотоодын мэдээнд босго бага (LOCAL_MIN_SCORE) — Монголын AI мэдээ өөрөө хомс,
+    // дэлхийн мэдээтэй ижил босгоор шүүвэл /mongol үүрд хоосон байна.
+    const threshold = a.isLocal
+      ? LOCAL_MIN_SCORE
+      : relaxedScore(THRESHOLD, category);
+    if (scoreValue < threshold) {
       await prisma.article.update({ where: { id: a.id }, data: { status: "REJECTED" } });
       return {
         status: "REJECTED", scored: true, score: scoreValue, reason: scoreReason, category,
@@ -263,16 +327,21 @@ export async function processOne(
     }
   }
 
-  const write = await chatJson<WriteOut>({
-    model: WRITE_MODEL, system: WRITE_SYSTEM,
-    user: [...base, content, `Эх хаяг: ${a.sourceUrl}`].join("\n"),
-    schema: WRITE_SCHEMA, maxTokens: 6000, temperature: 0.4, reasoning: false,
-  });
+  // Дотоодын нийтлэл нь МОНГОЛ хэл дээр байна — орчуулах биш, товчлон найруулна.
+  // Эх сурвалжийн хэвлэлийн нэрийг заавал дурдана (ёс зүй + харилцаа).
+  const local = a.isLocal;
+  const write = local
+    ? await writeLocal(a, addTokens, addCost)
+    : await chatJson<WriteOut>({
+        model: WRITE_MODEL, system: WRITE_SYSTEM,
+        user: [...base, content, `Эх хаяг: ${a.sourceUrl}`].join("\n"),
+        schema: WRITE_SCHEMA, maxTokens: 6000, temperature: 0.4, reasoning: false,
+      });
   addTokens(WRITE_MODEL, write.tokens);
   addCost(write.costUsd);
 
-  const companyIds = matchCompanies(write.data.mentionedCompanies, companies);
-  const modelIds = matchModels(write.data.mentionedModels, models);
+  const companyIds = matchCompanies(write.data.mentionedCompanies ?? [], companies);
+  const modelIds = matchModels(write.data.mentionedModels ?? [], models);
   const slug = await uniqueSlug(slugify(write.data.titleMn) || a.slug, a.id);
 
   await prisma.article.update({

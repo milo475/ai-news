@@ -109,9 +109,30 @@ export function rankingSection(changes: RankingChange): string {
 }
 
 /** LLM-ийн гаргалт + жагсаалтын өөрчлөлт + орсон мэдээний жагсаалтыг нэг markdown болгоно */
-export function assembleBody(out: DigestOut, changes: RankingChange, items: DigestSource[]): string {
+/**
+ * Дотоодын мэдээний хэсэг. Мэдээ байхгүй бол хэсгийг огт бичихгүй —
+ * хоосон гарчиг тоймыг эвдэнэ.
+ */
+export function localSection(items: DigestSource[]): string {
+  if (items.length === 0) return "";
+  return [
+    "## Монголд",
+    "",
+    ...items.map((a) => `- [${a.titleMn}](/medee/${a.slug}) — ${a.sourceName}`),
+  ].join("\n");
+}
+
+export function assembleBody(
+  out: DigestOut,
+  changes: RankingChange,
+  items: DigestSource[],
+  /** Долоо хоногийн дотоодын мэдээ (/mongol) */
+  local: DigestSource[] = [],
+): string {
   const parts: string[] = [];
   for (const s of out.sections) parts.push(`## ${s.heading}\n\n${s.body.trim()}`);
+  const mongol = localSection(local);
+  if (mongol) parts.push(mongol);
   parts.push(rankingSection(changes));
   if (out.nextWeek.length) {
     parts.push(`## Дараагийн долоо хоногт анхаарах\n\n${out.nextWeek.map((x) => `- ${x}`).join("\n")}`);
