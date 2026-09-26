@@ -25,6 +25,7 @@ import { generateFbCopy } from "./fbcopy";
 import { cardForArticle, saveCard } from "./card";
 import { recentImagePrompts, rankingCard } from "./fbimage";
 import { slotPlan } from "./slot.api";
+import { siteUrl } from "../lib/site";
 
 const GRAPH = "https://graph.facebook.com/v21.0";
 /** Нэг run дотор хэд хэдэн пост явбал хооронд нь завсарлана */
@@ -176,7 +177,7 @@ export async function postRankingCard(now = new Date()): Promise<boolean> {
     console.log("Жагсаалт бэлэн биш — карт тавихгүй");
     return false;
   }
-  const site = (process.env.SITE_URL ?? "http://localhost:3000").replace(/\/+$/, "");
+  const site = siteUrl();
   const caption = [
     `Өнөөдрийн хэрэглээний топ 5 — аль AI моделийг хамгийн их ашиглаж байна вэ.`,
     `Жагсаалт өдөр бүр шинэчлэгддэг: өсөлт, уналтыг өмнөх өдөртэй харьцуулж харуулна.`,
@@ -208,7 +209,7 @@ export async function postBenchCard(): Promise<boolean> {
   const board = await latestBoard();
   if (!board) return false;
 
-  const site = (process.env.SITE_URL ?? "http://localhost:3000").replace(/\/+$/, "");
+  const site = siteUrl();
   const best = board.rows[0]!;
   const caption = [
     `${board.label}: монгол хэлээр хамгийн сайн ажилласан AI модель бол ${best.name}.`,

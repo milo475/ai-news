@@ -8,6 +8,7 @@
 import { ImageResponse } from "next/og";
 import { resultFor } from "@/songolt/queries";
 import { decodeAnswers, TASK_LABEL, WHO_LABEL } from "@/songolt/score.api";
+import { siteHost } from "@/lib/site";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -28,6 +29,7 @@ export async function GET(req: Request) {
 
   const others = result.slice(1).map((r) => r.rec.tool.name);
   const context = `${WHO_LABEL[answers.who]} · ${answers.tasks.map((t) => TASK_LABEL[t]).join(", ")}`;
+  const host = siteHost();
 
   return new ImageResponse(
     (
@@ -66,9 +68,9 @@ export async function GET(req: Request) {
 
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end" }}>
           <div style={{ display: "flex", fontSize: 26, color: MUTED }}>
-            {others.length > 0 ? `Дараа нь: ${others.join(", ")}` : "ainews.mn/songolt"}
+            {others.length > 0 ? `Дараа нь: ${others.join(", ")}` : `${host}/songolt`}
           </div>
-          <div style={{ display: "flex", fontSize: 26, color: ACCENT }}>ainews.mn/songolt</div>
+          <div style={{ display: "flex", fontSize: 26, color: ACCENT }}>{`${host}/songolt`}</div>
         </div>
       </div>
     ),

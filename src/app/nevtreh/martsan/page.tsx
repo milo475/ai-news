@@ -2,7 +2,7 @@ import Link from "next/link";
 import { forgotAction } from "@/auth/actions";
 import { ActionForm, input, Submit } from "@/components/AuthForm";
 
-export const metadata = { title: "Нууц үгээ мартсан" };
+export const metadata = { title: "Нууц үгээ мартсан", robots: { index: false } };
 
 export default function ForgotPage() {
   return (

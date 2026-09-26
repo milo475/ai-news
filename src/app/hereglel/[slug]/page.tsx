@@ -22,6 +22,7 @@ import {
 import { softwareJsonLd, toolMetaDescription, toolMetaTitle } from "@/tools/seo.api";
 import { clamp, MAX_META_DESCRIPTION, MAX_META_TITLE } from "@/guides/seo.api";
 import { siteUrl } from "@/lib/site";
+import { BreadcrumbLd } from "@/components/Breadcrumbs";
 
 export const dynamic = "force-dynamic";
 
@@ -75,6 +76,9 @@ export default async function ToolPage({ params }: { params: Promise<Params> }) 
     const [a, b] = pair;
     return (
       <div className="max-w-4xl space-y-6">
+        <BreadcrumbLd
+          crumbs={[{ name: "AI хэрэгсэл", path: "/hereglel" }, { name: `${a.name} vs ${b.name}` }]}
+        />
         <TrackEvent event="tool_versus_view" data={{ a: a.slug, b: b.slug }} />
         <div className="space-y-2">
           <Link href="/hereglel" className="text-sm text-muted hover:text-ink">← AI хэрэгсэл</Link>
@@ -131,6 +135,7 @@ export default async function ToolPage({ params }: { params: Promise<Params> }) 
 
   return (
     <article className="max-w-3xl space-y-6">
+      <BreadcrumbLd crumbs={[{ name: "AI хэрэгсэл", path: "/hereglel" }, { name: t.name }]} />
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(softwareJsonLd(t, siteUrl())) }}

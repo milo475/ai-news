@@ -1,10 +1,11 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
+import { revalidatePath } from "@/lib/revalidate";
 import { redirect } from "next/navigation";
 import { prisma } from "@/db";
 import { parseChecker, parseRubric } from "@/bench/task.api";
 import { Prisma } from "@/generated/prisma/client";
+import { formId } from "@/lib/validate";
 
 function back(msg: string, open?: string): never {
   const qs = new URLSearchParams({ msg });
@@ -31,7 +32,7 @@ export async function startBenchAction(form: FormData) {
 
 /** Даалгаврыг засах */
 export async function saveTaskAction(form: FormData) {
-  const id = String(form.get("id"));
+  const id = formId(form);
   const rubricRaw = String(form.get("rubric") ?? "[]");
   const checkerRaw = String(form.get("checker") ?? "").trim();
 
@@ -70,7 +71,7 @@ export async function saveTaskAction(form: FormData) {
 }
 
 export async function toggleTaskAction(form: FormData) {
-  const id = String(form.get("id"));
+  const id = formId(form);
   const t = await prisma.benchTask.findUniqueOrThrow({ where: { id }, select: { isActive: true } });
   await prisma.benchTask.update({ where: { id }, data: { isActive: !t.isActive } });
   revalidateBench();
@@ -82,7 +83,7 @@ export async function toggleTaskAction(form: FormData) {
  * эс тэгвээс эрэмбэ хуучин оноон дээр үлдэнэ.
  */
 export async function scoreResultAction(form: FormData) {
-  const id = String(form.get("id"));
+  const id = formId(form);
   const raw = String(form.get("humanScore") ?? "").trim();
   const note = String(form.get("humanNote") ?? "").trim();
 

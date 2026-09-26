@@ -5,7 +5,7 @@ import { currentUser } from "@/auth/session";
 import { ActionForm, input, Submit } from "@/components/AuthForm";
 import { GoogleButton } from "@/components/GoogleButton";
 
-export const metadata = { title: "Нэвтрэх" };
+export const metadata = { title: "Нэвтрэх", robots: { index: false } };
 
 export default async function LoginPage({
   searchParams,

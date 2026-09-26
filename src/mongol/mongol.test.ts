@@ -168,7 +168,8 @@ test("extractLinks: ижил хост, давхардалгүй, гарчигт�
   assert.deepEqual(extractLinks(LISTING, "https://ikon.mn/list", "!!!буруу"), []);
   assert.deepEqual(extractLinks("", "https://ikon.mn/list", "a"), []);
   assert.ok(MAX_LINKS > 0);
-  assert.match(USER_AGENT, /^AINewsBot\/1\.0 \(\+https:\/\/ai-news\.mn\)$/);
+  // Домэйныг SITE_URL-ээс авдаг тул хатуу бичихгүй — зөвхөн хэлбэрийг шалгана
+  assert.match(USER_AGENT, /^AINewsBot\/1\.0 \(\+https?:\/\/\S+\)$/);
 });
 
 test("parseRobots: бидний нэрийн блок нь * -аас давуу", () => {

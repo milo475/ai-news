@@ -4,6 +4,7 @@
 import { prisma } from "../db";
 import type { GuideLevel } from "../generated/prisma/enums";
 import type { Prisma } from "../generated/prisma/client";
+import { memoTtl, TTL } from "../lib/cache.api";
 
 export interface GuideCard {
   id: string;
@@ -62,7 +63,7 @@ export interface GuideFilters {
 }
 
 /** Нийтлэгдсэн зааврууд, шүүлтүүртэй */
-export async function listGuides(f: GuideFilters = {}, limit?: number): Promise<GuideCard[]> {
+async function listGuidesUncached(f: GuideFilters = {}, limit?: number): Promise<GuideCard[]> {
   const rows = await prisma.guide.findMany({
     where: {
       status: "PUBLISHED",
@@ -78,7 +79,7 @@ export async function listGuides(f: GuideFilters = {}, limit?: number): Promise<
 }
 
 /** Шүүлтүүрийн сонголтууд — байгаа өгөгдлөөс л бүрдэнэ */
-export async function guideFacets(): Promise<{ levels: GuideLevel[]; audiences: string[]; tools: string[] }> {
+async function guideFacetsUncached(): Promise<{ levels: GuideLevel[]; audiences: string[]; tools: string[] }> {
   const rows = await prisma.guide.findMany({
     where: { status: "PUBLISHED" },
     select: { level: true, audience: true, tools: true },
@@ -142,6 +143,15 @@ export async function relatedGuides(g: GuideDetail, limit = 3): Promise<GuideCar
 }
 
 /** Нүүрний "Шинэ заавар" блок */
-export async function latestGuides(limit = 3): Promise<GuideCard[]> {
+async function latestGuidesUncached(limit = 3): Promise<GuideCard[]> {
   return listGuides({}, limit);
 }
+
+/** Заавар нь мөнхийн контент — өдөрт нэг шинэчилнэ */
+export const listGuides: typeof listGuidesUncached = memoTtl(listGuidesUncached, { name: "listGuides", ttlMs: TTL.guide });
+
+/** Шүүлтүүрийн утгууд */
+export const guideFacets: typeof guideFacetsUncached = memoTtl(guideFacetsUncached, { name: "guideFacets", ttlMs: TTL.guide });
+
+/** Нүүр хуудсанд гарах сүүлийн заавар */
+export const latestGuides: typeof latestGuidesUncached = memoTtl(latestGuidesUncached, { name: "latestGuides", ttlMs: TTL.home });

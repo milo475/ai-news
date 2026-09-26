@@ -8,6 +8,7 @@ import { TrackEvent } from "@/components/Track";
 import { benchScoreFor } from "@/bench/queries";
 import { CompareSelect } from "@/components/CompareSelect";
 import { comparableModels } from "@/compare/queries";
+import { BreadcrumbLd } from "@/components/Breadcrumbs";
 
 export const revalidate = 3600;
 
@@ -16,7 +17,15 @@ type Params = { slug: string[] };
 export async function generateMetadata({ params }: { params: Promise<Params> }) {
   const slug = (await params).slug.join("/");
   const m = await getModel(slug);
-  return { title: m ? m.nameMn ?? m.name : "Модель" };
+  if (!m) return { title: "Модель" };
+  const name = m.nameMn ?? m.name;
+  return {
+    title: name,
+    description:
+      m.descriptionMn ??
+      `${name} (${m.company.name}) — хэрэглээний эрэмбэ, чанарын оноо, үнэ, техник үзүүлэлт, холбогдох мэдээ монголоор.`,
+    alternates: { canonical: `/model/${slug}` },
+  };
 }
 
 export default async function ModelPage({ params }: { params: Promise<Params> }) {
@@ -50,6 +59,7 @@ export default async function ModelPage({ params }: { params: Promise<Params> })
 
   return (
     <div className="space-y-8">
+      <BreadcrumbLd crumbs={[{ name: "Моделийн жагсаалт", path: "/jagsaalt" }, { name: m.nameMn ?? m.name }]} />
       <TrackEvent event="model_view" data={{ slug }} />
       <div className="space-y-2">
         <Link href="/jagsaalt" className="text-sm text-muted hover:text-ink">← Жагсаалт</Link>

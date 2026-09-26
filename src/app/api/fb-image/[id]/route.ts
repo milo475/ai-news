@@ -5,11 +5,12 @@
  * дамжуулах боломжгүй). /admin дээрх урьдчилсан харалтад хэрэглэнэ.
  */
 import { prisma } from "@/db";
+import { imageResponse } from "@/lib/image-response";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
+export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const a = await prisma.article.findUnique({
     where: { id },
@@ -17,14 +18,11 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
   });
   if (!a?.fbImageData) return new Response("Not found", { status: 404 });
 
-  return new Response(new Uint8Array(a.fbImageData), {
-    headers: {
-      "Content-Type": "image/jpeg",
-      "Content-Length": String(a.fbImageData.length),
-      // Нийтийн зураг: Instagram-ийн сервер энэ хаягаар татдаг тул public байх ёстой.
-      // /admin дээр ?v=<fbImageAt> параметрээр кэш шинэчлэгддэг.
-      "Cache-Control": "public, max-age=3600",
-      "Last-Modified": (a.fbImageAt ?? new Date()).toUTCString(),
-    },
+  // Нийтийн зураг: Instagram-ийн сервер энэ хаягаар татдаг тул public байх ёстой.
+  // ?v=<fbImageAt> өгсөн бол immutable — карт дахин үүсэхэд шинэ хаяг болно.
+  return imageResponse(req, {
+    data: a.fbImageData,
+    contentType: "image/jpeg",
+    updatedAt: a.fbImageAt,
   });
 }

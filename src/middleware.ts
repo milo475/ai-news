@@ -12,8 +12,27 @@
  */
 import { NextResponse, type NextRequest } from "next/server";
 import { isCanonicalPair, pairKey, parsePair } from "./compare/pair.api";
+import { isOldHost, siteUrl } from "./lib/site";
+import { securityHeaders } from "./lib/headers";
+import { clientIp, createLimiter, rateLimitHeaders } from "./lib/ratelimit.api";
 
-export const config = { matcher: ["/admin/:path*", "/profile/:path*", "/harits/:pair"] };
+export const config = {
+  // Бүх хуудсанд security header ба хуучин домэйний шилжүүлэг хэрэгтэй тул
+  // static файл, зургийн route-оос бусдыг бүгдийг барина.
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|icon.svg|apple-icon.png|opengraph-image.png).*)"],
+};
+
+/**
+ * /api/* дээрх IP-ийн хязгаар: минутад 60 хүсэлт.
+ *
+ * Зураг, OG, health-ийг оруулахгүй — тэдгээрийг Facebook, Google, Railway-ийн
+ * сервер олноор дууддаг бөгөөд хямд (кэштэй) хариу өгдөг.
+ */
+const API_LIMIT = 60;
+const apiLimiter = createLimiter({ limit: API_LIMIT, windowMs: 60_000 });
+
+/** Хязгаараас чөлөөлөх /api дэд замууд */
+const RATE_EXEMPT = /^\/api\/(og|fb-image|hero-image|guide-image|tool-logo|health|auth)\b/;
 
 /** Auth.js-ийн session cookie (https дээр __Secure- угтвартай) */
 function hasSession(req: NextRequest): boolean {
@@ -39,22 +58,52 @@ function timingSafeEqual(a: string, b: string): boolean {
 export function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
+  // 1. Хуучин домэйноор ирсэн бол шинэ рүү 301. Домэйн солиход хуучин холбоосууд
+  //    хайлтын системд зөв шилжинэ.
+  const host = req.headers.get("host");
+  if (isOldHost(host)) {
+    const target = new URL(`${siteUrl()}${pathname}`);
+    target.search = req.nextUrl.search;
+    return NextResponse.redirect(target, 301);
+  }
+
+  // embed route өөрийн CSP-тэй (frame-ancestors *) — дарж бичихгүй
+  if (pathname.endsWith("/embed")) return NextResponse.next();
+
+  // 2. /api хязгаар — нэг IP минутад 60 хүсэлт
+  if (pathname.startsWith("/api/") && !RATE_EXEMPT.test(pathname)) {
+    const r = apiLimiter.check(clientIp(req.headers));
+    const limitHeaders = rateLimitHeaders(API_LIMIT, r);
+    if (!r.ok) {
+      return NextResponse.json(
+        { error: "Хэт олон хүсэлт. Түр хүлээгээд дахин оролдоно уу." },
+        { status: 429, headers: limitHeaders },
+      );
+    }
+    const res = NextResponse.next();
+    for (const [k, v] of Object.entries(limitHeaders)) res.headers.set(k, v);
+    return res;
+  }
+
   if (pathname.startsWith("/harits/")) {
     const raw = decodeURIComponent(pathname.slice("/harits/".length));
     const parsed = parsePair(raw);
     // Танигдахгүй хаягийг хуудас өөрөө 404 болгоно
-    if (!parsed || isCanonicalPair(raw)) return NextResponse.next();
+    if (!parsed || isCanonicalPair(raw)) return withHeaders(NextResponse.next());
     const canonical = new URL(`/harits/${pairKey(parsed[0], parsed[1])}`, req.url);
     canonical.search = req.nextUrl.search;
     return NextResponse.redirect(canonical, 301);
   }
 
   if (pathname.startsWith("/profile")) {
-    if (hasSession(req)) return NextResponse.next();
+    if (hasSession(req)) return withHeaders(NextResponse.next());
     const login = new URL("/nevtreh", req.url);
     login.searchParams.set("ur", req.nextUrl.pathname);
     return NextResponse.redirect(login);
   }
+
+  // /admin биш бол цааш нь — зөвхөн header нэмээд явуулна
+  if (!pathname.startsWith("/admin")) return withHeaders(NextResponse.next());
 
   const password = process.env.ADMIN_PASSWORD;
   if (!password) {
@@ -81,5 +130,11 @@ export function middleware(req: NextRequest) {
   const ok = timingSafeEqual(user, "admin") && timingSafeEqual(pass, password);
   if (!ok) return new NextResponse("Нэр эсвэл нууц үг буруу.", { status: 401, headers: DENY });
 
-  return NextResponse.next();
+  return withHeaders(NextResponse.next());
+}
+
+/** Аюулгүй байдлын header-ууд — бүх хариунд */
+function withHeaders(res: NextResponse): NextResponse {
+  for (const [k, v] of Object.entries(securityHeaders())) res.headers.set(k, v);
+  return res;
 }

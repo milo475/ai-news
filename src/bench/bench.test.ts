@@ -312,11 +312,12 @@ test("benchCardSvg: топ 5, оноо, туузны урт", async () => {
     { rank: 5, name: "Grok 5", company: "xAI", score: 6.9 },
     { rank: 6, name: "Орохгүй", company: "Y", score: 6 },
   ];
-  const svg = benchCardSvg(rows, "2026 оны 10-р сар");
+  // Хостыг аргументаар өгнө — SVG нь env уншихгүй (цэвэр функц)
+  const svg = benchCardSvg(rows, "2026 оны 10-р сар", undefined, "ai-news.mn");
 
   assert.match(svg, /Монголоор хамгийн сайн/);
   assert.match(svg, /2026 оны 10-р сар/);
-  assert.match(svg, /ainews\.mn\/benchmark/);
+  assert.match(svg, /ai-news\.mn\/benchmark/);
   assert.match(svg, />8\.7</);
   assert.ok(!svg.includes("Орохгүй"), "зөвхөн топ 5");
   assert.ok(svg.includes("…"), "урт нэр тайрагдана");

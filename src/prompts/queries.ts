@@ -5,6 +5,7 @@ import { prisma } from "../db";
 import type { Prisma } from "../generated/prisma/client";
 import type { PromptCategory, PromptLanguage, PromptStatus } from "../generated/prisma/enums";
 import { pickOfDay, type Sort } from "./prompt.api";
+import { memoTtl, TTL } from "../lib/cache.api";
 
 export interface PromptCard {
   id: string;
@@ -52,7 +53,7 @@ const ORDER: Record<Sort, Prisma.PromptOrderByWithRelationInput[]> = {
   taalagdsan: [{ likes: "desc" }, { publishedAt: "desc" }],
 };
 
-export async function listPrompts(f: PromptFilters = {}, limit?: number): Promise<PromptCard[]> {
+async function listPromptsUncached(f: PromptFilters = {}, limit?: number): Promise<PromptCard[]> {
   const rows = await prisma.prompt.findMany({
     where: {
       status: "PUBLISHED",
@@ -68,7 +69,7 @@ export async function listPrompts(f: PromptFilters = {}, limit?: number): Promis
 }
 
 /** Шүүлтүүрийн сонголтууд — байгаа өгөгдлөөс */
-export async function promptFacets(): Promise<{
+async function promptFacetsUncached(): Promise<{
   categories: PromptCategory[];
   tools: string[];
   languages: PromptLanguage[];
@@ -92,7 +93,7 @@ export async function promptFacets(): Promise<{
   };
 }
 
-export async function getPrompt(slug: string): Promise<PromptDetail | null> {
+async function getPromptUncached(slug: string): Promise<PromptDetail | null> {
   const p = await prisma.prompt.findUnique({
     where: { slug },
     select: {
@@ -106,7 +107,7 @@ export async function getPrompt(slug: string): Promise<PromptDetail | null> {
 }
 
 /** Холбоотой prompt: эхлээд ижил ангилал, дутвал ижил хэрэгсэл */
-export async function relatedPrompts(p: PromptDetail, limit = 4): Promise<PromptCard[]> {
+async function relatedPromptsUncached(p: PromptDetail, limit = 4): Promise<PromptCard[]> {
   const picked = new Map<string, PromptCard>();
   const add = (rows: CardRow[]) => {
     for (const r of rows) if (r.id !== p.id && picked.size < limit) picked.set(r.id, toPromptCard(r));
@@ -132,7 +133,7 @@ export async function relatedPrompts(p: PromptDetail, limit = 4): Promise<Prompt
 }
 
 /** Prompt-ын хэрэгслүүдтэй давхцах заавар */
-export async function guidesForPrompt(tools: string[], limit = 2) {
+async function guidesForPromptUncached(tools: string[], limit = 2) {
   if (tools.length === 0) return [];
   const { guideCardSelect, toGuideCard } = await import("../guides/queries");
   const rows = await prisma.guide.findMany({
@@ -188,3 +189,18 @@ export async function promptCounts(): Promise<Record<PromptStatus, number>> {
   for (const r of rows) out[r.status] = r._count;
   return out;
 }
+
+/** Prompt-ийн жагсаалт */
+export const listPrompts: typeof listPromptsUncached = memoTtl(listPromptsUncached, { name: "listPrompts", ttlMs: TTL.list });
+
+/** Шүүлтүүрийн утгууд */
+export const promptFacets: typeof promptFacetsUncached = memoTtl(promptFacetsUncached, { name: "promptFacets", ttlMs: TTL.list });
+
+/** Prompt-ийн дэлгэрэнгүй */
+export const getPrompt: typeof getPromptUncached = memoTtl(getPromptUncached, { name: "getPrompt", ttlMs: TTL.list });
+
+/** Холбоотой prompt-ууд */
+export const relatedPrompts: typeof relatedPromptsUncached = memoTtl(relatedPromptsUncached, { name: "relatedPrompts", ttlMs: TTL.list, key: (p, limit = 4) => `${p.slug}:${limit}` });
+
+/** Prompt-д тохирох заавар */
+export const guidesForPrompt: typeof guidesForPromptUncached = memoTtl(guidesForPromptUncached, { name: "guidesForPrompt", ttlMs: TTL.list });

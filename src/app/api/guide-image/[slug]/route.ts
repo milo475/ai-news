@@ -4,11 +4,12 @@
  * Slug-аар дууддаг нь OG/JSON-LD-д тогтвортой хаяг өгөхийн тулд.
  */
 import { prisma } from "@/db";
+import { imageResponse } from "@/lib/image-response";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function GET(_req: Request, { params }: { params: Promise<{ slug: string }> }) {
+export async function GET(req: Request, { params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
   const g = await prisma.guide.findUnique({
     where: { slug },
@@ -16,12 +17,10 @@ export async function GET(_req: Request, { params }: { params: Promise<{ slug: s
   });
   if (!g?.heroImageData) return new Response("Not found", { status: 404 });
 
-  return new Response(new Uint8Array(g.heroImageData), {
-    headers: {
-      "Content-Type": "image/jpeg",
-      "Content-Length": String(g.heroImageData.length),
-      "Cache-Control": "public, max-age=86400",
-      "Last-Modified": (g.heroImageAt ?? new Date()).toUTCString(),
-    },
+  return imageResponse(req, {
+    data: g.heroImageData,
+    contentType: "image/jpeg",
+    updatedAt: g.heroImageAt,
+    maxAge: 86_400,
   });
 }

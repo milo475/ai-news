@@ -6,6 +6,7 @@ import { BENCH_CATEGORIES, BENCH_CATEGORY_LABEL } from "@/bench/task.api";
 import { heat } from "@/bench/summary.api";
 import { clamp, MAX_META_DESCRIPTION } from "@/guides/seo.api";
 import { siteUrl } from "@/lib/site";
+import { BreadcrumbLd } from "@/components/Breadcrumbs";
 
 export const dynamic = "force-dynamic";
 
@@ -36,6 +37,7 @@ export default async function BenchModelPage({ params }: { params: Promise<Param
 
   return (
     <article className="max-w-3xl space-y-6">
+      <BreadcrumbLd crumbs={[{ name: "Бенчмарк", path: "/benchmark" }, { name: row.name }]} />
       <TrackEvent event="bench_model_view" data={{ model: slug, month: d.month }} />
 
       <div className="space-y-2">

@@ -51,7 +51,13 @@ function clipName(name: string, max = 26): string {
 }
 
 /** Жагсаалтын брэндийн карт — 1080×1080 SVG (sharp-аар PNG болгоно) */
-export function rankingCardSvg(rows: RankingRow[], dateLabel: string, size = IMAGE_SIZE): string {
+export function rankingCardSvg(
+  rows: RankingRow[],
+  dateLabel: string,
+  size = IMAGE_SIZE,
+  /** Картын доод мөрөнд бичих хост — siteHost()-оос ирнэ */
+  host = "",
+): string {
   const top = rows.slice(0, 5);
   const rowH = 122;
   const top0 = 410;
@@ -74,7 +80,7 @@ export function rankingCardSvg(rows: RankingRow[], dateLabel: string, size = IMA
 ${header(size, "Хэрэглээний топ 5", `OpenRouter, ${dateLabel} · өмнөх өдрөөс`)}
   ${items.join("\n")}
 
-  <text x="88" y="${size - 70}" font-family="${FONT}" font-size="32" fill="${MUTED}">ainews.mn/jagsaalt</text>
+  <text x="88" y="${size - 70}" font-family="${FONT}" font-size="32" fill="${MUTED}">${esc(host)}/jagsaalt</text>
 </svg>`;
 }
 
@@ -91,7 +97,12 @@ export interface BenchRankingRow {
  *
  * Жагсаалтын картаас ялгаатай нь өсөлт/уналтын оронд 0–10 оноог харуулна.
  */
-export function benchCardSvg(rows: BenchRankingRow[], monthText: string, size = IMAGE_SIZE): string {
+export function benchCardSvg(
+  rows: BenchRankingRow[],
+  monthText: string,
+  size = IMAGE_SIZE,
+  host = "",
+): string {
   const top = rows.slice(0, 5);
   const rowH = 122;
   const top0 = 410;
@@ -113,6 +124,6 @@ export function benchCardSvg(rows: BenchRankingRow[], monthText: string, size = 
 ${header(size, "Монголоор хамгийн сайн", `${monthText} · 0–10 оноо`)}
   ${items.join("\n")}
 
-  <text x="88" y="${size - 70}" font-family="${FONT}" font-size="32" fill="${MUTED}">ainews.mn/benchmark</text>
+  <text x="88" y="${size - 70}" font-family="${FONT}" font-size="32" fill="${MUTED}">${esc(host)}/benchmark</text>
 </svg>`;
 }

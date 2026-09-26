@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { clearAllCaches } from "../lib/cache.api";
 
 const hasDb = Boolean(process.env.DATABASE_URL);
 
@@ -109,8 +110,11 @@ test("ангиллын шүүлт ба тоолол", { skip: !hasDb && "DATABAS
       assert.ok(groups[i - 1]!.count >= groups[i]!.count, "тооноос буурах эрэмбэ");
     }
 
-    // Ноорог болвол галерейгээс гарна
+    // Ноорог болвол галерейгээс гарна.
+    // Query-ууд TTL кэштэй тул мутацийн дараа кэшийг цэвэрлэнэ — production-д
+    // үүнийг revalidatePath (src/lib/revalidate.ts) хийдэг.
     await prisma.article.updateMany({ where: { slug: `gal-${tag}-2` }, data: { status: "DRAFT" } });
+    clearAllCaches();
     const after = await cardPage({ category: "RISK", size: 50 });
     assert.ok(!after.items.some((i) => i.slug === `gal-${tag}-2`));
   } finally {

@@ -4,6 +4,7 @@
 import { prisma } from "../db";
 import { pairKey } from "./pair.api";
 import type { CompareStats } from "./pair.api";
+import { memoTtl, TTL } from "../lib/cache.api";
 
 /** Decimal | null → number | null */
 function dec(v: unknown): number | null {
@@ -64,7 +65,7 @@ const modelSelect = {
 } as const;
 
 /** Нэг моделийн бүх үзүүлэлт */
-export async function statsFor(slugs: string[]): Promise<Map<string, CompareStats>> {
+async function statsForUncached(slugs: string[]): Promise<Map<string, CompareStats>> {
   if (slugs.length === 0) return new Map();
   const [models, bench, usage, arena] = await Promise.all([
     prisma.aiModel.findMany({ where: { slug: { in: slugs } }, select: modelSelect }),
@@ -104,7 +105,7 @@ export async function statsFor(slugs: string[]): Promise<Map<string, CompareStat
 }
 
 /** Хоёр моделийн харьцуулалт — аль нэг нь байхгүй бол null */
-export async function statsPair(a: string, b: string): Promise<[CompareStats, CompareStats] | null> {
+async function statsPairUncached(a: string, b: string): Promise<[CompareStats, CompareStats] | null> {
   const map = await statsFor([a, b]);
   const first = map.get(a);
   const second = map.get(b);
@@ -117,7 +118,7 @@ export async function statsPair(a: string, b: string): Promise<[CompareStats, Co
  * Бенчмарк, Arena, хэрэглээний жагсаалтын аль нэгэнд байгаа моделиуд л орно;
  * каталогийн 300+ моделийг бүгдийг харуулбал сонголт утгагүй болно.
  */
-export async function comparableModels(limit = 40): Promise<CompareStats[]> {
+async function comparableModelsUncached(limit = 40): Promise<CompareStats[]> {
   const [bench, usage, arena] = await Promise.all([
     benchStats(),
     rankStats("OPENROUTER_USAGE"),
@@ -134,7 +135,7 @@ export async function comparableModels(limit = 40): Promise<CompareStats[]> {
 }
 
 /** Топ хэрэглээний моделиуд — урьдчилан үүсгэх хослолд */
-export async function topUsageSlugs(limit = 10): Promise<string[]> {
+async function topUsageSlugsUncached(limit = 10): Promise<string[]> {
   const usage = await rankStats("OPENROUTER_USAGE");
   return [...usage]
     .filter(([, r]) => r.rank <= limit)
@@ -143,7 +144,7 @@ export async function topUsageSlugs(limit = 10): Promise<string[]> {
 }
 
 /** Бенчмаркийн топ моделиуд */
-export async function topBenchSlugs(limit = 5): Promise<string[]> {
+async function topBenchSlugsUncached(limit = 5): Promise<string[]> {
   const run = await prisma.benchRun.findFirst({
     where: { status: { in: ["DONE", "BUDGET"] } },
     orderBy: { month: "desc" },
@@ -164,7 +165,7 @@ export async function topBenchSlugs(limit = 5): Promise<string[]> {
  *
  * Дүгнэлтийг build үед биш, эхний үзэлтэд (lazy) бичүүлнэ — build-ыг LLM-ээс хамааралгүй байлгана.
  */
-export async function plannedPairs(): Promise<string[]> {
+async function plannedPairsUncached(): Promise<string[]> {
   const [usage, bench] = await Promise.all([topUsageSlugs(10), topBenchSlugs(5)]);
   const slugs = [...new Set([...usage, ...bench])];
   const pairs = new Set<string>();
@@ -175,7 +176,7 @@ export async function plannedPairs(): Promise<string[]> {
 }
 
 /** Хамгийн их үзэгдсэн харьцуулалтууд */
-export async function topComparisons(limit = 10) {
+async function topComparisonsUncached(limit = 10) {
   const rows = await prisma.aiModelComparison.findMany({
     where: { views: { gt: 0 } },
     orderBy: { views: "desc" },
@@ -199,7 +200,7 @@ export async function countView(key: string): Promise<void> {
 }
 
 /** Тухайн моделийн хамгийн алдартай 5 хослол — «X vs бусад» */
-export async function relatedPairsFor(slug: string, limit = 5): Promise<string[]> {
+async function relatedPairsForUncached(slug: string, limit = 5): Promise<string[]> {
   const encoded = slug.replaceAll("/", "~");
   const rows = await prisma.aiModelComparison.findMany({
     where: { pairKey: { contains: encoded } },
@@ -214,3 +215,27 @@ export async function relatedPairsFor(slug: string, limit = 5): Promise<string[]
   const planned = (await plannedPairs()).filter((k) => k.includes(encoded));
   return [...new Set([...found, ...planned])].slice(0, limit);
 }
+
+/** Моделийн үзүүлэлтүүд */
+export const statsFor: typeof statsForUncached = memoTtl(statsForUncached, { name: "statsFor", ttlMs: TTL.list });
+
+/** Харьцуулах хос */
+export const statsPair: typeof statsPairUncached = memoTtl(statsPairUncached, { name: "statsPair", ttlMs: TTL.list });
+
+/** Харьцуулж болох моделиуд */
+export const comparableModels: typeof comparableModelsUncached = memoTtl(comparableModelsUncached, { name: "comparableModels", ttlMs: TTL.list });
+
+/** Хэрэглээгээр тэргүүлэгчид */
+export const topUsageSlugs: typeof topUsageSlugsUncached = memoTtl(topUsageSlugsUncached, { name: "topUsageSlugs", ttlMs: TTL.list });
+
+/** Бенчмаркаар тэргүүлэгчид */
+export const topBenchSlugs: typeof topBenchSlugsUncached = memoTtl(topBenchSlugsUncached, { name: "topBenchSlugs", ttlMs: TTL.list });
+
+/** Урьдчилан бэлтгэх хосууд */
+export const plannedPairs: typeof plannedPairsUncached = memoTtl(plannedPairsUncached, { name: "plannedPairs", ttlMs: TTL.list });
+
+/** Хамгийн их үзсэн харьцуулалт */
+export const topComparisons: typeof topComparisonsUncached = memoTtl(topComparisonsUncached, { name: "topComparisons", ttlMs: TTL.list });
+
+/** Холбоотой хосууд */
+export const relatedPairsFor: typeof relatedPairsForUncached = memoTtl(relatedPairsForUncached, { name: "relatedPairsFor", ttlMs: TTL.list });

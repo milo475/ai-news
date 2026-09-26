@@ -1,3 +1,4 @@
+import Image from "next/image";
 import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 import Link from "next/link";
@@ -17,6 +18,7 @@ import { tocFromMarkdown } from "@/guides/markdown.api";
 import { clamp, faqJsonLd, guideUrl, howToJsonLd, MAX_META_DESCRIPTION, MAX_META_TITLE } from "@/guides/seo.api";
 import { bumpViews } from "@/guides/views";
 import { siteUrl } from "@/lib/site";
+import { BreadcrumbLd } from "@/components/Breadcrumbs";
 
 export const dynamic = "force-dynamic";
 
@@ -73,6 +75,7 @@ export default async function GuidePage({ params }: { params: Promise<Params> })
 
   return (
     <div className="lg:grid lg:grid-cols-[200px_minmax(0,1fr)] lg:gap-10">
+      <BreadcrumbLd crumbs={[{ name: "Заавар", path: "/zaavar" }, { name: g.title }]} />
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(faq ? [howTo, faq] : howTo) }}
@@ -98,10 +101,13 @@ export default async function GuidePage({ params }: { params: Promise<Params> })
         </div>
 
         {g.hasHero && (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
+          <Image
             src={`/api/guide-image/${slug}`}
             alt=""
+            width={1200}
+            height={675}
+            priority
+            sizes="(max-width: 1024px) 100vw, 800px"
             className="w-full aspect-video object-cover rounded-lg border border-line"
           />
         )}

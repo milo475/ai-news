@@ -1,3 +1,4 @@
+import Image from "next/image";
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { currentUser } from "@/auth/session";
@@ -10,15 +11,19 @@ import { Tags } from "@/components/NewsList";
 import { NewsletterForm } from "@/components/NewsletterForm";
 import { fmtDate } from "@/components/format";
 import { CardShare } from "@/components/CardShare";
-import { sharePlatforms } from "@/gallery/card.api";
+import { cardImageUrl, sharePlatforms } from "@/gallery/card.api";
 import { getCard } from "@/gallery/queries";
+import { siteUrl } from "@/lib/site";
+import { BreadcrumbLd } from "@/components/Breadcrumbs";
+import { JsonLd } from "@/components/JsonLd";
+import { newsArticleJsonLd } from "@/lib/jsonld.api";
 
 export const revalidate = 3600;
 
 type Params = { slug: string };
 
 /** Facebook-ийн crawler-т үнэмлэхүй хаяг хэрэгтэй */
-const SITE_URL = (process.env.SITE_URL ?? "http://localhost:3000").replace(/\/+$/, "");
+const SITE_URL = siteUrl();
 
 export async function generateMetadata({ params }: { params: Promise<Params> }) {
   const { slug } = await params;
@@ -28,6 +33,7 @@ export async function generateMetadata({ params }: { params: Promise<Params> }) 
   return {
     title: n.titleMn,
     description: n.summaryMn,
+    alternates: { canonical: `/medee/${slug}` },
     openGraph: {
       type: "article",
       title: n.titleMn,
@@ -53,6 +59,20 @@ export default async function NewsPage({ params }: { params: Promise<Params> }) 
 
   return (
     <article className="max-w-2xl space-y-6">
+      <BreadcrumbLd crumbs={[{ name: "Мэдээ", path: "/medee" }, { name: n.titleMn }]} />
+      <JsonLd
+        data={newsArticleJsonLd({
+          siteUrl: SITE_URL,
+          slug,
+          title: n.titleMn,
+          description: n.summaryMn,
+          publishedAt: n.publishedAt,
+          imageUrl: `${SITE_URL}/api/og/${slug}`,
+          sourceName: n.kind === "NEWS" ? n.sourceName : null,
+          sourceUrl: n.kind === "NEWS" ? n.sourceUrl : null,
+          tags: n.tags,
+        })}
+      />
       <div className="space-y-2">
         <Link href="/medee" className="text-sm text-muted hover:text-ink">← Мэдээ</Link>
         {n.kind === "DIGEST" && (
@@ -64,7 +84,7 @@ export default async function NewsPage({ params }: { params: Promise<Params> }) 
           {n.kind === "NEWS" && (
             <>
               {" · "}{n.sourceName}{" · "}
-              <a href={n.sourceUrl} target="_blank" rel="noopener nofollow" className="text-accent hover:underline">
+              <a href={n.sourceUrl} target="_blank" rel="noopener nofollow" className="text-accent underline">
                 Эх сурвалж →
               </a>
             </>
@@ -77,10 +97,14 @@ export default async function NewsPage({ params }: { params: Promise<Params> }) 
       </div>
 
       {n.heroUrl && (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
+        // Хуудасны хамгийн том зураг — priority-гээр LCP-г түргэсгэнэ
+        <Image
           src={n.heroUrl}
           alt=""
+          width={1200}
+          height={675}
+          priority
+          sizes="(max-width: 768px) 100vw, 672px"
           className="w-full aspect-video object-cover rounded-lg border border-line"
         />
       )}
@@ -119,13 +143,12 @@ export default async function NewsPage({ params }: { params: Promise<Params> }) 
           </div>
           <div className="flex flex-wrap gap-4 items-start">
             <Link href={`/barimt/${slug}`} className="shrink-0">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={`/api/fb-image/${card.id}`}
+              <Image
+                src={cardImageUrl(card.id, card.cardAt)}
                 alt={card.hook}
                 width={1080}
                 height={1350}
-                loading="lazy"
+                sizes="160px"
                 className="w-40 aspect-4/5 object-cover rounded-lg border border-line"
               />
             </Link>
@@ -157,7 +180,7 @@ export default async function NewsPage({ params }: { params: Promise<Params> }) 
       ) : (
         <p className="text-xs text-muted border-t border-line pt-4">
           Энэ хураангуйг AI agent эх сурвалжаас бэлтгэж, редактор хянан нийтэлсэн. Бүрэн мэдээллийг{" "}
-          <a href={n.sourceUrl} target="_blank" rel="noopener nofollow" className="text-accent hover:underline">
+          <a href={n.sourceUrl} target="_blank" rel="noopener nofollow" className="text-accent underline">
             эх сурвалжаас
           </a>{" "}
           уншина уу.

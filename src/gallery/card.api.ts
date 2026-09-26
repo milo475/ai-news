@@ -163,3 +163,14 @@ export function parseCategory(
   const key = (raw ?? "").trim().toUpperCase();
   return allowed.includes(key) ? (key as ArticleCategory) : undefined;
 }
+
+/**
+ * Картын зургийн хаяг.
+ *
+ * `?v=<cardAt>` нэмэхэд сервер нь `Cache-Control: immutable` өгдөг (src/lib/image-response.ts):
+ * хөтөч дахин хэзээ ч асуухгүй, карт дахин үүсэхэд хаяг нь өөрчлөгдөж шинэчлэгдэнэ.
+ */
+export function cardImageUrl(id: string, cardAt: Date | null): string {
+  const base = `/api/fb-image/${id}`;
+  return cardAt ? `${base}?v=${cardAt.getTime()}` : base;
+}

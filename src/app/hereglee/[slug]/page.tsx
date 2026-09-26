@@ -7,6 +7,7 @@ import { TrackEvent } from "@/components/Track";
 import { ToolGrid } from "@/components/ToolList";
 import { categoryForUseCase } from "@/tools/tool.api";
 import { topToolsForCategory } from "@/tools/queries";
+import { BreadcrumbLd } from "@/components/Breadcrumbs";
 
 export const revalidate = 3600;
 
@@ -21,7 +22,11 @@ const PRICING: Record<UseCaseToolRow["pricing"], string> = {
 export async function generateMetadata({ params }: { params: Promise<Params> }) {
   const u = await getUseCase((await params).slug);
   if (!u) return { title: "Хэрэглээ" };
-  return { title: u.nameMn, description: u.descriptionMn };
+  return {
+    title: u.nameMn,
+    description: u.descriptionMn,
+    alternates: { canonical: `/hereglee/${u.slug}` },
+  };
 }
 
 export default async function UseCasePage({ params }: { params: Promise<Params> }) {
@@ -35,6 +40,7 @@ export default async function UseCasePage({ params }: { params: Promise<Params> 
 
   return (
     <div className="space-y-8">
+      <BreadcrumbLd crumbs={[{ name: "Хэрэглээний жишээ", path: "/hereglee" }, { name: u.nameMn }]} />
       <TrackEvent event="usecase_view" data={{ slug: u.slug }} />
       <div className="space-y-2 max-w-2xl">
         <Link href="/hereglee" className="text-sm text-muted hover:text-ink">← Хэрэглээ</Link>

@@ -1,3 +1,4 @@
+import Image from "next/image";
 import Link from "next/link";
 import type { GuideCard } from "@/guides/queries";
 import { LEVEL_LABEL } from "@/guides/write.api";
@@ -21,13 +22,14 @@ export function GuideItem({
 }) {
   return (
     <li className="rounded-lg border border-line overflow-hidden hover:bg-line/20 flex flex-col">
-      <Link href={`/zaavar/${guide.slug}`} className="block">
+      <Link href={`/zaavar/${guide.slug}`} className="block" aria-label={guide.title} tabIndex={-1}>
         {guide.hasHero ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
+          <Image
             src={`/api/guide-image/${guide.slug}`}
             alt=""
-            loading="lazy"
+            width={1200}
+            height={675}
+            sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 380px"
             className="w-full aspect-video object-cover border-b border-line"
           />
         ) : (

@@ -1,6 +1,6 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
+import { revalidatePath } from "@/lib/revalidate";
 import { redirect } from "next/navigation";
 import { prisma } from "@/db";
 import { slugify } from "@/agent/slug";
@@ -8,6 +8,7 @@ import { extractVariables, PROMPT_CATEGORIES, PROMPT_LANGUAGES } from "@/prompts
 import { uniquePromptSlug } from "@/prompts/mutations";
 import { sendPromptApproved, sendPromptRejected } from "@/prompts/mail";
 import type { PromptCategory, PromptLanguage } from "@/generated/prisma/enums";
+import { formId } from "@/lib/validate";
 
 function revalidatePrompt(slug?: string) {
   revalidatePath("/");
@@ -26,7 +27,7 @@ function back(msg: string, open?: string): never {
 
 /** Батлах — нийтэлж, зохиогчид мэдэгдэнэ */
 export async function approvePromptAction(form: FormData) {
-  const id = String(form.get("id"));
+  const id = formId(form);
   const p = await prisma.prompt.update({
     where: { id },
     data: { status: "PUBLISHED", publishedAt: new Date(), rejectReason: null },
@@ -40,7 +41,7 @@ export async function approvePromptAction(form: FormData) {
 
 /** Татгалзах — шалтгааныг хадгалж, зохиогчид мэдэгдэнэ */
 export async function rejectPromptAction(form: FormData) {
-  const id = String(form.get("id"));
+  const id = formId(form);
   const reason = String(form.get("reason") ?? "").trim();
   if (reason.length < 3) back("Татгалзах шалтгаанаа бичнэ үү.", id);
 
@@ -57,7 +58,7 @@ export async function rejectPromptAction(form: FormData) {
 
 /** Засах. publish=true бол хадгалаад нийтэлнэ. */
 async function save(form: FormData, publish: boolean) {
-  const id = String(form.get("id"));
+  const id = formId(form);
   const current = await prisma.prompt.findUniqueOrThrow({
     where: { id },
     select: { slug: true, status: true },
@@ -107,7 +108,7 @@ export async function saveAndPublishPromptAction(form: FormData) {
 }
 
 export async function deletePromptAction(form: FormData) {
-  const id = String(form.get("id"));
+  const id = formId(form);
   const p = await prisma.prompt.delete({ where: { id }, select: { slug: true } });
   revalidatePrompt(p.slug);
   back("Устгалаа.");

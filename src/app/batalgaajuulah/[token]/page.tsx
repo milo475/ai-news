@@ -2,7 +2,7 @@ import Link from "next/link";
 import { verifyEmail } from "@/auth/actions";
 import { TrackEvent } from "@/components/Track";
 
-export const metadata = { title: "Имэйл баталгаажуулах" };
+export const metadata = { title: "Имэйл баталгаажуулах", robots: { index: false } };
 export const dynamic = "force-dynamic";
 
 export default async function VerifyPage({ params }: { params: Promise<{ token: string }> }) {

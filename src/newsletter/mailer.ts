@@ -2,6 +2,8 @@
  * Resend-ээр имэйл илгээх нимгэн давхарга.
  * RESEND_API_KEY байхгүй бол илгээхгүй — дуудагч нь алгасна.
  */
+import { siteHost } from "../lib/site";
+
 export interface Mail {
   to: string;
   subject: string;
@@ -22,7 +24,7 @@ export function isConfigured(): boolean {
 }
 
 function from(): string {
-  return process.env.NEWSLETTER_FROM ?? "AI News <noreply@ainews.mn>";
+  return process.env.NEWSLETTER_FROM ?? `AI News <noreply@${siteHost()}>`;
 }
 
 /** Дуудагч нь тестэд өөрийн илгээгчээр солино */

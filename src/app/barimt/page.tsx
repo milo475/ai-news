@@ -1,12 +1,14 @@
+import Image from "next/image";
 import Link from "next/link";
 import { CardGallery } from "@/components/CardGallery";
 import { TrackEvent } from "@/components/Track";
 import { CATEGORIES, CATEGORY_LABEL } from "@/agent/category";
-import { parseCategory, sharePlatforms } from "@/gallery/card.api";
+import { cardImageUrl, parseCategory, sharePlatforms } from "@/gallery/card.api";
 import { cardCategories, cardPage, weeklyBestCards } from "@/gallery/queries";
 import { clamp, MAX_META_DESCRIPTION } from "@/guides/seo.api";
 import { siteUrl } from "@/lib/site";
 import { fmtDate } from "@/components/format";
+import { BreadcrumbLd } from "@/components/Breadcrumbs";
 
 export const dynamic = "force-dynamic";
 
@@ -40,6 +42,7 @@ export default async function BarimtPage({
 
   return (
     <div className="space-y-6">
+      <BreadcrumbLd crumbs={[{ name: "Өдрийн баримт" }]} />
       {category && <TrackEvent event="card_filter" data={{ category }} />}
 
       <section className="space-y-2">
@@ -54,12 +57,12 @@ export default async function BarimtPage({
             {best.map((c) => (
               <li key={c.id}>
                 <Link href={`/barimt/${c.slug}`} className="block group">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={`/api/fb-image/${c.id}`}
+                  <Image
+                    src={cardImageUrl(c.id, c.cardAt)}
                     alt={c.hook}
                     width={1080}
                     height={1350}
+                    sizes="(max-width: 640px) 30vw, 150px"
                     className="w-full aspect-4/5 object-cover rounded-lg border border-line group-hover:border-accent/50"
                   />
                   <p className="mt-1 text-xs text-muted line-clamp-2">{c.hook}</p>

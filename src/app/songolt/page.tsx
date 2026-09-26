@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Quiz } from "@/components/Quiz";
 import { clamp, MAX_META_DESCRIPTION } from "@/guides/seo.api";
 import { siteUrl } from "@/lib/site";
+import { BreadcrumbLd } from "@/components/Breadcrumbs";
 
 export const dynamic = "force-dynamic";
 
@@ -18,12 +19,14 @@ export const metadata = {
     title: "Надад ямар AI тохирох вэ?",
     description: clamp(DESCRIPTION, MAX_META_DESCRIPTION),
     url: `${siteUrl()}/songolt`,
+    images: [{ url: "/opengraph-image.png", width: 1200, height: 630 }],
   },
 };
 
 export default function SongoltPage() {
   return (
     <div className="max-w-xl mx-auto space-y-6">
+      <BreadcrumbLd crumbs={[{ name: "Надад ямар AI тохирох вэ?" }]} />
       <div className="space-y-2">
         <h1 className="text-3xl font-semibold tracking-tight">Надад ямар AI тохирох вэ?</h1>
         <p className="text-muted">{DESCRIPTION}</p>

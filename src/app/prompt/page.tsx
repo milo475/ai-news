@@ -11,6 +11,7 @@ import {
 import { clamp, MAX_META_DESCRIPTION } from "@/guides/seo.api";
 import { siteUrl } from "@/lib/site";
 import type { PromptCategory, PromptLanguage } from "@/generated/prisma/enums";
+import { BreadcrumbLd } from "@/components/Breadcrumbs";
 
 export const dynamic = "force-dynamic";
 
@@ -75,6 +76,7 @@ export default async function PromptsPage({ searchParams }: { searchParams: Prom
 
   return (
     <div className="space-y-6">
+      <BreadcrumbLd crumbs={[{ name: "Prompt сан" }]} />
       {filtered && (
         <TrackEvent
           event="prompt_filter"

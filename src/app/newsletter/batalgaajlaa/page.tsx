@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { TrackEvent } from "@/components/Track";
 
-export const metadata = { title: "Баталгаажлаа" };
+export const metadata = { title: "Баталгаажлаа", robots: { index: false } };
 
 export default async function Batalgaajlaa({ searchParams }: { searchParams: Promise<{ aldaa?: string }> }) {
   const failed = (await searchParams).aldaa === "1";

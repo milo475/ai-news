@@ -4,9 +4,10 @@
  * Source.listUrl (жагсаалтын хуудас) + Source.linkSelector (CSS) → холбоосууд.
  */
 import { parseHTML } from "linkedom";
+import { userAgent } from "../lib/site";
 
 /** Бүх хүсэлтэд явах нэр — сайт эздэд бид хэн болохыг мэдэгдэнэ */
-export const USER_AGENT = "AINewsBot/1.0 (+https://ai-news.mn)";
+export const USER_AGENT = userAgent();
 
 /** Нэг жагсаалтын хуудаснаас хамгийн ихдээ хэдэн холбоос авах вэ */
 export const MAX_LINKS = 40;

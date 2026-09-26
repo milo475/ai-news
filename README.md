@@ -482,6 +482,12 @@ Cron сервис ажиллах бүрдээ `prisma migrate deploy` (advisory 
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Google-ээр нэвтрэх (заавал биш) |
 | `OPENROUTER_API_KEY` | зөвхөн `/admin` дээрх «Дахин бичүүлэх» товчинд |
 | `NEXT_PUBLIC_UMAMI_URL`, `NEXT_PUBLIC_UMAMI_WEBSITE_ID` | analytics — [Analytics (Umami)](#analytics-umami) |
+| `OLD_HOSTS` | хуучин домэйнууд, таслалаар. Тэднээр ирсэн хүсэлтийг `SITE_URL` руу **301** — [Домэйн солих](#домэйн-солих) |
+| `CSP_ENFORCE` | `true` бол CSP-г хатуу горимд (анхдагч: report-only) |
+| `FB_PAGE_ID`, `IG_USERNAME` | хөлийн Facebook/Instagram холбоос ба схемийн `sameAs` |
+| `RESEND_API_KEY`, `ADMIN_EMAIL` | долоо хоногийн админ тайлан (cron дээр ч хэрэгтэй) |
+| `APP_ROLE` | `web` — холболтын сангийн хэмжээг сонгоно (`start:web` өөрөө тавьдаг) |
+| `PRISMA_POOL_MAX` | холболтын сангийн хэмжээг гараар дарах (анхдагч: web 10, cron 5) |
 | `NEXT_TELEMETRY_DISABLED` | `1` |
 
 **cron**
@@ -500,6 +506,49 @@ Cron сервис ажиллах бүрдээ `prisma migrate deploy` (advisory 
 | `FB_POSTS_PER_RUN` | нэг run-д хэдэн пост (default 1 → өдөрт 3) |
 | `FB_COPY_MODEL` | FB текстийн модель (хоосон бол `WRITE_MODEL`) |
 | `IMAGE_MODEL`, `FB_IMAGE_DAILY_LIMIT`, `FB_USE_SOURCE_IMAGE` | FB постын зураг — [Facebook](#facebook--өдөрт-3-пост) |
+| `RESEND_API_KEY`, `ADMIN_EMAIL` | Ням гарагийн админ тайлан (`npm run report:weekly`) |
+| `APP_ROLE` | `cron` — холболтын сан 5 (`start:cron` өөрөө тавьдаг) |
+
+## Домэйн солих
+
+Сайтын хаяг **зөвхөн нэг газар** тодорхойлогдоно: `SITE_URL` env → `src/lib/site.ts`
+(`siteUrl()`, `absUrl()`, `siteHost()`, `userAgent()`). Кодод хатуу бичсэн домэйн байхгүй
+(`grep -rn "railway.app\|ainews.mn" src/` → 0).
+
+Шинэ домэйн руу шилжих дараалал:
+
+1. **DNS.** Домэйн нийлүүлэгч дээр `CNAME`-ээ Railway-ийн өгсөн хаяг руу заана
+   (`www` дэд домэйн). Үндсэн домэйн (apex) бол Railway-ийн `A`/`ALIAS` заавраар.
+2. **Railway → web сервис → Settings → Domains → Custom Domain.** Домэйнээ нэмээд
+   гэрчилгээ (Let's Encrypt) гарахыг хүлээнэ — ихэвчлэн хэдэн минут.
+3. **Env.** web ба cron сервис хоёуланд:
+   - `SITE_URL=https://<шинэ домэйн>` (төгсгөлд ташуу зураасгүй)
+   - `AUTH_URL=https://<шинэ домэйн>` — `SITE_URL`-тай яг ижил
+   - `OLD_HOSTS=<хуучин>.up.railway.app` (олон бол таслалаар) — хуучин холбоосууд
+     **301**-ээр шинэ рүү шилжинэ, хайлтын систем эрхээ дамжуулна
+4. **Дахин deploy.** Зөвхөн хувьсагч солиход Railway хуучин image-аа дахин ажиллуулдаг.
+   `SITE_URL` нь sitemap, robots, RSS-д **хүсэлтийн үед** уншигддаг тул restart хангалттай;
+   гэхдээ баталгаатай байхын тулд дахин build хийвэл зүгээр.
+5. **Шалгах:**
+   ```bash
+   curl -sI https://<хуучин>.up.railway.app/medee | head -3   # 301 + location: шинэ домэйн
+   curl -s  https://<шинэ домэйн>/robots.txt                   # Sitemap: шинэ домэйн
+   curl -s  https://<шинэ домэйн>/feed.xml | head -6           # <link> шинэ домэйн
+   npm run audit:seo -- --base=https://<шинэ домэйн>           # canonical, og:*
+   ```
+6. **Facebook app.** developers.facebook.com → App → Settings → Basic → *App Domains*-д
+   шинэ домэйн, *Site URL*-ыг мөн сольно. Sharing Debugger-ээр
+   (`developers.facebook.com/tools/debug`) шинэ хаягийн og:image-ийг дахин татуулна.
+7. **Instagram.** Профайлын bio дахь холбоосыг шинэ домэйн болгоно (IG постууд
+   «холбоос bio-д» гэж бичдэг).
+8. **Google Search Console.** Шинэ домэйнийг property болгон нэмж, эзэмшлээ батална.
+   Хуучин property дээр **Change of Address** хэрэгслийг ажиллуулна (301 бэлэн байх ёстой).
+   `https://<шинэ домэйн>/sitemap.xml`-ыг илгээнэ.
+9. **Umami.** Website тохиргоон дахь домэйнийг сольно (эс тэгвээс шинэ домэйний
+   үзэлт бүртгэгдэхгүй).
+
+Хэсэг хугацааны дараа `OLD_HOSTS`-ыг хэвээр үлдээнэ — хуучин холбоос интернэтэд удаан
+үлддэг тул хасах яарал байхгүй.
 
 ### Эхний удаад
 Эх сурвалжууд `start:cron` дотор автоматаар seed хийгддэг. Хүсвэл гараар шууд ажиллуулж болно:
@@ -1180,6 +1229,120 @@ MN оноог авна — зөвхөн модель нь тодорхой мэ�
 
 **Umami event:** `quiz_start`, `quiz_step_1`…`quiz_step_5`, `quiz_finish` (tool),
 `quiz_share` (platform, tool).
+
+## SEO, аюулгүй байдал, хяналт
+
+### Сайтын хаяг — нэг эх сурвалж
+
+`src/lib/site.ts` нь `SITE_URL`-ийг уншдаг **цорын ганц** модуль:
+
+| Функц | Хаана |
+|---|---|
+| `siteUrl()` | canonical, OG, sitemap, RSS, FB/IG постын холбоос |
+| `absUrl(path)` | RSS, имэйл — харьцангуй замыг үнэмлэхүй болгоно |
+| `siteHost()` | картын хөл, имэйлийн `from`, embed |
+| `userAgent()` | RSS/HTML татагчийн `User-Agent` |
+| `oldHosts()` / `isOldHost()` | middleware дэх 301 — [Домэйн солих](#домэйн-солих) |
+| `socialLinks()` / `sameAs()` | хөлийн FB/IG холбоос, Organization схем |
+
+Шалгах: `grep -rn "railway.app\|ainews.mn" src/ --include="*.ts" --include="*.tsx"` → 0.
+
+### Схемийн өгөгдөл (JSON-LD)
+
+`src/lib/jsonld.api.ts` — цэвэр функцууд, `<JsonLd>`/`<BreadcrumbLd>` компонентоор рендерлэнэ:
+
+- **Organization** + **WebSite** (SearchAction → `/hailt?q=`) — layout-д, бүх хуудсанд
+- **BreadcrumbList** — бүх дэд хуудсанд («Нүүр ›» автоматаар нэмэгдэнэ)
+- **NewsArticle** — нийтлэлд (author/publisher = Organization, `citation` = эх сурвалж)
+- Хэсэг тус бүрийн схемүүд хэвээр: `HowTo`+`FAQPage` (заавар), `SoftwareApplication`
+  (хэрэгсэл), `CreativeWork` (prompt), `ImageObject` (карт), `ItemList` (харьцуулалт),
+  `Dataset`+`Table` (бенчмарк)
+
+### `npm run audit:seo`
+
+Ажиллаж буй сайтын **бүх** хуудсыг татаж, metadata дутуу газрыг жагсаана.
+Route-уудыг build-ийн manifest-ээс, динамик хаягийн жишээг sitemap-аас авна (DB-д хандахгүй).
+
+```bash
+npm run build && npx next start -p 3099 &
+npm run audit:seo -- --base=http://localhost:3099
+npm run audit:seo -- --base=https://ainews.mn --json > seo.json
+```
+
+Шалгадаг зүйл: `title`, `description` (урт), `canonical`, `og:title/description/image`,
+`twitter:card`, `<html lang>`, `h1` тоо, JSON-LD задарч байгаа эсэх. Нэвтрэлт, хайлтын
+хуудсуудад canonical шаардахгүй ч `noindex` шаардана. Дутуу зүйл байвал exit code 1.
+
+### RSS
+
+| Хаяг | Агуулга |
+|---|---|
+| `/feed.xml` | мэдээ + заавар, 40 бичлэг |
+| `/feed/mongol.xml` | зөвхөн Монголын AI мэдээ |
+
+`src/lib/rss.api.ts` — цэвэр RSS 2.0 үүсгэгч (RFC-822 огноо, XML escape, `atom:link rel=self`).
+Хоёулаа `force-dynamic` + `Cache-Control` — `SITE_URL` нь build-д шатахгүй.
+
+### Аюулгүй байдлын header-ууд
+
+`src/lib/headers.ts` → middleware бүх хариунд тавина:
+
+| Header | Утга |
+|---|---|
+| `Content-Security-Policy-Report-Only` | `CSP_ENFORCE=true` бол хатуу горимд шилжинэ |
+| `Strict-Transport-Security` | зөвхөн `SITE_URL` нь https үед (локалд хөтөч гацахаас сэргийлнэ) |
+| `X-Content-Type-Options` | `nosniff` |
+| `Referrer-Policy` | `strict-origin-when-cross-origin` |
+| `Permissions-Policy` | camera, microphone, geolocation, payment, usb — бүгд хаалттай |
+
+`/barimt/<slug>/embed` нь өөрийн CSP-тэй (`frame-ancestors *`) — middleware дарж бичихгүй.
+
+### Хязгаарлалт ба шалгалт
+
+- **`/api/*`** — нэг IP минутад **60** хүсэлт (`src/lib/ratelimit.api.ts`). Зураг, OG,
+  health, auth нь чөлөөтэй (тэднийг Facebook, Google, Railway-ийн сервер олноор дууддаг).
+- **Server action-ууд** — [zod](https://zod.dev) схемээр (`src/lib/validate.ts`).
+  Server action бүр нээлттэй endpoint тул UI-д ямар талбар байгаагаас үл хамааран
+  сервер тал өөрөө шалгана: `cuid`, `slug`, `internalPath` (`revalidatePath`-д очих зам
+  задарсан хаяг байж болохгүй), нууц үгийн дээд урт (bcrypt-ийн CPU-г хамгаална).
+- **`/api/health`** — DB ping (ms), RAW дараалал, бэлэн DRAFT, алдааны тоо, сүүлийн
+  cron ажиллалт хэдэн минутын өмнө байсан. DB унавал **503** → Railway дахин эхлүүлнэ.
+
+### Алдааны бүртгэл — `/admin/aldaa`
+
+`src/instrumentation.ts` (`onRequestError`) нь server component, route handler, server
+action дотор гарсан барьж аваагүй алдаа бүрийг `AppError` хүснэгтэд бичнэ. Ижил алдааг
+шинэ мөр болгохгүй — `fingerprint` (эх сурвалж + зам + нормчилсон мессеж) нийлүүлж
+`count`-ыг нэмнэ. `/admin/aldaa` дээр сүүлийн 50-г stack-тай нь харна.
+
+> `instrumentation.ts` нь Node **ба** Edge хоёуланд bundle хийгддэг тул Prisma-г ЭНДЭЭС
+> импортлож болохгүй. Тиймээс `src/lib/errors.ts` өөрийгөө `globalThis` дээр бүртгэдэг.
+
+### Кэш
+
+DB-ийн унших query-ууд процессийн доторх TTL кэштэй (`src/lib/cache.api.ts`):
+
+| Хэсэг | Хугацаа |
+|---|---|
+| Нүүр хуудсанд гарах өгөгдөл | 5 мин |
+| Мэдээ | 1 мин |
+| Жагсаалт, каталог, харьцуулалт, бенчмарк | 1 цаг |
+| Заавар | 1 өдөр |
+
+Next-ийн `unstable_cache` биш: тэр нь утгыг JSON болгодог тул `Date` талбарууд мөр болж
+эргэж ирнэ. Редактор «нийтлэх» дархад `src/lib/revalidate.ts` нь Next-ийн route кэш ба
+энэ кэш хоёуланг нь цэвэрлэдэг тул өөрчлөлт шууд гарна.
+
+### Долоо хоногийн админ тайлан
+
+```bash
+npm run report:weekly -- --dry    # зөвхөн хэвлэнэ
+npm run report:weekly             # ADMIN_EMAIL рүү илгээнэ
+```
+
+Ням гарагт pipeline автоматаар илгээнэ (digest-тэй ижил өдөр). Агуулга: контент,
+FB/IG, хэрэглэгч, хайлт, LLM зардал — бүгд өмнөх долоо хоногтой харьцуулсан хувьтай,
+дээр нь «анхаарах» блок (нийтлэл гараагүй, ажиллалт унасан, хүлээгдэж буй илгээлт, алдаа).
 
 ## Брэнд
 Нэр: **AI News**. Тэмдэг нь өсөх багана + дээш заасан сум, өнгө `--color-accent` (`#4f46e5`).

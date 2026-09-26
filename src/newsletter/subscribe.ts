@@ -7,11 +7,12 @@ import { randomBytes } from "node:crypto";
 import { z } from "zod";
 import { prisma } from "../db";
 import { isConfigured, sendOne } from "./mailer";
+import { siteUrl as url } from "../lib/site";
 
 export const emailSchema = z.string().trim().toLowerCase().email().max(254);
 
 export function siteUrl(): string {
-  return (process.env.SITE_URL ?? "http://localhost:3000").replace(/\/+$/, "");
+  return url();
 }
 
 function token(): string {

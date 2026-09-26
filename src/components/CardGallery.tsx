@@ -1,10 +1,11 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { CardShare } from "./CardShare";
 import type { CardItem } from "@/gallery/queries";
-import type { SharePlatform } from "@/gallery/card.api";
+import { cardImageUrl, type SharePlatform } from "@/gallery/card.api";
 import { CATEGORY_LABEL } from "@/agent/category";
 import { fmtDate } from "./format";
 import { track } from "@/lib/analytics";
@@ -111,13 +112,12 @@ export function CardGallery({
               }}
               className="group relative block w-full overflow-hidden rounded-lg border border-line text-left"
             >
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={`/api/fb-image/${c.id}`}
+              <Image
+                src={cardImageUrl(c.id, c.cardAt)}
                 alt={c.hook}
                 width={1080}
                 height={1350}
-                loading="lazy"
+                sizes="(max-width: 640px) 45vw, (max-width: 1024px) 30vw, 220px"
                 className="w-full aspect-4/5 object-cover"
               />
               <span className="absolute inset-0 flex flex-col justify-end bg-gradient-to-t from-black/85 via-black/20 to-transparent p-3 opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100">
@@ -160,12 +160,12 @@ export function CardGallery({
             onClick={(e) => e.stopPropagation()}
             className="w-full max-w-sm space-y-3 rounded-lg bg-paper p-4 my-auto"
           >
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={`/api/fb-image/${open.id}`}
+            <Image
+              src={cardImageUrl(open.id, open.cardAt)}
               alt={open.hook}
               width={1080}
               height={1350}
+              sizes="(max-width: 448px) 100vw, 384px"
               className="w-full aspect-4/5 object-cover rounded border border-line"
             />
             <div className="space-y-1">

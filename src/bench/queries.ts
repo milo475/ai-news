@@ -5,6 +5,7 @@ import { prisma } from "../db";
 import { modelMeta } from "./models";
 import { deltaVs, monthLabel, type RankDelta } from "./summary.api";
 import type { BenchCategory } from "../generated/prisma/enums";
+import { memoTtl, TTL } from "../lib/cache.api";
 
 /** scoreByCategory Json-ийг аюулгүй унших */
 export function parseCategoryScores(raw: unknown): Partial<Record<BenchCategory, number>> {
@@ -39,7 +40,7 @@ export interface Board {
 }
 
 /** Хамгийн сүүлийн дууссан run (эсвэл заасан сар) */
-export async function latestBoard(month?: string): Promise<Board | null> {
+async function latestBoardUncached(month?: string): Promise<Board | null> {
   const run = await prisma.benchRun.findFirst({
     where: month ? { month } : { status: { in: ["DONE", "BUDGET"] } },
     orderBy: { month: "desc" },
@@ -111,7 +112,7 @@ export interface ModelDetail {
   }[];
 }
 
-export async function modelDetail(modelSlug: string, month?: string): Promise<ModelDetail | null> {
+async function modelDetailUncached(modelSlug: string, month?: string): Promise<ModelDetail | null> {
   const board = await latestBoard(month);
   const row = board?.rows.find((r) => r.modelSlug === modelSlug);
   if (!board || !row) return null;
@@ -163,7 +164,7 @@ export async function modelDetail(modelSlug: string, month?: string): Promise<Mo
 }
 
 /** /model/[slug] хуудсанд харуулах нэг тоо */
-export async function benchScoreFor(modelSlug: string): Promise<{ score: number; rank: number; month: string; label: string } | null> {
+async function benchScoreForUncached(modelSlug: string): Promise<{ score: number; rank: number; month: string; label: string } | null> {
   const run = await prisma.benchRun.findFirst({
     where: { status: { in: ["DONE", "BUDGET"] } },
     orderBy: { month: "desc" },
@@ -179,7 +180,7 @@ export async function benchScoreFor(modelSlug: string): Promise<{ score: number;
 }
 
 /** Нүүрний Топ 10-ийн «MN» багана — олон моделийн оноог нэг дуудлагаар */
-export async function benchScores(modelSlugs: string[]): Promise<Map<string, number>> {
+async function benchScoresUncached(modelSlugs: string[]): Promise<Map<string, number>> {
   if (modelSlugs.length === 0) return new Map();
   const run = await prisma.benchRun.findFirst({
     where: { status: { in: ["DONE", "BUDGET"] } },
@@ -196,7 +197,7 @@ export async function benchScores(modelSlugs: string[]): Promise<Map<string, num
 }
 
 /** Нээлттэй жишээ даалгавар — /benchmark хуудсанд */
-export async function publicTasks() {
+async function publicTasksUncached() {
   return prisma.benchTask.findMany({
     where: { isActive: true, isPublic: true },
     select: { slug: true, title: true, category: true, prompt: true },
@@ -204,7 +205,7 @@ export async function publicTasks() {
 }
 
 /** Ангиллын тоо — аргачлалын хуудсанд */
-export async function taskCountByCategory(): Promise<Partial<Record<BenchCategory, number>>> {
+async function taskCountByCategoryUncached(): Promise<Partial<Record<BenchCategory, number>>> {
   const rows = await prisma.benchTask.groupBy({
     by: ["category"],
     where: { isActive: true },
@@ -214,3 +215,21 @@ export async function taskCountByCategory(): Promise<Partial<Record<BenchCategor
   for (const r of rows) out[r.category] = r._count;
   return out;
 }
+
+/** Бенчмаркийн самбар */
+export const latestBoard: typeof latestBoardUncached = memoTtl(latestBoardUncached, { name: "latestBoard", ttlMs: TTL.list });
+
+/** Моделийн бенчмарк дэлгэрэнгүй */
+export const modelDetail: typeof modelDetailUncached = memoTtl(modelDetailUncached, { name: "modelDetail", ttlMs: TTL.list });
+
+/** Нэг моделийн оноо */
+export const benchScoreFor: typeof benchScoreForUncached = memoTtl(benchScoreForUncached, { name: "benchScoreFor", ttlMs: TTL.list });
+
+/** Олон моделийн оноо */
+export const benchScores: typeof benchScoresUncached = memoTtl(benchScoresUncached, { name: "benchScores", ttlMs: TTL.list });
+
+/** Даалгаврын жагсаалт */
+export const publicTasks: typeof publicTasksUncached = memoTtl(publicTasksUncached, { name: "publicTasks", ttlMs: TTL.list });
+
+/** Ангилал тус бүрийн тоо */
+export const taskCountByCategory: typeof taskCountByCategoryUncached = memoTtl(taskCountByCategoryUncached, { name: "taskCountByCategory", ttlMs: TTL.list });

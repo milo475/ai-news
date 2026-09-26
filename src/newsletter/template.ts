@@ -3,6 +3,15 @@
  * React Email биш, inline-CSS HTML: имэйл клиентүүд гадаад CSS-ийг хасдаг.
  */
 
+/** Хаягаас харагдах хостыг гаргана — цэвэр байхын тулд env уншихгүй */
+function hostOf(url: string): string {
+  try {
+    return new URL(url).host.replace(/^www\./, "");
+  } catch {
+    return "";
+  }
+}
+
 const ACCENT = "#4f46e5";
 const INK = "#1b1b23";
 const MUTED = "#6b6b76";
@@ -103,7 +112,7 @@ export function renderDigestEmail(d: DigestEmailInput): RenderedEmail {
 
     <tr><td style="border-top:1px solid ${LINE};padding:18px 0 0 0">
       <p style="margin:0 0 6px 0;font:400 12px/1.6 -apple-system,Segoe UI,Roboto,sans-serif;color:${MUTED}">
-        AI News · <a href="${esc(d.url)}" style="color:${MUTED}">ainews.mn</a>
+        AI News · <a href="${esc(d.url)}" style="color:${MUTED}">${esc(hostOf(d.url))}</a>
       </p>
       <p style="margin:0;font:400 12px/1.6 -apple-system,Segoe UI,Roboto,sans-serif;color:${MUTED}">
         Энэ захиаг хүлээж авахаа болих бол <a href="${esc(d.unsubscribeUrl)}" style="color:${MUTED}">энд дарна уу</a>.
@@ -124,7 +133,7 @@ export function renderDigestEmail(d: DigestEmailInput): RenderedEmail {
     `Бүтнээр унших: ${d.url}`,
     "",
     "—",
-    "AI News · ainews.mn",
+    "AI News",
     `Бүртгэлээс гарах: ${d.unsubscribeUrl}`,
   ].join("\n");
 

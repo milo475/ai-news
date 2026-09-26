@@ -16,7 +16,8 @@ import { prisma } from "../db";
 import { ubDateLabel, ubDayRange } from "../jobs/day";
 import { getLatestLeaderboard } from "../queries/leaderboard";
 import { RECENT_SCENES } from "./card.api";
-import { benchCardSvg, rankingCardSvg, type RankingRow } from "./fbimage.api";
+import { benchCardSvg, IMAGE_SIZE, rankingCardSvg, type RankingRow } from "./fbimage.api";
+import { siteHost } from "../lib/site";
 
 /** УБ цагаар өнөөдөр хэдэн зураг үүсгэсэн бэ (картын өдрийн квотод) */
 export async function imagesToday(now = new Date()): Promise<number> {
@@ -46,7 +47,7 @@ export async function rankingCard(now = new Date()): Promise<{ buffer: Buffer } 
     company: r.company.name,
     rankDelta: r.rankDelta,
   }));
-  const svg = rankingCardSvg(cardRows, ubDateLabel(date ?? now));
+  const svg = rankingCardSvg(cardRows, ubDateLabel(date ?? now), IMAGE_SIZE, siteHost());
   return { buffer: await sharp(Buffer.from(svg)).jpeg({ quality: 90, mozjpeg: true }).toBuffer() };
 }
 
@@ -63,6 +64,8 @@ export async function benchCard(): Promise<{ buffer: Buffer; month: string } | n
       rank: r.rank, name: r.name, company: r.company, score: r.avgScore,
     })),
     board.label,
+    IMAGE_SIZE,
+    siteHost(),
   );
   return {
     buffer: await sharp(Buffer.from(svg)).jpeg({ quality: 90, mozjpeg: true }).toBuffer(),

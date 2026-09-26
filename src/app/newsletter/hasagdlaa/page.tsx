@@ -1,6 +1,6 @@
 import Link from "next/link";
 
-export const metadata = { title: "Бүртгэлээс гарлаа" };
+export const metadata = { title: "Бүртгэлээс гарлаа", robots: { index: false } };
 
 export default async function Hasagdlaa({ searchParams }: { searchParams: Promise<{ aldaa?: string }> }) {
   const failed = (await searchParams).aldaa === "1";

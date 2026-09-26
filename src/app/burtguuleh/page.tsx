@@ -6,7 +6,7 @@ import { MIN_PASSWORD } from "@/auth/password";
 import { ActionForm, input, Submit } from "@/components/AuthForm";
 import { GoogleButton } from "@/components/GoogleButton";
 
-export const metadata = { title: "Бүртгүүлэх" };
+export const metadata = { title: "Бүртгүүлэх", robots: { index: false } };
 
 export default async function RegisterPage() {
   if (await currentUser()) redirect("/profile");

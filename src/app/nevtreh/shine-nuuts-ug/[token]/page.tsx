@@ -2,7 +2,7 @@ import { resetPasswordAction } from "@/auth/actions";
 import { MIN_PASSWORD } from "@/auth/password";
 import { ActionForm, input, Submit } from "@/components/AuthForm";
 
-export const metadata = { title: "Шинэ нууц үг" };
+export const metadata = { title: "Шинэ нууц үг", robots: { index: false } };
 
 export default async function ResetPage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = await params;

@@ -4,6 +4,7 @@
  */
 import type { LeaderboardRow } from "@/queries/leaderboard";
 import type { RankSource } from "@/generated/prisma/enums";
+import { memoTtl, TTL } from "@/lib/cache.api";
 
 const useFixtures = process.env.USE_FIXTURES === "1";
 
@@ -79,7 +80,7 @@ function toCard(a: CardRow): NewsCard {
   };
 }
 
-export async function getLeaderboard(
+async function getLeaderboardUncached(
   limit = 50,
   source: RankSource = "OPENROUTER_USAGE",
 ): Promise<{ date: Date | null; rows: LeaderboardRow[] }> {
@@ -88,7 +89,7 @@ export async function getLeaderboard(
   return getLatestLeaderboard(source, limit);
 }
 
-export async function getModel(slug: string): Promise<ModelDetail | null> {
+async function getModelUncached(slug: string): Promise<ModelDetail | null> {
   if (useFixtures) return (await import("./fixtures")).fixtureModel(slug);
   const { prisma } = await import("@/db");
   const m = await prisma.aiModel.findUnique({ where: { slug }, include: { company: true } });
@@ -101,7 +102,7 @@ export async function getModel(slug: string): Promise<ModelDetail | null> {
   };
 }
 
-export async function getHistory(
+async function getHistoryUncached(
   slug: string,
   days = 30,
   source: RankSource = "OPENROUTER_USAGE",
@@ -113,7 +114,7 @@ export async function getHistory(
 }
 
 /** Нийтлэгдсэн мэдээний жагсаалт, хуудаслалттай */
-export async function getNews(page = 1, perPage = 20): Promise<{ items: NewsCard[]; total: number }> {
+async function getNewsUncached(page = 1, perPage = 20): Promise<{ items: NewsCard[]; total: number }> {
   if (useFixtures) return { items: [], total: 0 };
   const { prisma } = await import("@/db");
   const where = { status: "PUBLISHED" as const };
@@ -128,7 +129,7 @@ export async function getNews(page = 1, perPage = 20): Promise<{ items: NewsCard
 }
 
 /** Нүүр хуудсанд дээр нь гарах хамгийн сүүлийн долоо хоногийн тойм */
-export async function getLatestDigest(): Promise<NewsCard | null> {
+async function getLatestDigestUncached(): Promise<NewsCard | null> {
   if (useFixtures) return null;
   const { prisma } = await import("@/db");
   const row = await prisma.article.findFirst({
@@ -140,7 +141,7 @@ export async function getLatestDigest(): Promise<NewsCard | null> {
 }
 
 /** Нүүр хуудасны "Сүүлийн мэдээ" */
-export async function getLatestNews(limit = 5): Promise<NewsCard[]> {
+async function getLatestNewsUncached(limit = 5): Promise<NewsCard[]> {
   if (useFixtures) return [];
   const { prisma } = await import("@/db");
   const rows = await prisma.article.findMany({
@@ -150,7 +151,7 @@ export async function getLatestNews(limit = 5): Promise<NewsCard[]> {
 }
 
 /** Моделийн хуудасны "Холбоотой мэдээ" */
-export async function getNewsForModel(slug: string, limit = 5): Promise<NewsCard[]> {
+async function getNewsForModelUncached(slug: string, limit = 5): Promise<NewsCard[]> {
   if (useFixtures) return [];
   const { prisma } = await import("@/db");
   const rows = await prisma.article.findMany({
@@ -185,7 +186,7 @@ export async function getNewsItem(slug: string): Promise<NewsDetail | null> {
 }
 
 /** Идэвхтэй ангиллууд, карт дээрх топ 3 хэрэгслийн хамт */
-export async function getUseCases(limit?: number): Promise<UseCaseCard[]> {
+async function getUseCasesUncached(limit?: number): Promise<UseCaseCard[]> {
   if (useFixtures) return (await import("./usecases.fixture")).fixtureUseCases.slice(0, limit);
   const { prisma } = await import("@/db");
   const rows = await prisma.useCase.findMany({
@@ -205,7 +206,7 @@ export async function getUseCases(limit?: number): Promise<UseCaseCard[]> {
   return rows.map((u) => ({ ...u, topTools: u.tools.map((t) => t.tool.name) }));
 }
 
-export async function getUseCase(slug: string): Promise<UseCaseDetail | null> {
+async function getUseCaseUncached(slug: string): Promise<UseCaseDetail | null> {
   if (useFixtures) return (await import("./usecases.fixture")).fixtureUseCase(slug);
   const { prisma } = await import("@/db");
   const u = await prisma.useCase.findUnique({
@@ -231,7 +232,7 @@ export async function getUseCase(slug: string): Promise<UseCaseDetail | null> {
 }
 
 /** Тухайн ангиллын slug эсвэл нэрийг шошгондоо агуулсан нийтлэгдсэн мэдээ */
-export async function getNewsForUseCase(slug: string, nameMn: string, limit = 5): Promise<NewsCard[]> {
+async function getNewsForUseCaseUncached(slug: string, nameMn: string, limit = 5): Promise<NewsCard[]> {
   if (useFixtures) return [];
   const { prisma } = await import("@/db");
   const rows = await prisma.article.findMany({
@@ -242,10 +243,43 @@ export async function getNewsForUseCase(slug: string, nameMn: string, limit = 5)
 }
 
 /** Заавал ишлэх тэмдэглэл. Эх сурвалж бүр өөрийн огноотой. */
-export async function getSourceNote(source: RankSource = "OPENROUTER_USAGE"): Promise<string> {
+async function getSourceNoteUncached(source: RankSource = "OPENROUTER_USAGE"): Promise<string> {
   const { date } = await getLeaderboard(1, source);
   const asOf = date ? date.toISOString().slice(0, 10) : "—";
   return source === "ARENA_ELO"
     ? `Source: LMArena (lmarena.ai), as of ${asOf}.`
     : `Source: OpenRouter (openrouter.ai/rankings), as of ${asOf}.`;
 }
+
+/** Жагсаалт өдөрт нэг шинэчлэгддэг */
+export const getLeaderboard: typeof getLeaderboardUncached = memoTtl(getLeaderboardUncached, { name: "getLeaderboard", ttlMs: TTL.list });
+
+/** Шинэ мэдээ хурдан гарах ёстой */
+export const getNews: typeof getNewsUncached = memoTtl(getNewsUncached, { name: "getNews", ttlMs: TTL.news });
+
+/** Нүүр хуудасны тойм */
+export const getLatestDigest: typeof getLatestDigestUncached = memoTtl(getLatestDigestUncached, { name: "getLatestDigest", ttlMs: TTL.home });
+
+/** Нүүр хуудасны сүүлийн мэдээ */
+export const getLatestNews: typeof getLatestNewsUncached = memoTtl(getLatestNewsUncached, { name: "getLatestNews", ttlMs: TTL.home });
+
+/** Ангиллууд ховор өөрчлөгддөг */
+export const getUseCases: typeof getUseCasesUncached = memoTtl(getUseCasesUncached, { name: "getUseCases", ttlMs: TTL.list });
+
+/** Эх сурвалжийн тайлбар */
+export const getSourceNote: typeof getSourceNoteUncached = memoTtl(getSourceNoteUncached, { name: "getSourceNote", ttlMs: TTL.list });
+
+/** Моделийн тодорхойлолт */
+export const getModel: typeof getModelUncached = memoTtl(getModelUncached, { name: "getModel", ttlMs: TTL.list });
+
+/** Эрэмбийн түүх */
+export const getHistory: typeof getHistoryUncached = memoTtl(getHistoryUncached, { name: "getHistory", ttlMs: TTL.list });
+
+/** Модельтой холбоотой мэдээ */
+export const getNewsForModel: typeof getNewsForModelUncached = memoTtl(getNewsForModelUncached, { name: "getNewsForModel", ttlMs: TTL.list });
+
+/** Ангиллын дэлгэрэнгүй */
+export const getUseCase: typeof getUseCaseUncached = memoTtl(getUseCaseUncached, { name: "getUseCase", ttlMs: TTL.list });
+
+/** Ангилалтай холбоотой мэдээ */
+export const getNewsForUseCase: typeof getNewsForUseCaseUncached = memoTtl(getNewsForUseCaseUncached, { name: "getNewsForUseCase", ttlMs: TTL.list });

@@ -5,6 +5,7 @@ import { prisma } from "../db";
 import type { Prisma } from "../generated/prisma/client";
 import type { ArticleCategory } from "../generated/prisma/enums";
 import { decodeCursor, PAGE_SIZE, toPage, weeklyBest, type Page } from "./card.api";
+import { memoTtl, TTL } from "../lib/cache.api";
 
 export interface CardItem {
   id: string;
@@ -55,7 +56,7 @@ function baseWhere(category?: ArticleCategory): Prisma.ArticleWhereInput {
  * Галерейн нэг хуудас. Cursor нь (fbImageAt, id) — offset биш, шинэ карт нэмэгдэхэд
  * хуудас гулсахгүй.
  */
-export async function cardPage(
+async function cardPageUncached(
   opts: { cursor?: string | null; category?: ArticleCategory; size?: number } = {},
 ): Promise<Page<CardItem>> {
   const size = opts.size ?? PAGE_SIZE;
@@ -84,7 +85,7 @@ export async function cardPage(
 }
 
 /** Ангиллын шүүлтүүрийн сонголтууд — карттай нийтлэлүүдээс */
-export async function cardCategories(): Promise<{ category: ArticleCategory; count: number }[]> {
+async function cardCategoriesUncached(): Promise<{ category: ArticleCategory; count: number }[]> {
   const rows = await prisma.article.groupBy({
     by: ["category"],
     where: baseWhere(),
@@ -96,7 +97,7 @@ export async function cardCategories(): Promise<{ category: ArticleCategory; cou
 }
 
 /** Долоо хоногийн шилдэг картууд */
-export async function weeklyBestCards(limit = 3, days = 7): Promise<CardItem[]> {
+async function weeklyBestCardsUncached(limit = 3, days = 7): Promise<CardItem[]> {
   const since = new Date(Date.now() - days * 86_400_000);
   const rows = await prisma.article.findMany({
     where: { ...baseWhere(), fbImageAt: { gte: since } },
@@ -108,7 +109,7 @@ export async function weeklyBestCards(limit = 3, days = 7): Promise<CardItem[]> 
 }
 
 /** Нүүрний «Өдрийн баримт» блок */
-export async function latestCards(limit = 3): Promise<CardItem[]> {
+async function latestCardsUncached(limit = 3): Promise<CardItem[]> {
   const rows = await prisma.article.findMany({
     where: baseWhere(),
     orderBy: [{ fbImageAt: "desc" }, { id: "desc" }],
@@ -124,7 +125,7 @@ export interface CardDetail extends CardItem {
 }
 
 /** Нэг картын хуудас */
-export async function getCard(slug: string): Promise<CardDetail | null> {
+async function getCardUncached(slug: string): Promise<CardDetail | null> {
   const a = await prisma.article.findUnique({
     where: { slug },
     select: { ...cardSelect, status: true, summaryMn: true, source: { select: { name: true } } },
@@ -138,7 +139,7 @@ export async function getCard(slug: string): Promise<CardDetail | null> {
 }
 
 /** Sitemap-д — карттай бүх нийтлэлийн slug */
-export async function cardSlugs(): Promise<{ slug: string; updatedAt: Date }[]> {
+async function cardSlugsUncached(): Promise<{ slug: string; updatedAt: Date }[]> {
   const rows = await prisma.article.findMany({
     where: baseWhere(),
     orderBy: { fbImageAt: "desc" },
@@ -158,3 +159,21 @@ export async function countCopy(articleId: string): Promise<void> {
     // тоолуур чухал биш
   }
 }
+
+/** Галерейн хуудас */
+export const cardPage: typeof cardPageUncached = memoTtl(cardPageUncached, { name: "cardPage", ttlMs: TTL.list });
+
+/** Ангиллын тоо */
+export const cardCategories: typeof cardCategoriesUncached = memoTtl(cardCategoriesUncached, { name: "cardCategories", ttlMs: TTL.list });
+
+/** Долоо хоногийн шилдэг */
+export const weeklyBestCards: typeof weeklyBestCardsUncached = memoTtl(weeklyBestCardsUncached, { name: "weeklyBestCards", ttlMs: TTL.list });
+
+/** Нүүр хуудасны картууд */
+export const latestCards: typeof latestCardsUncached = memoTtl(latestCardsUncached, { name: "latestCards", ttlMs: TTL.home });
+
+/** Картын дэлгэрэнгүй */
+export const getCard: typeof getCardUncached = memoTtl(getCardUncached, { name: "getCard", ttlMs: TTL.list });
+
+/** Sitemap-д зориулсан жагсаалт */
+export const cardSlugs: typeof cardSlugsUncached = memoTtl(cardSlugsUncached, { name: "cardSlugs", ttlMs: TTL.list });

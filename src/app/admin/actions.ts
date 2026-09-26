@@ -1,10 +1,11 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
+import { revalidatePath } from "@/lib/revalidate";
 import { redirect } from "next/navigation";
 import { prisma } from "@/db";
 import { slugify } from "@/agent/slug";
 import { JOB_NAMES, startJob, type JobName } from "@/jobs/runner";
+import { formId } from "@/lib/validate";
 
 /** Нийтлэгдсэн мэдээ харагддаг бүх хуудсыг шинэчилнэ */
 async function revalidateArticle(articleId: string) {
@@ -28,7 +29,7 @@ async function uniqueSlug(base: string, articleId: string): Promise<string> {
 }
 
 export async function publishArticle(formData: FormData) {
-  const id = String(formData.get("id"));
+  const id = formId(formData);
   await prisma.article.update({
     where: { id },
     data: { status: "PUBLISHED", publishedAt: new Date(), reviewedBy: "admin" },
@@ -38,14 +39,14 @@ export async function publishArticle(formData: FormData) {
 }
 
 export async function rejectArticle(formData: FormData) {
-  const id = String(formData.get("id"));
+  const id = formId(formData);
   await prisma.article.update({ where: { id }, data: { status: "REJECTED" } });
   await revalidateArticle(id);
   revalidatePath("/admin");
 }
 
 async function save(formData: FormData, publish: boolean) {
-  const id = String(formData.get("id"));
+  const id = formId(formData);
 
   const titleMn = String(formData.get("titleMn") ?? "").trim();
   const slugInput = String(formData.get("slug") ?? "").trim();
@@ -85,7 +86,7 @@ export async function saveAndPublishArticle(formData: FormData) {
  * LLM дуудна: кредит дууссан үед хуудас унахгүй, алдааг ?err= параметрээр харуулна.
  */
 export async function rewriteArticle(formData: FormData) {
-  const id = String(formData.get("id"));
+  const id = formId(formData);
   await prisma.article.update({
     where: { id },
     data: { status: "RAW", titleMn: null, summaryMn: null, bodyMn: null, tags: [], writeModel: null },
@@ -157,7 +158,7 @@ async function postOneInstagram(id: string): Promise<string> {
 
 /** /admin/<id> дээрх «IG-д постлох» */
 export async function postArticleToInstagram(formData: FormData) {
-  const id = String(formData.get("id"));
+  const id = formId(formData);
   const error = await postOneInstagram(id);
 
   revalidatePath("/admin");
@@ -167,7 +168,7 @@ export async function postArticleToInstagram(formData: FormData) {
 
 /** Жагсаалтын мөрөн дээрх «IG-д постлох» */
 export async function postArticleToInstagramFromList(formData: FormData) {
-  const id = String(formData.get("id"));
+  const id = formId(formData);
   const error = await postOneInstagram(id);
 
   revalidatePath("/admin");
@@ -176,7 +177,7 @@ export async function postArticleToInstagramFromList(formData: FormData) {
 
 /** /admin дээрээс FB текстийг дахин бичүүлэх */
 export async function regenerateFbText(formData: FormData) {
-  const id = String(formData.get("id"));
+  const id = formId(formData);
   let error = "";
   try {
     const { generateFbCopy } = await import("@/publish/fbcopy");
@@ -193,7 +194,7 @@ export async function regenerateFbText(formData: FormData) {
  * Зөвхөн текстийг нь солих бол суурь зураг хэвээр үлдэж, дахин зурагдана (зардалгүй).
  */
 export async function regenerateFbImage(formData: FormData) {
-  const id = String(formData.get("id"));
+  const id = formId(formData);
   const headline = String(formData.get("fbHook") ?? "").trim();
   const keepPhoto = formData.get("keepPhoto") === "1";
 
@@ -233,7 +234,7 @@ export async function regenerateFbImage(formData: FormData) {
 
 /** FB текстийг гараар засаж хадгална */
 export async function saveFbText(formData: FormData) {
-  const id = String(formData.get("id"));
+  const id = formId(formData);
   await prisma.article.update({
     where: { id },
     data: { fbText: String(formData.get("fbText") ?? "").trim() || null },
@@ -244,7 +245,7 @@ export async function saveFbText(formData: FormData) {
 
 /** /admin/<id> дээрх «Facebook-т постлох». Алдааг ?err=-ээр хуудсан дээр харуулна. */
 export async function postArticleToFacebook(formData: FormData) {
-  const id = String(formData.get("id"));
+  const id = formId(formData);
   const error = await postOne(id);
 
   revalidatePath("/admin");
@@ -254,7 +255,7 @@ export async function postArticleToFacebook(formData: FormData) {
 
 /** Жагсаалтын мөрөн дээрх «Одоо FB-д постлох» — буцаад жагсаалт руугаа очно */
 export async function postArticleToFacebookFromList(formData: FormData) {
-  const id = String(formData.get("id"));
+  const id = formId(formData);
   const error = await postOne(id);
 
   revalidatePath("/admin");

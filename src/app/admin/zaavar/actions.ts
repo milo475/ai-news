@@ -1,12 +1,13 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
+import { revalidatePath } from "@/lib/revalidate";
 import { redirect } from "next/navigation";
 import { prisma } from "@/db";
 import { slugify } from "@/agent/slug";
 import { readMinutes } from "@/guides/markdown.api";
 import { AUDIENCES, LEVELS } from "@/guides/write.api";
 import type { GuideLevel } from "@/generated/prisma/enums";
+import { formId } from "@/lib/validate";
 
 /** Заавар харагддаг бүх хуудсыг шинэчилнэ */
 function revalidateGuide(slug?: string) {
@@ -52,7 +53,7 @@ export async function writeGuideAction(formData: FormData) {
 
 /** Засвар хадгалах. publish=true бол нийтэлнэ. */
 async function saveGuide(formData: FormData, publish: boolean) {
-  const id = String(formData.get("id"));
+  const id = formId(formData);
   const current = await prisma.guide.findUniqueOrThrow({ where: { id }, select: { slug: true, status: true } });
 
   const title = String(formData.get("title") ?? "").trim();
@@ -109,7 +110,7 @@ export async function publishGuideAction(formData: FormData) {
 
 /** Нийтлэгдсэнийг буцааж ноорог болгоно */
 export async function unpublishGuideAction(formData: FormData) {
-  const id = String(formData.get("id"));
+  const id = formId(formData);
   const g = await prisma.guide.update({ where: { id }, data: { status: "DRAFT" }, select: { slug: true } });
   revalidateGuide(g.slug);
   back("Ноорог болголоо.", id);
@@ -117,7 +118,7 @@ export async function unpublishGuideAction(formData: FormData) {
 
 /** Hero зургийг (дахин) үүсгэнэ */
 export async function heroGuideAction(formData: FormData) {
-  const id = String(formData.get("id"));
+  const id = formId(formData);
   try {
     const { addHero } = await import("@/guides/write");
     const cost = await addHero(id);
@@ -130,7 +131,7 @@ export async function heroGuideAction(formData: FormData) {
 }
 
 export async function deleteGuideAction(formData: FormData) {
-  const id = String(formData.get("id"));
+  const id = formId(formData);
   const g = await prisma.guide.delete({ where: { id }, select: { slug: true } });
   revalidateGuide(g.slug);
   back("Устгалаа.");

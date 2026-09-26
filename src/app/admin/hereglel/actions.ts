@@ -1,6 +1,6 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
+import { revalidatePath } from "@/lib/revalidate";
 import { redirect } from "next/navigation";
 import { prisma } from "@/db";
 import { slugify } from "@/agent/slug";
@@ -10,6 +10,7 @@ import {
   cleanCategories, cleanPlatforms, MN_SUPPORT, normalizeWebsite, TOOL_PLANS,
 } from "@/tools/tool.api";
 import type { MongolianSupport, ToolPlan } from "@/generated/prisma/enums";
+import { formId } from "@/lib/validate";
 
 function revalidateTool(slug?: string) {
   revalidatePath("/hereglel");
@@ -28,7 +29,7 @@ function back(msg: string, open?: string): never {
 
 /** Батлах — нийтэлнэ */
 export async function approveToolAction(form: FormData) {
-  const id = String(form.get("id"));
+  const id = formId(form);
   const t = await prisma.tool.update({
     where: { id },
     data: { status: "PUBLISHED", publishedAt: new Date(), rejectReason: null },
@@ -39,7 +40,7 @@ export async function approveToolAction(form: FormData) {
 }
 
 export async function unpublishToolAction(form: FormData) {
-  const id = String(form.get("id"));
+  const id = formId(form);
   const t = await prisma.tool.update({
     where: { id },
     data: { status: "PENDING" },
@@ -50,7 +51,7 @@ export async function unpublishToolAction(form: FormData) {
 }
 
 async function save(form: FormData, publish: boolean) {
-  const id = String(form.get("id"));
+  const id = formId(form);
   const current = await prisma.tool.findUniqueOrThrow({
     where: { id },
     select: { slug: true, status: true },
@@ -109,7 +110,7 @@ export async function saveAndPublishToolAction(form: FormData) {
 
 /** Логыг дахин татна */
 export async function refetchLogoAction(form: FormData) {
-  const id = String(form.get("id"));
+  const id = formId(form);
   try {
     const { saveLogo } = await import("@/tools/enrich");
     const ok = await saveLogo(id);
@@ -123,7 +124,7 @@ export async function refetchLogoAction(form: FormData) {
 
 /** Тайлбар, үнэ хуучирсан бол LLM-ээр дахин бөглөнө */
 export async function refreshToolAction(form: FormData) {
-  const id = String(form.get("id"));
+  const id = formId(form);
   try {
     const { refreshTool } = await import("@/tools/enrich");
     const cost = await refreshTool(id);
@@ -137,7 +138,7 @@ export async function refreshToolAction(form: FormData) {
 
 /** Хувилбаруудыг slug-аар холбоно (таслалаар) */
 export async function setAlternativesAction(form: FormData) {
-  const id = String(form.get("id"));
+  const id = formId(form);
   const slugs = String(form.get("alternatives") ?? "")
     .split(",")
     .map((s) => slugify(s.trim()))
@@ -185,7 +186,7 @@ export async function reviewStatusAction(form: FormData) {
 }
 
 export async function deleteToolAction(form: FormData) {
-  const id = String(form.get("id"));
+  const id = formId(form);
   const t = await prisma.tool.delete({ where: { id }, select: { slug: true } });
   revalidateTool(t.slug);
   back("Устгалаа.");

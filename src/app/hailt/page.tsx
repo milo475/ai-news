@@ -3,12 +3,41 @@ import { getLatestNews } from "@/data";
 import { fmtDate } from "@/components/format";
 import { MIN_QUERY, search } from "@/lib/search";
 import { TrackEvent } from "@/components/Track";
+import {
+  parseTab, showSection, tabCounts, tabHref, TAB_LABELS, visibleTabs, type TabKey,
+} from "@/lib/search-tabs.api";
 
 export const dynamic = "force-dynamic";
 
-export async function generateMetadata({ searchParams }: { searchParams: Promise<{ q?: string }> }) {
+export async function generateMetadata({ searchParams }: { searchParams: Promise<Query> }) {
   const q = ((await searchParams).q ?? "").trim();
-  return { title: q ? `«${q}» хайлт` : "Хайлт" };
+  return {
+    title: q ? `«${q}» хайлт` : "Хайлт",
+    // Хайлтын үр дүн индексэд орох ёсгүй — давхардсан, ач холбогдолгүй хуудсууд
+    robots: { index: false, follow: true },
+  };
+}
+
+interface Query { q?: string; t?: string }
+
+/** Табын мөр — сервер талд рендерлэгддэг энгийн холбоосууд */
+function Tabs({ q, tab, counts }: { q: string; tab: TabKey; counts: Record<TabKey, number> }) {
+  return (
+    <nav aria-label="Үр дүнгийн төрөл" className="flex flex-wrap gap-1.5 border-b border-line pb-2">
+      {visibleTabs(counts).map((k) => (
+        <Link
+          key={k}
+          href={tabHref(q, k)}
+          aria-current={k === tab ? "page" : undefined}
+          className={`rounded-full px-3 py-1 text-sm ${
+            k === tab ? "bg-accent text-white" : "text-muted hover:bg-line/40 hover:text-ink"
+          }`}
+        >
+          {TAB_LABELS[k]} <span className="opacity-70">{counts[k]}</span>
+        </Link>
+      ))}
+    </nav>
+  );
 }
 
 /** ts_headline-ийн <mark> тэгийг аюулгүйгээр үзүүлнэ */
@@ -26,10 +55,13 @@ function Headline({ html }: { html: string }) {
   );
 }
 
-export default async function Hailt({ searchParams }: { searchParams: Promise<{ q?: string }> }) {
-  const q = ((await searchParams).q ?? "").trim();
+export default async function Hailt({ searchParams }: { searchParams: Promise<Query> }) {
+  const sp = await searchParams;
+  const q = (sp.q ?? "").trim();
+  const tab = parseTab(sp.t);
   const results = q.length >= MIN_QUERY ? await search(q, { limit: 25 }) : null;
   const fallback = results && results.total === 0 ? await getLatestNews(3) : [];
+  const counts = results ? tabCounts(results) : null;
 
   return (
     <div className="space-y-6 max-w-3xl">
@@ -38,6 +70,8 @@ export default async function Hailt({ searchParams }: { searchParams: Promise<{ 
         <h1 className="text-2xl font-semibold tracking-tight">{q ? `«${q}»` : "Хайлт"}</h1>
         {results && <p className="text-sm text-muted">{results.total} үр дүн</p>}
       </div>
+
+      {results && counts && counts.all > 0 && <Tabs q={q} tab={tab} counts={counts} />}
 
       {!results && (
         <p className="text-sm text-muted">
@@ -64,7 +98,7 @@ export default async function Hailt({ searchParams }: { searchParams: Promise<{ 
         </div>
       )}
 
-      {results && results.articles.length > 0 && (
+      {results && showSection(tab, "medee") && results.articles.length > 0 && (
         <section className="space-y-3">
           <h2 className="text-lg font-semibold">Мэдээ <span className="text-sm text-muted">{results.articles.length}</span></h2>
           <ul className="divide-y divide-line rounded-lg border border-line">
@@ -81,7 +115,7 @@ export default async function Hailt({ searchParams }: { searchParams: Promise<{ 
         </section>
       )}
 
-      {results && results.guides.length > 0 && (
+      {results && showSection(tab, "zaavar") && results.guides.length > 0 && (
         <section className="space-y-3">
           <h2 className="text-lg font-semibold">Заавар <span className="text-sm text-muted">{results.guides.length}</span></h2>
           <ul className="divide-y divide-line rounded-lg border border-line">
@@ -96,7 +130,7 @@ export default async function Hailt({ searchParams }: { searchParams: Promise<{ 
         </section>
       )}
 
-      {results && results.prompts.length > 0 && (
+      {results && showSection(tab, "prompt") && results.prompts.length > 0 && (
         <section className="space-y-3">
           <h2 className="text-lg font-semibold">Prompt <span className="text-sm text-muted">{results.prompts.length}</span></h2>
           <ul className="divide-y divide-line rounded-lg border border-line">
@@ -111,7 +145,7 @@ export default async function Hailt({ searchParams }: { searchParams: Promise<{ 
         </section>
       )}
 
-      {results && results.catalogTools.length > 0 && (
+      {results && showSection(tab, "hereglel") && results.catalogTools.length > 0 && (
         <section className="space-y-3">
           <h2 className="text-lg font-semibold">
             Хэрэгсэл <span className="text-sm text-muted">{results.catalogTools.length}</span>
@@ -128,7 +162,7 @@ export default async function Hailt({ searchParams }: { searchParams: Promise<{ 
         </section>
       )}
 
-      {results && results.models.length > 0 && (
+      {results && showSection(tab, "model") && results.models.length > 0 && (
         <section className="space-y-3">
           <h2 className="text-lg font-semibold">Модель <span className="text-sm text-muted">{results.models.length}</span></h2>
           <ul className="divide-y divide-line rounded-lg border border-line">
@@ -143,7 +177,7 @@ export default async function Hailt({ searchParams }: { searchParams: Promise<{ 
         </section>
       )}
 
-      {results && results.tools.length > 0 && (
+      {results && showSection(tab, "hereglel") && results.tools.length > 0 && (
         <section className="space-y-3">
           <h2 className="text-lg font-semibold">Хэрэгсэл <span className="text-sm text-muted">{results.tools.length}</span></h2>
           <ul className="divide-y divide-line rounded-lg border border-line">

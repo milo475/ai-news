@@ -19,6 +19,11 @@ import { CardStrip } from "@/components/CardStrip";
 import { latestCards } from "@/gallery/queries";
 import { localNews } from "@/mongol/queries";
 
+export const metadata = {
+  // Гарчиг, тайлбарыг layout-ын үндсэн утгаас авна
+  alternates: { canonical: "/" },
+};
+
 // Build үед DB байхгүй тул prerender хийхгүй — нүүр бүх үед шинэ өгөгдөл харуулна
 export const dynamic = "force-dynamic";
 

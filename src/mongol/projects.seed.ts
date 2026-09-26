@@ -12,6 +12,7 @@
  */
 import "dotenv/config";
 import { prisma } from "../db";
+import { userAgent } from "../lib/site";
 
 export interface SeedProject {
   slug: string;
@@ -91,7 +92,7 @@ export async function websiteOk(url: string): Promise<{ ok: boolean; status: num
     const res = await fetch(url, {
       redirect: "follow",
       signal: AbortSignal.timeout(TIMEOUT_MS),
-      headers: { "User-Agent": "AINewsBot/1.0 (+https://ai-news.mn)" },
+      headers: { "User-Agent": userAgent() },
     });
     return { ok: res.ok, status: res.status };
   } catch {

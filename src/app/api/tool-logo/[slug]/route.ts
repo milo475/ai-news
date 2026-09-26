@@ -2,11 +2,12 @@
  * Хэрэгслийн лого — /api/tool-logo/<slug>
  */
 import { prisma } from "@/db";
+import { imageResponse } from "@/lib/image-response";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function GET(_req: Request, { params }: { params: Promise<{ slug: string }> }) {
+export async function GET(req: Request, { params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
   const t = await prisma.tool.findUnique({
     where: { slug },
@@ -14,14 +15,12 @@ export async function GET(_req: Request, { params }: { params: Promise<{ slug: s
   });
   if (!t?.logoData) return new Response("Not found", { status: 404 });
 
-  return new Response(new Uint8Array(t.logoData), {
-    headers: {
-      "Content-Type": t.logoType ?? "image/png",
-      "Content-Length": String(t.logoData.length),
-      "Cache-Control": "public, max-age=604800",
-      // SVG нь өөр origin-д ажиллахгүй байг
-      "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
-      "Last-Modified": (t.logoAt ?? new Date()).toUTCString(),
-    },
+  return imageResponse(req, {
+    data: t.logoData,
+    contentType: t.logoType ?? "image/png",
+    updatedAt: t.logoAt,
+    maxAge: 604_800,
+    // SVG нь өөр origin-д ажиллахгүй байг
+    extra: { "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox" },
   });
 }

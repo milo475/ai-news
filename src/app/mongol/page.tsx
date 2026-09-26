@@ -6,6 +6,7 @@ import { bookmarkedIds } from "@/bookmarks/queries";
 import { localCounts, localNews, mongolProjects } from "@/mongol/queries";
 import { clamp, MAX_META_DESCRIPTION } from "@/guides/seo.api";
 import { siteUrl } from "@/lib/site";
+import { BreadcrumbLd } from "@/components/Breadcrumbs";
 
 export const dynamic = "force-dynamic";
 
@@ -30,6 +31,7 @@ export default async function MongolPage() {
 
   return (
     <div className="space-y-8">
+      <BreadcrumbLd crumbs={[{ name: "Монголын AI" }]} />
       <TrackEvent event="mongol_view" />
 
       <section className="space-y-2">

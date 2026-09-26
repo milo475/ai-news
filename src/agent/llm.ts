@@ -4,9 +4,10 @@
  * DB-гүй. Дуудагч нь ямар модель, ямар schema хэрэглэхээ өөрөө шийднэ.
  * Лимит/түр алдаа (429, 5xx) болон JSON задлах алдаанд 2 удаа дахин оролдоно.
  */
+import { siteUrl } from "../lib/site";
 
 const URL_CHAT = "https://openrouter.ai/api/v1/chat/completions";
-const REFERER = "https://ai-news.mn";
+const REFERER = siteUrl();
 const TITLE = "AI News";
 
 /** Дахин оролдох хүлээлт: 2с, 6с. Гурав дахь удаад алдааг дамжуулна. */

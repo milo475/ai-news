@@ -8,6 +8,7 @@ import { LEVEL_LABEL, LEVELS } from "@/guides/write.api";
 import { clamp, MAX_META_DESCRIPTION } from "@/guides/seo.api";
 import { siteUrl } from "@/lib/site";
 import type { GuideLevel } from "@/generated/prisma/enums";
+import { BreadcrumbLd } from "@/components/Breadcrumbs";
 
 export const dynamic = "force-dynamic";
 
@@ -63,6 +64,7 @@ export default async function GuidesPage({ searchParams }: { searchParams: Promi
 
   return (
     <div className="space-y-6">
+      <BreadcrumbLd crumbs={[{ name: "Заавар" }]} />
       {filtered && (
         <TrackEvent
           event="guide_filter"

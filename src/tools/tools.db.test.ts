@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { clearAllCaches } from "../lib/cache.api";
 
 const hasDb = Boolean(process.env.DATABASE_URL);
 
@@ -288,8 +289,10 @@ test("хувилбарын холбоос тэгш — хоёр талаас х�
     assert.deepEqual([pair![0].id, pair![1].id], [a.id, b.id]);
     assert.equal(await getToolsForVersus(a.slug, "байхгүй"), null);
 
-    // Хүлээгдэж байгаа хэрэгсэл хувилбарт харагдахгүй
+    // Хүлээгдэж байгаа хэрэгсэл хувилбарт харагдахгүй.
+    // getTool нь TTL кэштэй — мутацийн дараа цэвэрлэнэ (production-д revalidatePath хийдэг).
     await prisma.tool.update({ where: { id: b.id }, data: { status: "PENDING" } });
+    clearAllCaches();
     assert.deepEqual((await getTool(a.slug))!.alternatives, []);
   } finally {
     await cleanup();

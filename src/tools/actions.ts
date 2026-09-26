@@ -3,7 +3,7 @@
 /**
  * Каталогийн server action-ууд.
  */
-import { revalidatePath } from "next/cache";
+import { revalidatePath } from "@/lib/revalidate";
 import { redirect } from "next/navigation";
 import { currentUser, requireVerified } from "@/auth/session";
 import { AUTH_MESSAGES } from "@/auth/errors";
@@ -14,10 +14,13 @@ import {
 import {
   countClick, createUserTool, deleteReview, submittedToolsToday, toggleUpvote, upsertReview,
 } from "./mutations";
+import { cuid, internalPath, parseForm, slug as slugSchema, tryParse, z } from "@/lib/validate";
 
 /** «Вэбсайт руу» товшилт — нэвтрэхгүй ч ажиллана */
 export async function countClickAction(toolId: string): Promise<void> {
-  await countClick(toolId);
+  const id = tryParse(cuid, toolId);
+  if (!id) return;
+  await countClick(id);
 }
 
 export interface UpvoteResult {
@@ -25,11 +28,15 @@ export interface UpvoteResult {
 }
 
 export async function upvoteAction(toolId: string, path?: string): Promise<UpvoteResult> {
+  const safePath = tryParse(internalPath, path) ?? undefined;
   const user = await currentUser();
-  if (!user) redirect(`/nevtreh?ur=${encodeURIComponent(path ?? "/hereglel")}`);
+  if (!user) redirect(`/nevtreh?ur=${encodeURIComponent(safePath ?? "/hereglel")}`);
 
-  const upvoted = await toggleUpvote(user.id, toolId);
-  if (path) revalidatePath(path);
+  const id = tryParse(cuid, toolId);
+  if (!id) return { upvoted: false };
+
+  const upvoted = await toggleUpvote(user.id, id);
+  if (safePath) revalidatePath(safePath);
   return { upvoted };
 }
 
@@ -52,9 +59,16 @@ export async function submitToolAction(_prev: ToolFormState, form: FormData): Pr
     return { error: `Өдөрт ${DAILY_TOOL_LIMIT} хэрэгсэл санал болгож болно. Маргааш дахин оролдоно уу.` };
   }
 
-  const name = String(form.get("name") ?? "").trim();
-  const websiteRaw = String(form.get("website") ?? "");
-  const categories = form.getAll("categories").map(String);
+  const parsed = parseForm(
+    z.object({
+      name: z.string().trim().max(120),
+      website: z.string().trim().max(2_000).default(""),
+    }),
+    form,
+  );
+  if (!parsed.ok) return { error: parsed.error };
+  const { name, website: websiteRaw } = parsed.data;
+  const categories = form.getAll("categories").map(String).slice(0, 10);
 
   const problems = checkToolSubmission({ name, website: websiteRaw, categories });
   if (problems.length > 0) return { error: problems[0]!.detail };
@@ -98,10 +112,18 @@ export async function reviewAction(_prev: ToolFormState, form: FormData): Promis
     return { error: AUTH_MESSAGES.unverified };
   }
 
-  const toolId = String(form.get("toolId") ?? "");
-  const slug = String(form.get("slug") ?? "");
-  const stars = Number(form.get("stars") ?? 0);
-  const text = String(form.get("text") ?? "").trim().slice(0, MAX_REVIEW_TEXT);
+  const parsed = parseForm(
+    z.object({
+      toolId: cuid,
+      slug: slugSchema.optional(),
+      stars: z.coerce.number().int().min(0).max(5),
+      text: z.string().trim().max(MAX_REVIEW_TEXT).default(""),
+    }),
+    form,
+  );
+  if (!parsed.ok) return { error: parsed.error };
+  const { toolId, stars, text } = parsed.data;
+  const slug = parsed.data.slug ?? "";
 
   const problems = checkReview(stars, text);
   if (problems.length > 0) return { error: problems[0]!.detail };
@@ -132,8 +154,8 @@ export async function deleteReviewAction(form: FormData): Promise<void> {
   const user = await currentUser();
   if (!user) redirect("/nevtreh?ur=%2Fhereglel");
 
-  const toolId = String(form.get("toolId") ?? "");
-  const slug = String(form.get("slug") ?? "");
-  await deleteReview(user.id, toolId);
-  if (slug) revalidatePath(`/hereglel/${slug}`);
+  const parsed = parseForm(z.object({ toolId: cuid, slug: slugSchema.optional() }), form);
+  if (!parsed.ok) return;
+  await deleteReview(user.id, parsed.data.toolId);
+  if (parsed.data.slug) revalidatePath(`/hereglel/${parsed.data.slug}`);
 }

@@ -7,6 +7,7 @@ import {
 } from "@/songolt/score.api";
 import { clamp, MAX_META_DESCRIPTION, MAX_META_TITLE } from "@/guides/seo.api";
 import { siteUrl } from "@/lib/site";
+import { BreadcrumbLd } from "@/components/Breadcrumbs";
 
 /** Ижил код → ижил үр дүн. Каталог өдөрт 1-2 удаа хувирдаг тул өдрийн кэш. */
 export const revalidate = 86_400;
@@ -61,6 +62,7 @@ export default async function ResultPage({ params }: { params: Promise<Params> }
 
   return (
     <div className="max-w-2xl mx-auto space-y-6">
+      <BreadcrumbLd crumbs={[{ name: "Надад ямар AI тохирох вэ?", path: "/songolt" }, { name: "Үр дүн" }]} />
       <div className="space-y-2">
         <Link href="/songolt" className="text-sm text-muted hover:text-ink">← Асуулга</Link>
         <h1 className="text-3xl font-semibold tracking-tight">

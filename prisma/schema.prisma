@@ -264,6 +264,25 @@ model Article {
 }
 
 /// Fetcher/agent ажиллалтын лог — эвдэрсэн эсэхийг харах
+/// Санамсаргүй алдааны бүртгэл — /admin/aldaa дээр сүүлийн 50-г харна.
+/// Ижил алдааг дахин мөр болгохгүй, `count`-ыг нэмж `lastAt`-ыг шинэчилнэ.
+model AppError {
+  id          String   @id @default(cuid())
+  createdAt   DateTime @default(now())
+  /// Хаанаас гарсан: "web" | "cron" | "action" | "api"
+  source      String
+  /// Хүсэлтийн зам эсвэл ажлын нэр
+  path        String?
+  message     String
+  stack       String?
+  count       Int      @default(1)
+  /// source + path + message-ээс гарсан тогтвортой hash
+  fingerprint String   @unique
+  lastAt      DateTime @default(now())
+
+  @@index([lastAt])
+}
+
 model JobRun {
   id         String    @id @default(cuid())
   job        String // "openrouter", "rss", "agent", "pipeline"

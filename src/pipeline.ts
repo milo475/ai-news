@@ -11,7 +11,7 @@
  *   НИЙТЛЭХ (publish) — УБ 07:00, 15:00, 19:00 (PUBLISH_HOURS_UB): бэлэн нийтлэлийг сайтад
  *     гаргаад тэр дор нь FB-д постлоно. RSS, үнэлгээ хийхгүй тул нэг минутын дотор дуусна.
  *   БЭЛТГЭХ (prepare) — бусад цагт: мэдээ татах, үнэлэх, дараагийн slot-д текст/зураг бэлдэх.
- *     Өдөрт нэг удаагийн алхмууд (openrouter, arena, digest, newsletter) УБ DAILY_HOUR_UB (3)
+ *     Өдөрт нэг удаагийн алхмууд (openrouter, arena, digest, newsletter, report) УБ DAILY_HOUR_UB (3)
  *     цагаас хойших эхний prepare run дээр ажиллана.
  *
  * Нэг алхам унасан ч дараагийнх нь ажиллана; төгсгөлд дүнг хүснэгтээр хэвлээд,
@@ -30,6 +30,7 @@ import { runArena } from "./fetchers/arena";
 import { runOpenRouter } from "./fetchers/openrouter";
 import { runRss } from "./fetchers/rss";
 import { runNewsletter } from "./newsletter/send";
+import { sendWeeklyReport } from "./admin/report";
 import { postPendingInstagram } from "./publish/instagram";
 import { runPublishSlot } from "./publish/slot-run";
 import { ubHour } from "./publish/slot.api";
@@ -220,6 +221,17 @@ const STEPS: Step[] = [
       if (!isDigestDay(new Date())) return "Ням гараг биш, алгасав";
       const r = await runNewsletter();
       return r.skipped ? (r.reason ?? "алгасав") : `${r.sent} хаяг руу илгээв (алдаа ${r.failed})`;
+    },
+  },
+  {
+    name: "report",
+    mode: "prepare",
+    oncePerDay: true,
+    run: async () => {
+      // Долоо хоногийн админ тайлан — Ням гарагт, digest-тэй ижил өдөр
+      if (!isDigestDay(new Date())) return "Ням гараг биш, алгасав";
+      const r = await sendWeeklyReport();
+      return r.skipped ? (r.reason ?? "алгасав") : r.sent ? "илгээв" : "илгээгдсэнгүй";
     },
   },
 ];

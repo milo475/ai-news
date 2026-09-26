@@ -6,6 +6,7 @@
  */
 import sharp from "sharp";
 import { faviconFallbackUrl, isLogoType } from "./tool.api";
+import { userAgent } from "../lib/site";
 
 export const LOGO_SIZE = 64;
 const TIMEOUT_MS = 12_000;
@@ -22,7 +23,7 @@ async function fetchBinary(url: string): Promise<{ buffer: Buffer; contentType: 
   try {
     const res = await fetch(url, {
       signal: AbortSignal.timeout(TIMEOUT_MS),
-      headers: { "User-Agent": "ai-news-bot/1 (+https://ai-news.mn)" },
+      headers: { "User-Agent": userAgent() },
     });
     if (!res.ok) return null;
     const contentType = res.headers.get("content-type") ?? "";
@@ -40,7 +41,7 @@ export async function iconLinksFrom(website: string): Promise<string[]> {
   try {
     const res = await fetch(website, {
       signal: AbortSignal.timeout(TIMEOUT_MS),
-      headers: { "User-Agent": "ai-news-bot/1 (+https://ai-news.mn)" },
+      headers: { "User-Agent": userAgent() },
     });
     if (!res.ok) return [];
     const html = (await res.text()).slice(0, 200_000);
@@ -120,7 +121,7 @@ export async function websiteAlive(website: string): Promise<AliveResult> {
         method,
         redirect: "follow",
         signal: AbortSignal.timeout(TIMEOUT_MS),
-        headers: { "User-Agent": "ai-news-bot/1 (+https://ai-news.mn)" },
+        headers: { "User-Agent": userAgent() },
       });
       if (res.ok) return { ok: true, status: res.status, blocked: false };
       lastStatus = res.status;

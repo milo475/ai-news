@@ -11,6 +11,7 @@ import {
 import { clamp, MAX_META_DESCRIPTION } from "@/guides/seo.api";
 import { siteUrl } from "@/lib/site";
 import type { MongolianSupport, ToolCategory, ToolPlan } from "@/generated/prisma/enums";
+import { BreadcrumbLd } from "@/components/Breadcrumbs";
 
 export const dynamic = "force-dynamic";
 
@@ -76,6 +77,7 @@ export default async function ToolsPage({ searchParams }: { searchParams: Promis
 
   return (
     <div className="space-y-6">
+      <BreadcrumbLd crumbs={[{ name: "AI хэрэгсэл" }]} />
       {filtered && (
         <TrackEvent
           event="tool_filter"

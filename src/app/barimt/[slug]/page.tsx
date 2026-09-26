@@ -1,14 +1,16 @@
+import Image from "next/image";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { CardShare } from "@/components/CardShare";
 import { TrackEvent } from "@/components/Track";
 import { fmtDate } from "@/components/format";
 import { CATEGORY_LABEL } from "@/agent/category";
-import { CARD_H, CARD_W, embedCode, sharePlatforms } from "@/gallery/card.api";
+import { CARD_H, CARD_W, cardImageUrl, embedCode, sharePlatforms } from "@/gallery/card.api";
 import { getCard } from "@/gallery/queries";
 import { imageJsonLd } from "@/gallery/seo.api";
 import { clamp, MAX_META_DESCRIPTION, MAX_META_TITLE } from "@/guides/seo.api";
 import { siteUrl } from "@/lib/site";
+import { BreadcrumbLd } from "@/components/Breadcrumbs";
 
 /** Карт нь нэг үүсээд хувирдаггүй — өдөрт нэг удаа шинэчлэхэд хангалттай */
 export const revalidate = 86_400;
@@ -52,6 +54,7 @@ export default async function CardPage({ params }: { params: Promise<Params> }) 
 
   return (
     <article className="max-w-md mx-auto space-y-4">
+      <BreadcrumbLd crumbs={[{ name: "Өдрийн баримт", path: "/barimt" }, { name: c.hook }]} />
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{
@@ -76,12 +79,13 @@ export default async function CardPage({ params }: { params: Promise<Params> }) 
         </p>
       </div>
 
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
-        src={`/api/fb-image/${c.id}`}
+      <Image
+        src={cardImageUrl(c.id, c.cardAt)}
         alt={c.hook}
         width={CARD_W}
         height={CARD_H}
+        priority
+        sizes="(max-width: 448px) 100vw, 448px"
         className="w-full aspect-4/5 object-cover rounded-lg border border-line"
       />
 

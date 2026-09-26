@@ -5,6 +5,7 @@
  * «Дэлгэрэнгүй холбоос bio-д.» болгож сольж, hashtag-ийг 5–8 болгож өргөтгөнө.
  */
 import { hashtagOf } from "./facebook.api";
+import { siteUrl } from "../lib/site";
 import { FOLLOW_LINE, SOURCE_PREFIX } from "./fbcopy.api";
 
 /** Instagram-ийн caption-ий дээд урт */
@@ -113,6 +114,6 @@ export function checkCaption(caption: string): CaptionProblem[] {
 }
 
 /** Зургийн нийтийн хаяг — Instagram-ийн сервер үүгээр татна */
-export function publicImageUrl(articleId: string, siteUrl = process.env.SITE_URL): string {
-  return `${(siteUrl ?? "http://localhost:3000").replace(/\/+$/, "")}/api/fb-image/${articleId}`;
+export function publicImageUrl(articleId: string, site = siteUrl()): string {
+  return `${site.replace(/\/+$/, "")}/api/fb-image/${articleId}`;
 }

@@ -28,6 +28,7 @@ export function embedHtml(e: EmbedInput): string {
   const site = e.siteUrl.replace(/\/+$/, "");
   const card = `${site}/api/fb-image/${e.articleId}`;
   const article = `${site}/medee/${e.slug}`;
+  const host = site.replace(/^https?:\/\//, "").replace(/^www\./, "");
   const hook = esc(e.hook);
 
   return `<!doctype html>
@@ -59,7 +60,7 @@ export function embedHtml(e: EmbedInput): string {
     <img src="${card}" width="${CARD_W}" height="${CARD_H}" alt="${hook}" loading="lazy">
     <figcaption>${hook}</figcaption>
   </figure>
-  <p class="src"><span class="brand">AI News</span><span>ainews.mn</span></p>
+  <p class="src"><span class="brand">AI News</span><span>${esc(host)}</span></p>
 </a>
 </body>
 </html>`;

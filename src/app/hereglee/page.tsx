@@ -1,14 +1,17 @@
 import Link from "next/link";
 import { getUseCases } from "@/data";
 import { UseCaseIcon } from "@/components/UseCaseIcon";
+import { BreadcrumbLd } from "@/components/Breadcrumbs";
 
 // Build үед DB байхгүй тул prerender хийхгүй (нүүр хуудастай адил)
 export const dynamic = "force-dynamic";
 
 export function generateMetadata() {
   return {
-    title: "Хэрэглээ",
-    description: "Ямар ажилд аль AI-г ашиглах вэ — ангилал бүрээр санал болгох хэрэгслүүд, монголоор.",
+    title: "Хэрэглээний жишээ",
+    description:
+      "Ямар ажилд аль AI-г ашиглах вэ — ангилал бүрээр санал болгох хэрэгслүүд, жишээ хэрэглээ, монголоор.",
+    alternates: { canonical: "/hereglee" },
   };
 }
 
@@ -17,6 +20,7 @@ export default async function Hereglee() {
 
   return (
     <div className="space-y-6">
+      <BreadcrumbLd crumbs={[{ name: "Хэрэглээний жишээ" }]} />
       <div className="space-y-2 max-w-2xl">
         <h1 className="text-2xl md:text-3xl font-semibold tracking-tight">Ямар ажилд аль AI-г ашиглах вэ?</h1>
         <p className="text-muted">

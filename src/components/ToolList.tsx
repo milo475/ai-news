@@ -60,7 +60,8 @@ export function ToolItem({
   return (
     <li className="rounded-lg border border-line p-4 space-y-3 flex flex-col hover:bg-line/20">
       <div className="flex items-start gap-3">
-        <Link href={`/hereglel/${tool.slug}`}>
+        {/* Зураг нь alt="" тул холбоост нэр aria-label-аар өгнө */}
+        <Link href={`/hereglel/${tool.slug}`} aria-label={tool.name} tabIndex={-1}>
           <ToolLogo name={tool.name} slug={tool.slug} hasLogo={tool.hasLogo} />
         </Link>
         <div className="min-w-0 flex-1">

@@ -14,6 +14,8 @@
  * Зураг тусад нь upload хийхгүй — холбоосын preview-ээр og:image-ийг Facebook өөрөө авна.
  */
 
+import { siteUrl } from "../lib/site";
+
 /** Нэг ажиллуулалтад постлох анхдагч тоо */
 export const DEFAULT_POSTS_PER_RUN = 1;
 
@@ -121,7 +123,7 @@ export function buildPost(a: PostInput): string {
     .join("\n\n");
 }
 
-/** SITE_URL + slug */
-export function articleLink(slug: string, siteUrl = process.env.SITE_URL): string {
-  return `${(siteUrl ?? "http://localhost:3000").replace(/\/+$/, "")}/medee/${slug}`;
+/** Сайтын хаяг + slug. Хаягийг өгөөгүй бол SITE_URL-ээс (site.ts) авна. */
+export function articleLink(slug: string, site = siteUrl()): string {
+  return `${site.replace(/\/+$/, "")}/medee/${slug}`;
 }

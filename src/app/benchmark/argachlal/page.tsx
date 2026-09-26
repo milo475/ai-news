@@ -4,6 +4,7 @@ import { latestBoard, taskCountByCategory } from "@/bench/queries";
 import { BENCH_CATEGORIES, BENCH_CATEGORY_HINT, BENCH_CATEGORY_LABEL } from "@/bench/task.api";
 import { clamp, MAX_META_DESCRIPTION } from "@/guides/seo.api";
 import { siteUrl } from "@/lib/site";
+import { BreadcrumbLd } from "@/components/Breadcrumbs";
 
 export const dynamic = "force-dynamic";
 
@@ -23,6 +24,7 @@ export default async function MethodPage() {
 
   return (
     <article className="max-w-2xl space-y-6">
+      <BreadcrumbLd crumbs={[{ name: "Бенчмарк", path: "/benchmark" }, { name: "Аргачлал" }]} />
       <div className="space-y-2">
         <Link href="/benchmark" className="text-sm text-muted hover:text-ink">← Бенчмарк</Link>
         <h1 className="text-3xl font-semibold tracking-tight">Хэрхэн хэмждэг вэ</h1>

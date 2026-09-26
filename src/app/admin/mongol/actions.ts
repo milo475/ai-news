@@ -1,10 +1,11 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
+import { revalidatePath } from "@/lib/revalidate";
 import { redirect } from "next/navigation";
 import { prisma } from "@/db";
 import { slugify } from "@/agent/slug";
 import { normalizeWebsite } from "@/tools/tool.api";
+import { formId } from "@/lib/validate";
 
 function revalidateMongol() {
   revalidatePath("/");
@@ -23,7 +24,7 @@ function back(msg: string, open?: string): never {
 
 /** listUrl + selector-ыг туршиж, олдсон холбоосуудыг хэвлэнэ */
 export async function testSourceAction(form: FormData) {
-  const id = String(form.get("id"));
+  const id = formId(form);
   const s = await prisma.source.findUniqueOrThrow({
     where: { id },
     select: { name: true, listUrl: true, linkSelector: true },
@@ -45,7 +46,7 @@ export async function testSourceAction(form: FormData) {
 }
 
 export async function saveSourceAction(form: FormData) {
-  const id = String(form.get("id"));
+  const id = formId(form);
   const listUrl = String(form.get("listUrl") ?? "").trim();
   const linkSelector = String(form.get("linkSelector") ?? "").trim();
   const weight = Math.min(10, Math.max(1, Number(form.get("weight") ?? 5) || 5));
@@ -66,7 +67,7 @@ export async function saveSourceAction(form: FormData) {
 
 /** Тухайн эх сурвалжийг одоо татна */
 export async function fetchSourceAction(form: FormData) {
-  const id = String(form.get("id"));
+  const id = formId(form);
   const s = await prisma.source.findUniqueOrThrow({
     where: { id },
     select: { name: true, listUrl: true, feedUrl: true },
@@ -129,7 +130,7 @@ export async function saveProjectAction(form: FormData) {
 }
 
 export async function deleteProjectAction(form: FormData) {
-  const id = String(form.get("id"));
+  const id = formId(form);
   const p = await prisma.mongolProject.delete({ where: { id }, select: { name: true } });
   revalidateMongol();
   back(`${p.name} устгагдлаа.`);

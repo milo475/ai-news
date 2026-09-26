@@ -3,10 +3,16 @@ import { currentUser } from "@/auth/session";
 import { bookmarkedIds } from "@/bookmarks/queries";
 import { getNews } from "@/data";
 import { NewsList } from "@/components/NewsList";
+import { BreadcrumbLd } from "@/components/Breadcrumbs";
 
 // Нэвтэрсэн хэрэглэгчийн хадгалсан төлөв хүн бүрт өөр тул кэшлэхгүй
 export const dynamic = "force-dynamic";
-export const metadata = { title: "Мэдээ" };
+export const metadata = {
+  title: "Мэдээ",
+  description:
+    "Дэлхийн хиймэл оюуны хамгийн сүүлийн мэдээ, монгол хэлээр товчлон найруулсан хураангуй — эх сурвалжийн холбоостой.",
+  alternates: { canonical: "/medee" },
+};
 
 const PER_PAGE = 20;
 /** Prisma-ийн skip нь int хязгаартай — хэтэрхий том page 500 өгөхөөс сэргийлнэ */
@@ -27,6 +33,7 @@ export default async function Medee({ searchParams }: { searchParams: Promise<{ 
 
   return (
     <div className="space-y-4">
+      <BreadcrumbLd crumbs={[{ name: "Мэдээ" }]} />
       <h1 className="text-2xl font-semibold tracking-tight">Мэдээ</h1>
 
       {total === 0 ? (

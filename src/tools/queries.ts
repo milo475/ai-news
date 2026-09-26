@@ -5,6 +5,7 @@ import { prisma } from "../db";
 import type { Prisma } from "../generated/prisma/client";
 import type { MongolianSupport, ToolCategory, ToolPlan } from "../generated/prisma/enums";
 import { popularity, type ToolSort } from "./tool.api";
+import { memoTtl, TTL } from "../lib/cache.api";
 
 export interface ToolCard {
   id: string;
@@ -59,7 +60,7 @@ function where(f: ToolFilters): Prisma.ToolWhereInput {
  * «Алдартай» эрэмбэ нь товшилтыг оруулдаг тул DB-д эрэмбэлж болохгүй — 30 хоногийн
  * товшилтыг тоолоод кодод эрэмбэлнэ.
  */
-export async function listTools(f: ToolFilters = {}, limit?: number): Promise<ToolCard[]> {
+async function listToolsUncached(f: ToolFilters = {}, limit?: number): Promise<ToolCard[]> {
   const sort = f.sort ?? "aldartai";
 
   if (sort !== "aldartai") {
@@ -89,7 +90,7 @@ export async function listTools(f: ToolFilters = {}, limit?: number): Promise<To
 }
 
 /** Сүүлийн 30 хоногийн товшилтын нийлбэр, хэрэгсэл тус бүрээр */
-export async function clicksByTool(toolIds: string[], days = 30): Promise<Map<string, number>> {
+async function clicksByToolUncached(toolIds: string[], days = 30): Promise<Map<string, number>> {
   if (toolIds.length === 0) return new Map();
   const since = new Date(Date.now() - days * 86_400_000).toISOString().slice(0, 10);
   const rows = await prisma.toolClick.groupBy({
@@ -101,7 +102,7 @@ export async function clicksByTool(toolIds: string[], days = 30): Promise<Map<st
 }
 
 /** Шүүлтүүрийн сонголтууд — байгаа өгөгдлөөс */
-export async function toolFacets(): Promise<{
+async function toolFacetsUncached(): Promise<{
   categories: ToolCategory[];
   pricings: ToolPlan[];
   supports: MongolianSupport[];
@@ -150,7 +151,7 @@ export interface ToolDetail extends ToolCard {
   reviews: ToolReviewCard[];
 }
 
-export async function getTool(slug: string): Promise<ToolDetail | null> {
+async function getToolUncached(slug: string): Promise<ToolDetail | null> {
   const t = await prisma.tool.findUnique({
     where: { slug },
     select: {
@@ -207,13 +208,13 @@ export async function getTool(slug: string): Promise<ToolDetail | null> {
 }
 
 /** Харьцуулалтын хуудсанд — хоёр хэрэгслийн бүтэн мэдээлэл */
-export async function getToolsForVersus(a: string, b: string): Promise<[ToolDetail, ToolDetail] | null> {
+async function getToolsForVersusUncached(a: string, b: string): Promise<[ToolDetail, ToolDetail] | null> {
   const [first, second] = await Promise.all([getTool(a), getTool(b)]);
   return first && second ? [first, second] : null;
 }
 
 /** Тухайн ангиллын топ хэрэгслүүд — /hereglee хуудсанд холбоход */
-export async function topToolsForCategory(category: ToolCategory, limit = 5): Promise<ToolCard[]> {
+async function topToolsForCategoryUncached(category: ToolCategory, limit = 5): Promise<ToolCard[]> {
   return listTools({ category, sort: "aldartai" }, limit);
 }
 
@@ -234,3 +235,21 @@ export async function bookmarkedToolIds(userId: string, toolIds: string[]): Prom
   });
   return new Set(rows.flatMap((r) => (r.toolId ? [r.toolId] : [])));
 }
+
+/** Каталогийн жагсаалт */
+export const listTools: typeof listToolsUncached = memoTtl(listToolsUncached, { name: "listTools", ttlMs: TTL.list });
+
+/** Шүүлтүүрийн утгууд */
+export const toolFacets: typeof toolFacetsUncached = memoTtl(toolFacetsUncached, { name: "toolFacets", ttlMs: TTL.list });
+
+/** Хэрэгслийн дэлгэрэнгүй */
+export const getTool: typeof getToolUncached = memoTtl(getToolUncached, { name: "getTool", ttlMs: TTL.list });
+
+/** Харьцуулалтын хос */
+export const getToolsForVersus: typeof getToolsForVersusUncached = memoTtl(getToolsForVersusUncached, { name: "getToolsForVersus", ttlMs: TTL.list });
+
+/** Ангиллын шилдэг хэрэгслүүд */
+export const topToolsForCategory: typeof topToolsForCategoryUncached = memoTtl(topToolsForCategoryUncached, { name: "topToolsForCategory", ttlMs: TTL.list });
+
+/** Сүүлийн 30 хоногийн даралт */
+export const clicksByTool: typeof clicksByToolUncached = memoTtl(clicksByToolUncached, { name: "clicksByTool", ttlMs: TTL.list });

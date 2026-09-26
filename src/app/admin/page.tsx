@@ -8,6 +8,8 @@ import { fmtDate } from "@/components/format";
 import { MAX_ATTEMPTS, postsPerRun } from "@/publish/facebook.api";
 import { igUserId, MAX_IG_ATTEMPTS } from "@/publish/instagram.api";
 import { emptySearches, topSearches } from "@/queries/search-stats";
+import { dashboard } from "@/admin/dashboard";
+import { Dashboard } from "./Dashboard";
 import {
   postArticleToFacebookFromList, postArticleToInstagramFromList, publishArticle, rejectArticle, runJob,
 } from "./actions";
@@ -50,7 +52,8 @@ export default async function Admin({
 
   const umamiUrl = process.env.NEXT_PUBLIC_UMAMI_URL?.trim().replace(/\/+$/, "") || null;
 
-  const [counts, jobs, articles, searches, empties, todayCount, fbQueue, readyCount] = await Promise.all([
+  const [board, counts, jobs, articles, searches, empties, todayCount, fbQueue, readyCount] = await Promise.all([
+    dashboard(),
     prisma.article.groupBy({ by: ["status"], _count: true }),
     Promise.all(
       JOBS.map((job) =>
@@ -100,6 +103,7 @@ export default async function Admin({
           <Link href="/admin/mongol" className="text-sm text-accent hover:underline">Монгол →</Link>
           <Link href="/admin/songolt" className="text-sm text-accent hover:underline">Асуулга →</Link>
           <Link href="/admin/hereglegch" className="text-sm text-accent hover:underline">Хэрэглэгчид →</Link>
+          <Link href="/admin/aldaa" className="text-sm text-accent hover:underline">Алдаа →</Link>
           {umamiUrl && (
             <a
               href={umamiUrl}
@@ -112,6 +116,8 @@ export default async function Admin({
           )}
         </span>
       </div>
+
+      <Dashboard d={board} dailyLimit={dailyLimit} igOn={igOn} />
 
       <section className="grid grid-cols-2 sm:grid-cols-5 gap-3">
         {TABS.map((s) => (

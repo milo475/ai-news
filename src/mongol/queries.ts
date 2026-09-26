@@ -3,6 +3,7 @@
  */
 import { prisma } from "../db";
 import type { NewsCard } from "../data";
+import { memoTtl, TTL } from "../lib/cache.api";
 
 const cardSelect = {
   id: true, slug: true, titleMn: true, summaryMn: true, publishedAt: true, tags: true, kind: true,
@@ -27,7 +28,7 @@ function toCard(a: {
 }
 
 /** Дотоодын нийтлэгдсэн мэдээ, шинээс хуучин руу */
-export async function localNews(limit = 20): Promise<NewsCard[]> {
+async function localNewsUncached(limit = 20): Promise<NewsCard[]> {
   const rows = await prisma.article.findMany({
     where: { region: "MN", status: "PUBLISHED", kind: "NEWS" },
     orderBy: [{ publishedAt: "desc" }, { createdAt: "desc" }],
@@ -49,7 +50,7 @@ export interface ProjectCard {
 }
 
 /** Монголын AI төсөл, компаниуд — гараар хөтөлдөг жагсаалт */
-export async function mongolProjects(): Promise<ProjectCard[]> {
+async function mongolProjectsUncached(): Promise<ProjectCard[]> {
   const rows = await prisma.mongolProject.findMany({
     where: { isActive: true },
     orderBy: [{ isFeatured: "desc" }, { order: "asc" }, { name: "asc" }],
@@ -84,3 +85,9 @@ export async function localSources() {
     },
   });
 }
+
+/** Дотоодын мэдээ */
+export const localNews: typeof localNewsUncached = memoTtl(localNewsUncached, { name: "localNews", ttlMs: TTL.news });
+
+/** Гараар хөтөлдөг жагсаалт */
+export const mongolProjects: typeof mongolProjectsUncached = memoTtl(mongolProjectsUncached, { name: "mongolProjects", ttlMs: TTL.list });

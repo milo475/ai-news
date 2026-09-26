@@ -8,6 +8,11 @@ import { currentUser } from "@/auth/session";
 import { countFinish, countStart } from "./queries";
 import { decodeAnswers, TASK_CATEGORIES } from "./score.api";
 import type { ArticleCategory, ToolCategory } from "@/generated/prisma/enums";
+import { slug as slugSchema, tryParse, z } from "@/lib/validate";
+
+/** Асуулгын код — base64url, 5 тэмдэгт */
+const quizCode = z.string().trim().regex(/^[A-Za-z0-9_-]{1,16}$/, "буруу код");
+const slugList = z.array(slugSchema).max(3);
 
 /** Асуулга эхэлсэн (1-р алхам) */
 export async function startQuizAction(): Promise<void> {
@@ -16,7 +21,10 @@ export async function startQuizAction(): Promise<void> {
 
 /** Асуулга дууссан — үр дүн бүртгэнэ */
 export async function finishQuizAction(code: string, toolSlugs: string[]): Promise<void> {
-  await countFinish(code, toolSlugs.slice(0, 3));
+  const c = tryParse(quizCode, code);
+  const slugs = tryParse(slugList, toolSlugs.slice(0, 3));
+  if (!c || !slugs) return;
+  await countFinish(c, slugs);
 }
 
 /**
@@ -42,7 +50,9 @@ export async function saveQuizPreferenceAction(code: string): Promise<{ saved: b
   const user = await currentUser();
   if (!user) return { saved: false };
 
-  const answers = decodeAnswers(code);
+  const c = tryParse(quizCode, code);
+  if (!c) return { saved: false };
+  const answers = decodeAnswers(c);
   if (!answers) return { saved: false };
 
   const existing = await prisma.userPreference.findUnique({

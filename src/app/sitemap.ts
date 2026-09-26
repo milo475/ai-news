@@ -2,14 +2,35 @@ import type { MetadataRoute } from "next";
 import { prisma } from "@/db";
 import { sitemapEntries } from "@/guides/seo.api";
 import { siteUrl } from "@/lib/site";
+import { memoTtl, TTL } from "@/lib/cache.api";
 
-/** Өдөрт нэг удаа дахин үүсгэнэ — sitemap нь тэр чигтээ шинэ байх шаардлагагүй */
-export const revalidate = 86_400;
+/**
+ * Build үед биш, хүсэлтийн үед үүснэ.
+ *
+ * Статикаар prerender хийвэл SITE_URL нь build-ийн үеийнхээр «шатаж» үлддэг —
+ * домэйн солиход зөвхөн орчны хувьсагч өөрчлөх нь хангалтгүй болно. Оронд нь
+ * үр дүнг процесс дотроо өдөрт нэг удаа кэшлэнэ (доорх `cachedSitemap`).
+ */
+export const dynamic = "force-dynamic";
 
 /** Google нэг sitemap-д 50 000 хаяг зөвшөөрдөг; бид түүнээс хол доогуур */
 const MODEL_LIMIT = 1_000;
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
+  // Build үед DB байхгүй (Docker) — тэр үед статик хуудсуудаа өгөөд, эхний
+  // revalidate дээр бүтнээр нь дахин үүсгэнэ. Sitemap-ийн улмаас deploy унах ёсгүй.
+  try {
+    return await cachedSitemap();
+  } catch (e) {
+    console.warn(`⚠ sitemap: DB-гүй үүсгэв — ${(e as Error).message.slice(0, 120)}`);
+    return sitemapEntries({ siteUrl: siteUrl() });
+  }
+}
+
+/** Өдөрт нэг удаа — sitemap нь тэр чигтээ шинэ байх шаардлагагүй */
+const cachedSitemap = memoTtl(fullSitemap, { name: "sitemap", ttlMs: TTL.guide, max: 1 });
+
+async function fullSitemap(): Promise<MetadataRoute.Sitemap> {
   const { plannedPairs } = await import("@/compare/queries");
   const { cardSlugs } = await import("@/gallery/queries");
   const [articles, guides, prompts, tools, models, useCases, pairs, cards] = await Promise.all([

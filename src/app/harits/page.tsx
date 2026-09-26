@@ -8,6 +8,7 @@ import {
 import { clamp, MAX_META_DESCRIPTION } from "@/guides/seo.api";
 import { siteUrl } from "@/lib/site";
 import { prisma } from "@/db";
+import { BreadcrumbLd } from "@/components/Breadcrumbs";
 
 export const dynamic = "force-dynamic";
 
@@ -65,6 +66,7 @@ export default async function HaritsPage({ searchParams }: { searchParams: Promi
 
   return (
     <div className="max-w-3xl space-y-6">
+      <BreadcrumbLd crumbs={[{ name: "Харьцуулах" }]} />
       {answered && (
         <TrackEvent event="compare_pick" data={{ task, budget, mongolian: mongolian ? 1 : 0 }} />
       )}

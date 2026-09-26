@@ -3,7 +3,7 @@
 /**
  * Prompt-ын server action-ууд.
  */
-import { revalidatePath } from "next/cache";
+import { revalidatePath } from "@/lib/revalidate";
 import { redirect } from "next/navigation";
 import { currentUser, requireVerified } from "@/auth/session";
 import { AUTH_MESSAGES } from "@/auth/errors";
@@ -13,10 +13,13 @@ import {
 } from "./prompt.api";
 import { canSubmit, countCopy, createUserPrompt, toggleLike } from "./mutations";
 import type { PromptCategory } from "@/generated/prisma/enums";
+import { cuid, internalPath, parseForm, tryParse, z } from "@/lib/validate";
 
 /** «Хуулах» товч — нэвтрээгүй ч ажиллана, зөвхөн тоолуур нэмнэ */
 export async function countCopyAction(promptId: string): Promise<void> {
-  await countCopy(promptId);
+  const id = tryParse(cuid, promptId);
+  if (!id) return;
+  await countCopy(id);
 }
 
 export interface LikeResult {
@@ -25,11 +28,15 @@ export interface LikeResult {
 
 /** Зүрх — нэвтрэхийг шаардана */
 export async function likeAction(promptId: string, path?: string): Promise<LikeResult> {
+  const safePath = tryParse(internalPath, path) ?? undefined;
   const user = await currentUser();
-  if (!user) redirect(`/nevtreh?ur=${encodeURIComponent(path ?? "/prompt")}`);
+  if (!user) redirect(`/nevtreh?ur=${encodeURIComponent(safePath ?? "/prompt")}`);
 
-  const liked = await toggleLike(user.id, promptId);
-  if (path) revalidatePath(path);
+  const id = tryParse(cuid, promptId);
+  if (!id) return { liked: false };
+
+  const liked = await toggleLike(user.id, id);
+  if (safePath) revalidatePath(safePath);
   return { liked };
 }
 
@@ -56,11 +63,24 @@ export async function submitPromptAction(_prev: SubmitState, form: FormData): Pr
     return { error: `Өдөрт ${DAILY_SUBMIT_LIMIT} prompt илгээх боломжтой. Маргааш дахин оролдоно уу.` };
   }
 
-  const title = String(form.get("title") ?? "").trim();
-  const body = String(form.get("body") ?? "").trim();
-  const description = String(form.get("description") ?? "").trim().slice(0, MAX_DESCRIPTION);
-  const category = String(form.get("category") ?? "");
-  const tools = form.getAll("tools").map(String).map((t) => t.trim()).filter(Boolean);
+  // Сервер тал нь UI-д юу байгаагаас хамаарахгүй — урт, төрлийг өөрөө шалгана
+  const parsed = parseForm(
+    z.object({
+      title: z.string().trim().max(200),
+      body: z.string().trim().max(10_000),
+      description: z.string().trim().max(MAX_DESCRIPTION).default(""),
+      category: z.string().trim().max(40).default(""),
+    }),
+    form,
+  );
+  if (!parsed.ok) return { error: parsed.error };
+  const { title, body, description, category } = parsed.data;
+  const tools = form
+    .getAll("tools")
+    .map(String)
+    .map((t) => t.trim().slice(0, 40))
+    .filter(Boolean)
+    .slice(0, 10);
 
   const problems = checkSubmission({ title, body, description, category });
   if (problems.length > 0) return { error: problems[0]!.detail };
@@ -92,9 +112,10 @@ export async function deleteMyPromptAction(form: FormData): Promise<void> {
   const user = await currentUser();
   if (!user) redirect("/nevtreh?ur=%2Fprofile%2Fprompt");
 
-  const id = String(form.get("id"));
+  const parsed = parseForm(z.object({ id: cuid }), form);
+  if (!parsed.ok) return;
   // authorUserId-г where-т оруулснаар бусдын prompt-ыг устгах боломжгүй
-  await prisma.prompt.deleteMany({ where: { id, authorUserId: user.id } });
+  await prisma.prompt.deleteMany({ where: { id: parsed.data.id, authorUserId: user.id } });
   revalidatePath("/profile/prompt");
   revalidatePath("/prompt");
 }

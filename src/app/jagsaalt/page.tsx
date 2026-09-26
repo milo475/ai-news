@@ -3,9 +3,15 @@ import { getLeaderboard, getSourceNote } from "@/data";
 import { LeaderboardTable } from "@/components/LeaderboardTable";
 import { fmtDate } from "@/components/format";
 import { TrackEvent } from "@/components/Track";
+import { BreadcrumbLd } from "@/components/Breadcrumbs";
 
 export const revalidate = 3600;
-export const metadata = { title: "Жагсаалт" };
+export const metadata = {
+  title: "Моделийн жагсаалт",
+  description:
+    "AI моделиудын өдөр тутмын эрэмбэ: OpenRouter дээрх бодит хэрэглээ ба LMArena-ийн чанарын оноо, өсөлт уналттайгаа.",
+  alternates: { canonical: "/jagsaalt" },
+};
 
 type Search = { company?: string; open?: string; tab?: string };
 
@@ -44,6 +50,7 @@ export default async function Jagsaalt({ searchParams }: { searchParams: Promise
 
   return (
     <div className="space-y-6">
+      <BreadcrumbLd crumbs={[{ name: "Моделийн жагсаалт" }]} />
       <TrackEvent event="ranking_tab" data={{ tab: tab.event }} />
       <div>
         <p className="text-xs uppercase tracking-widest text-muted">{fmtDate(date)}</p>

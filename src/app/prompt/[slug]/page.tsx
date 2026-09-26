@@ -14,6 +14,7 @@ import { getPrompt, guidesForPrompt, likedPromptIds, relatedPrompts } from "@/pr
 import { PROMPT_CATEGORY_LABEL, PROMPT_LANGUAGE_LABEL } from "@/prompts/prompt.api";
 import { promptJsonLd } from "@/prompts/seo.api";
 import { siteUrl } from "@/lib/site";
+import { BreadcrumbLd } from "@/components/Breadcrumbs";
 
 export const dynamic = "force-dynamic";
 
@@ -31,8 +32,14 @@ export async function generateMetadata({ params }: { params: Promise<Params> }) 
     title,
     description,
     alternates: { canonical: url },
-    openGraph: { type: "article", title, description, url },
-    twitter: { card: "summary", title, description },
+    openGraph: {
+      type: "article", title, description, url,
+      images: [{ url: "/opengraph-image.png", width: 1200, height: 630 }],
+    },
+    twitter: {
+      card: "summary", title, description,
+      images: ["/opengraph-image.png"],
+    },
   };
 }
 
@@ -55,6 +62,7 @@ export default async function PromptPage({ params }: { params: Promise<Params> }
 
   return (
     <article className="max-w-2xl space-y-6">
+      <BreadcrumbLd crumbs={[{ name: "Prompt сан", path: "/prompt" }, { name: p.title }]} />
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(promptJsonLd(p, siteUrl())) }}

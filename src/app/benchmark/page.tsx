@@ -9,6 +9,7 @@ import { monthLabel } from "@/bench/summary.api";
 import { clamp, MAX_META_DESCRIPTION } from "@/guides/seo.api";
 import { siteUrl } from "@/lib/site";
 import type { BenchCategory } from "@/generated/prisma/enums";
+import { BreadcrumbLd } from "@/components/Breadcrumbs";
 
 export const dynamic = "force-dynamic";
 
@@ -26,7 +27,13 @@ export async function generateMetadata() {
     title,
     description: clamp(description, MAX_META_DESCRIPTION),
     alternates: { canonical: `${siteUrl()}/benchmark` },
-    openGraph: { type: "website", title, description: clamp(description, MAX_META_DESCRIPTION) },
+    openGraph: {
+      type: "website",
+      title,
+      description: clamp(description, MAX_META_DESCRIPTION),
+      // Хуудас өөрийн openGraph зарлавал layout-ын зургийг өвлөхгүй — гараар зааж өгнө
+      images: [{ url: "/opengraph-image.png", width: 1200, height: 630 }],
+    },
   };
 }
 
@@ -69,6 +76,7 @@ export default async function BenchmarkPage({
 
   return (
     <div className="space-y-6">
+      <BreadcrumbLd crumbs={[{ name: "Бенчмарк" }]} />
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify([datasetJsonLd(ld), tableJsonLd(ld)]) }}

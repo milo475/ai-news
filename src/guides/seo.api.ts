@@ -83,24 +83,28 @@ export interface SitemapEntry {
   priority: number;
 }
 
+/**
+ * Sitemap-ийн оролт. Статик хуудсуудаас бусад нь заавал биш — DB байхгүй үед
+ * (Docker build) зөвхөн статик хэсгийг гаргана.
+ */
 export interface SitemapInput {
   siteUrl: string;
-  articles: { slug: string; publishedAt: Date | null; updatedAt: Date }[];
-  guides: { slug: string; updatedAt: Date }[];
-  prompts: { slug: string; updatedAt: Date }[];
-  tools: { slug: string; updatedAt: Date }[];
+  articles?: { slug: string; publishedAt: Date | null; updatedAt: Date }[];
+  guides?: { slug: string; updatedAt: Date }[];
+  prompts?: { slug: string; updatedAt: Date }[];
+  tools?: { slug: string; updatedAt: Date }[];
   /** Харьцуулалтын pairKey-үүд */
-  pairs: string[];
+  pairs?: string[];
   /** Картын хуудсууд (/barimt/<slug>) */
-  cards: { slug: string; updatedAt: Date }[];
-  models: { slug: string; updatedAt: Date }[];
-  useCases: { slug: string; updatedAt: Date }[];
+  cards?: { slug: string; updatedAt: Date }[];
+  models?: { slug: string; updatedAt: Date }[];
+  useCases?: { slug: string; updatedAt: Date }[];
 }
 
 /** Статик хуудсууд — жагсаалт, мэдээ, хэрэглээ, заавар */
 export const STATIC_PATHS = [
   "", "/jagsaalt", "/medee", "/mongol", "/hereglee", "/zaavar", "/prompt", "/hereglel",
-  "/harits", "/barimt", "/songolt", "/benchmark", "/benchmark/argachlal",
+  "/harits", "/barimt", "/songolt", "/benchmark", "/benchmark/argachlal", "/nuutslal",
 ] as const;
 
 /**
@@ -118,49 +122,49 @@ export function sitemapEntries(input: SitemapInput): SitemapEntry[] {
       changeFrequency: "daily" as const,
       priority: path === "" ? 1 : 0.8,
     })),
-    ...input.guides.map((g) => ({
+    ...(input.guides ?? []).map((g) => ({
       url: `${site}/zaavar/${g.slug}`,
       lastModified: g.updatedAt,
       changeFrequency: "monthly" as const,
       priority: 0.9,
     })),
-    ...input.prompts.map((p) => ({
+    ...(input.prompts ?? []).map((p) => ({
       url: `${site}/prompt/${p.slug}`,
       lastModified: p.updatedAt,
       changeFrequency: "monthly" as const,
       priority: 0.7,
     })),
-    ...input.cards.map((c) => ({
+    ...(input.cards ?? []).map((c) => ({
       url: `${site}/barimt/${c.slug}`,
       lastModified: c.updatedAt,
       changeFrequency: "monthly" as const,
       priority: 0.5,
     })),
-    ...input.pairs.map((key) => ({
+    ...(input.pairs ?? []).map((key) => ({
       url: `${site}/harits/${key}`,
       lastModified: now,
       changeFrequency: "weekly" as const,
       priority: 0.6,
     })),
-    ...input.tools.map((t) => ({
+    ...(input.tools ?? []).map((t) => ({
       url: `${site}/hereglel/${t.slug}`,
       lastModified: t.updatedAt,
       changeFrequency: "weekly" as const,
       priority: 0.8,
     })),
-    ...input.articles.map((a) => ({
+    ...(input.articles ?? []).map((a) => ({
       url: `${site}/medee/${a.slug}`,
       lastModified: a.updatedAt,
       changeFrequency: "monthly" as const,
       priority: 0.6,
     })),
-    ...input.useCases.map((u) => ({
+    ...(input.useCases ?? []).map((u) => ({
       url: `${site}/hereglee/${u.slug}`,
       lastModified: u.updatedAt,
       changeFrequency: "weekly" as const,
       priority: 0.7,
     })),
-    ...input.models.map((m) => ({
+    ...(input.models ?? []).map((m) => ({
       url: `${site}/model/${m.slug}`,
       lastModified: m.updatedAt,
       changeFrequency: "weekly" as const,

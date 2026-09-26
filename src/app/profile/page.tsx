@@ -6,7 +6,7 @@ import { ActionForm, input, Submit } from "@/components/AuthForm";
 import { MIN_PASSWORD } from "@/auth/password";
 import { prisma } from "@/db";
 
-export const metadata = { title: "Профайл" };
+export const metadata = { title: "Профайл", robots: { index: false } };
 
 export default async function ProfilePage() {
   const user = await currentUser();

@@ -11,6 +11,7 @@ import { compareDescription, compareJsonLd, compareTitle } from "@/compare/seo.a
 import { clamp, MAX_META_DESCRIPTION, MAX_META_TITLE } from "@/guides/seo.api";
 import { siteUrl } from "@/lib/site";
 import { prisma } from "@/db";
+import { BreadcrumbLd } from "@/components/Breadcrumbs";
 
 /** Өдөрт нэг удаа дахин үүсгэнэ — оноо, үнэ өдөр бүр л хувирдаг */
 export const revalidate = 86_400;
@@ -37,6 +38,7 @@ export async function generateMetadata({ params }: { params: Promise<Params> }) 
       type: "website", url: canonical,
       title: clamp(title, MAX_META_TITLE),
       description: clamp(description, MAX_META_DESCRIPTION),
+      images: [{ url: "/opengraph-image.png", width: 1200, height: 630 }],
     },
   };
 }
@@ -68,6 +70,7 @@ export default async function ComparePage({ params }: { params: Promise<Params> 
 
   return (
     <div className="max-w-3xl space-y-6">
+      <BreadcrumbLd crumbs={[{ name: "Харьцуулах", path: "/harits" }, { name: `${a.name} vs ${b.name}` }]} />
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{

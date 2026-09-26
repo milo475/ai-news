@@ -17,6 +17,15 @@ import { checkPassword } from "./password";
 import { allowLogin, allowRegister, allowReset } from "./rate-limit";
 import { createToken, useToken } from "./tokens";
 import { createUser, markVerified, setPassword } from "./users";
+import { parseForm, z } from "@/lib/validate";
+
+/**
+ * Нууц үгийн урт: bcrypt нь 72 байтаас хойшхыг үл хэрэгсдэг, түүнээс урт мөрийг
+ * hash хийх нь зөвхөн CPU үрнэ. Хэт урт оролтыг схем дээр таслана.
+ */
+const PASSWORD_MAX = 200;
+const passwordField = z.string().max(PASSWORD_MAX, "Нууц үг хэтэрхий урт байна.");
+const nameField = z.string().trim().min(2, "Нэрээ оруулна уу.").max(80, "Нэр хэтэрхий урт байна.");
 
 export interface FormState {
   error?: string;
@@ -35,8 +44,9 @@ export async function loginAction(_prev: FormState, form: FormData): Promise<For
   if (!(await allowLogin())) return { error: TOO_MANY };
 
   const mail = email(form.get("email"));
-  const password = String(form.get("password") ?? "");
-  if (!mail || !password) return { error: GENERIC_LOGIN_ERROR };
+  const parsed = parseForm(z.object({ password: passwordField }), form);
+  if (!mail || !parsed.ok || !parsed.data.password) return { error: GENERIC_LOGIN_ERROR };
+  const { password } = parsed.data;
 
   try {
     await signIn("credentials", { email: mail, password, redirectTo: "/profile" });
@@ -53,12 +63,16 @@ export async function registerAction(_prev: FormState, form: FormData): Promise<
   if (!(await allowRegister())) return { error: TOO_MANY };
 
   const mail = email(form.get("email"));
-  const name = String(form.get("name") ?? "").trim();
-  const password = String(form.get("password") ?? "");
+  if (!mail) return { error: "Имэйл хаяг буруу байна." };
+
+  const parsed = parseForm(
+    z.object({ name: nameField, password: passwordField }),
+    form,
+  );
+  if (!parsed.ok) return { error: parsed.error };
+  const { name, password } = parsed.data;
   const wantsNewsletter = form.get("newsletter") === "on";
 
-  if (!mail) return { error: "Имэйл хаяг буруу байна." };
-  if (name.length < 2) return { error: "Нэрээ оруулна уу." };
   const passwordProblems = checkPassword(password);
   if (passwordProblems.length) return { error: passwordProblems[0]!.detail };
 
@@ -105,8 +119,12 @@ export async function forgotAction(_prev: FormState, form: FormData): Promise<Fo
 
 /** Шинэ нууц үг тохируулах (сэргээх холбоосоор) */
 export async function resetPasswordAction(_prev: FormState, form: FormData): Promise<FormState> {
-  const token = String(form.get("token") ?? "");
-  const password = String(form.get("password") ?? "");
+  const parsed = parseForm(
+    z.object({ token: z.string().trim().max(200), password: passwordField }),
+    form,
+  );
+  if (!parsed.ok) return { error: parsed.error };
+  const { token, password } = parsed.data;
 
   const problems = checkPassword(password);
   if (problems.length) return { error: problems[0]!.detail };
