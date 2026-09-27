@@ -52,11 +52,20 @@ export async function GET() {
       select: { job: true, startedAt: true, finishedAt: true, ok: true },
     });
 
+    // Сүүлийн 24 цагт унасан ажлууд. Туслах алхам унавал pipeline нь exit 0 өгдөг
+    // (Railway улаан болохгүй) тул ЭНД харагдах нь чухал.
+    const failed = await prisma.jobRun.groupBy({
+      by: ["job"],
+      where: { ok: false, startedAt: { gte: new Date(Date.now() - 86_400_000) } },
+      _count: { _all: true },
+    });
+
     return NextResponse.json({
       ok: true,
       db: { ok: true, ms: dbMs },
       queue: { raw: rawCount, readyDrafts: draftReady },
       errors: errorCount,
+      failedJobs: Object.fromEntries(failed.map((f) => [f.job, f._count._all])),
       lastRun: lastAny && {
         job: lastAny.job,
         ok: lastAny.ok,

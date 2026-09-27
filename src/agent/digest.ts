@@ -12,10 +12,12 @@ import { join } from "node:path";
 import { prisma } from "../db";
 import { jobRunMeta } from "../jobs/meta";
 import {
-  assembleBody, DIGEST_SCHEMA, MIN_ARTICLES, weekLabel,
-  type DigestOut, type DigestSource, type RankingChange,
+  assembleBody, DIGEST_MAX_TOKENS, DIGEST_OUTLINE_SCHEMA, DIGEST_SCHEMA,
+  DIGEST_SECTION_SCHEMA, MIN_ARTICLES, OUTLINE_MAX_TOKENS, resolveOutline, SECTION_MAX_TOKENS,
+  weekLabel,
+  type DigestOut, type DigestOutline, type DigestSource, type RankingChange,
 } from "./digest.api";
-import { chatJson } from "./llm";
+import { chatJson, isTruncated } from "./llm";
 import { slugify } from "./slug";
 
 const WRITE_MODEL = process.env.WRITE_MODEL ?? "google/gemini-3.8-flash";
@@ -29,6 +31,106 @@ const SYSTEM = `Чи монгол хэлээр хиймэл оюуны мэдэ�
 Өгөгдсөн мэдээнд байхгүй баримт, тоо бүү нэм. Ажлын явцын тайлбарыг нийтлэлд хэзээ ч бүү бич. Доорх толь бичиг, дүрмийг заавал мөрд.
 --- ТОЛЬ БИЧИГ, ДҮРЭМ ---
 ${GLOSSARY}`;
+
+type Chat = typeof chatJson;
+
+/** Мэдээг prompt-д оруулах хэлбэр */
+function itemLines(items: DigestSource[]): string[] {
+  return items.map(
+    (a) => `- slug: ${a.slug}\n  гарчиг: ${a.titleMn}\n  хураангуй: ${a.summaryMn}\n  эх сурвалж: ${a.sourceName}`,
+  );
+}
+
+/**
+ * Тоймыг **хэсэгчлэн** бичүүлнэ: эхлээд бүтэц (гарчиг, тойм, хэсгүүд + аль мэдээ
+ * хаана орох), дараа нь хэсэг бүрийн биеийг тусад нь.
+ *
+ * Нэг дуудлага нь max_tokens-д багтахгүй үед л ажиллана. Дуудлага олон ч тус бүр нь
+ * жижиг тул нийт зардал бараг ижил, харин тасрах эрсдэлгүй.
+ */
+async function writeInParts(
+  label: string,
+  items: DigestSource[],
+  chat: Chat,
+): Promise<{ data: DigestOut; tokens: number; costUsd: number }> {
+  console.log("  ↻ нэг дуудлагад багтсангүй — хэсэгчлэн бичүүлнэ");
+  let tokens = 0;
+  let costUsd = 0;
+
+  const outlineRes = await chat<DigestOutline>({
+    model: WRITE_MODEL,
+    system: `${SYSTEM}\n\nОДОО зөвхөн БҮТЦИЙГ гарга: гарчиг, тойм, 2–5 хэсгийн ГАРЧИГ, хэсэг бүрд ямар мэдээ орохыг slug-аар нь. Хэсгийн биеийг БҮҮ бич — дараа нь тусад нь бичнэ.`,
+    user: [`Долоо хоног: ${label}`, "", "Мэдээнүүд (оноогоор эрэмбэлсэн):", ...itemLines(items)].join("\n"),
+    schema: DIGEST_OUTLINE_SCHEMA,
+    maxTokens: OUTLINE_MAX_TOKENS,
+    temperature: 0.4,
+    reasoning: false,
+  });
+  tokens += outlineRes.tokens;
+  costUsd += outlineRes.costUsd;
+
+  const known = items.map((a) => a.slug);
+  const outline = resolveOutline(outlineRes.data, known);
+  if (outline.sections.length === 0) throw new Error("Digest: бүтэц хоосон ирлээ");
+
+  const bySlug = new Map(items.map((a) => [a.slug, a]));
+  const sections: DigestOut["sections"] = [];
+
+  for (const [i, s] of outline.sections.entries()) {
+    const mine = s.slugs.flatMap((slug) => bySlug.get(slug) ?? []);
+    const res = await chat<{ body: string }>({
+      model: WRITE_MODEL,
+      system: `${SYSTEM}\n\nОДОО зөвхөн НЭГ хэсгийн биеийг бич. Гарчгийг давтаж бүү бич — зөвхөн 2–4 догол мөр.`,
+      user: [
+        `Долоо хоног: ${label}`,
+        `Тоймын гарчиг: ${outline.titleMn}`,
+        `Энэ хэсгийн гарчиг: ${s.heading}`,
+        "",
+        "Зөвхөн эдгээр мэдээг ашигла:",
+        ...itemLines(mine),
+      ].join("\n"),
+      schema: DIGEST_SECTION_SCHEMA,
+      maxTokens: SECTION_MAX_TOKENS,
+      temperature: 0.4,
+      reasoning: false,
+    });
+    tokens += res.tokens;
+    costUsd += res.costUsd;
+    sections.push({ heading: s.heading, body: res.data.body });
+    console.log(`    ${i + 1}/${outline.sections.length} «${s.heading}» (${mine.length} мэдээ)`);
+  }
+
+  return {
+    data: { titleMn: outline.titleMn, leadMn: outline.leadMn, sections, nextWeek: outline.nextWeek },
+    tokens,
+    costUsd,
+  };
+}
+
+/** Эхлээд нэг дуудлагаар; тасарвал хэсэгчилсэн горимд шилжинэ */
+export async function writeDigest(
+  label: string,
+  items: DigestSource[],
+  chat: Chat,
+): Promise<{ data: DigestOut; tokens: number; costUsd: number }> {
+  const user = [
+    `Долоо хоног: ${label}`,
+    "",
+    "Мэдээнүүд (оноогоор эрэмбэлсэн):",
+    ...itemLines(items),
+  ].join("\n");
+
+  try {
+    return await chat<DigestOut>({
+      model: WRITE_MODEL, system: SYSTEM, user, schema: DIGEST_SCHEMA,
+      maxTokens: DIGEST_MAX_TOKENS, temperature: 0.4, reasoning: false,
+    });
+  } catch (e) {
+    // Зөвхөн «багтсангүй» алдаанд хэсэгчилнэ — бусад алдааг дамжуулна
+    if (!isTruncated(e)) throw e;
+    return writeInParts(label, items, chat);
+  }
+}
 
 /** Сүүлийн 7 хоногийн жагсаалтын өөрчлөлт — LLM оролцохгүй */
 async function rankingChanges(since: Date): Promise<RankingChange> {
@@ -98,7 +200,10 @@ async function rankingChanges(since: Date): Promise<RankingChange> {
   return changes;
 }
 
-export async function runDigest(publish = false): Promise<{ created: boolean; slug?: string; title?: string; items: number }> {
+export async function runDigest(
+  publish = false,
+  opts: { chat?: Chat } = {},
+): Promise<{ created: boolean; slug?: string; title?: string; items: number }> {
   const run = await prisma.jobRun.create({ data: { job: "digest", ...jobRunMeta() } });
   try {
     const to = new Date();
@@ -138,17 +243,7 @@ export async function runDigest(publish = false): Promise<{ created: boolean; sl
     const changes = await rankingChanges(since);
     const label = weekLabel(since, to);
 
-    const user = [
-      `Долоо хоног: ${label}`,
-      "",
-      "Мэдээнүүд (оноогоор эрэмбэлсэн):",
-      ...items.map((a) => `- slug: ${a.slug}\n  гарчиг: ${a.titleMn}\n  хураангуй: ${a.summaryMn}\n  эх сурвалж: ${a.sourceName}`),
-    ].join("\n");
-
-    const { data, tokens } = await chatJson<DigestOut>({
-      model: WRITE_MODEL, system: SYSTEM, user, schema: DIGEST_SCHEMA,
-      maxTokens: 4000, temperature: 0.4, reasoning: false,
-    });
+    const { data, tokens, costUsd } = await writeDigest(label, items, opts.chat ?? chatJson);
 
     const local: DigestSource[] = localRows.map((a) => ({
       slug: a.slug,
@@ -186,7 +281,7 @@ export async function runDigest(publish = false): Promise<{ created: boolean; sl
     console.log(`Digest: "${digest.titleMn}" → /medee/${digest.slug} (${items.length} мэдээ, ${publish ? "PUBLISHED" : "DRAFT"})`);
     await prisma.jobRun.update({
       where: { id: run.id },
-      data: { finishedAt: new Date(), ok: true, itemsIn: items.length, itemsOut: 1 },
+      data: { finishedAt: new Date(), ok: true, itemsIn: items.length, itemsOut: 1, costUsd },
     });
     return { created: true, slug: digest.slug, title: digest.titleMn ?? "", items: items.length };
   } catch (e) {

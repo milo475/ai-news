@@ -25,6 +25,8 @@ import { runAgent } from "./agent/process";
 import { prisma } from "./db";
 import { openRouterKey } from "./env";
 import { ubDayRange } from "./jobs/day";
+import { logError } from "./lib/errors";
+import { isCoreStep, shouldGiveUpToday } from "./jobs/steps.api";
 import { dailyHour, modeFor, publishTimes, type Mode } from "./jobs/mode.api";
 import { runArena } from "./fetchers/arena";
 import { runOpenRouter } from "./fetchers/openrouter";
@@ -37,6 +39,12 @@ import { ubHour } from "./publish/slot.api";
 
 /** Үүнээс удсан дуусаагүй pipeline-ийг үхсэн гэж үзнэ */
 const LOCK_STALE_MS = 50 * 60_000;
+
+/** Тухайн ажил УБ цагаар өнөөдөр хэдэн удаа унасан бэ */
+async function failuresToday(job: string, now = new Date()): Promise<number> {
+  const { start, end } = ubDayRange(now);
+  return prisma.jobRun.count({ where: { job, ok: false, startedAt: { gte: start, lt: end } } });
+}
 
 interface Step {
   name: string;
@@ -318,7 +326,10 @@ async function main() {
   process.env.JOB_MODE = activeMode.toUpperCase();
 
   const rows: Row[] = [];
-  let failed = false;
+  /** Гол алхам унасан — exit 1 */
+  let coreFailed = false;
+  /** Туслах алхам унасан — exit 0, гэхдээ ⚠ */
+  let auxFailed = false;
 
   for (const step of STEPS) {
     if (!willRun(step)) continue;
@@ -333,6 +344,15 @@ async function main() {
         rows.push({ Алхам: step.name, Төлөв: "алгасав", "Үр дүн": "өнөөдөр ажилласан", Хугацаа: "—" });
         continue;
       }
+      // Хоёр удаа унасан бол тэр өдөртөө болино — цаг тутам дахин оролдож
+      // зардал, лог үрэхгүй. Маргааш УБ 00:00-д дахин эхэлнэ.
+      const fails = await failuresToday(step.name);
+      if (shouldGiveUpToday(fails)) {
+        const note = `өнөөдөр ${fails} удаа унасан — маргааш хүртэл болив`;
+        console.warn(`⚠ ${step.name}: ${note}`);
+        rows.push({ Алхам: step.name, Төлөв: "болив", "Үр дүн": note, Хугацаа: "—" });
+        continue;
+      }
     }
 
     console.log(`\n──── ${step.name} ────`);
@@ -340,24 +360,48 @@ async function main() {
     try {
       rows.push({ Алхам: step.name, Төлөв: "ok", "Үр дүн": await step.run(), Хугацаа: since(t0) });
     } catch (e) {
-      failed = true;
+      const core = isCoreStep(step.name);
+      if (core) coreFailed = true;
+      else auxFailed = true;
+
       const message = (e as Error).message.replace(/\s+/g, " ").slice(0, 100);
-      console.error(`✗ ${step.name}: ${message}`);
-      rows.push({ Алхам: step.name, Төлөв: "алдаа", "Үр дүн": message, Хугацаа: since(t0) });
+      console.error(`${core ? "✗" : "⚠"} ${step.name}: ${message}`);
+      rows.push({ Алхам: step.name, Төлөв: core ? "алдаа" : "⚠ алдаа", "Үр дүн": message, Хугацаа: since(t0) });
+
+      // /admin/aldaa-д бичигдэнэ — туслах алхам чимээгүй унахгүй
+      await logError({ source: "cron", path: `pipeline/${step.name}`, error: e });
     }
   }
 
   console.log("");
   console.table(rows);
 
+  if (auxFailed && !coreFailed) {
+    const names = rows.filter((r) => r.Төлөв === "⚠ алдаа").map((r) => r.Алхам).join(", ");
+    console.warn(
+      `\n⚠ Туслах алхам унасан (${names}) — гол урсгал хэвийн тул exit 0.\n` +
+        "   Дэлгэрэнгүй: /admin/aldaa, /api/health",
+    );
+  }
+
   if (lock) {
     await prisma.jobRun.update({
       where: { id: lock.id },
-      data: { finishedAt: new Date(), ok: !failed, itemsOut: rows.filter((r) => r.Төлөв === "ok").length },
+      data: {
+        finishedAt: new Date(),
+        // JobRun нь бодит байдлыг хадгална: туслах алхам унасан ч ok=false
+        ok: !coreFailed && !auxFailed,
+        itemsOut: rows.filter((r) => r.Төлөв === "ok").length,
+        ...(coreFailed || auxFailed
+          ? { error: rows.filter((r) => r.Төлөв.includes("алдаа")).map((r) => r.Алхам).join(", ") }
+          : {}),
+      },
     });
   }
   await prisma.$disconnect();
-  if (failed) process.exitCode = 1;
+
+  // Зөвхөн гол алхам унавал Railway улаан болно
+  if (coreFailed) process.exitCode = 1;
 }
 
 main().catch((e) => { console.error(e); process.exit(1); });

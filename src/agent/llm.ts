@@ -25,20 +25,35 @@ const BACKOFF_MS = [2_000, 6_000];
 export class LlmAuthError extends Error {
   /** HTTP статус; 0 = түлхүүр огт тохируулаагүй */
   readonly status: number;
+  /** `credits` = данс дууссан (түлхүүр зөв ч дуудлага гарахгүй) */
+  readonly kind: "auth" | "credits";
 
-  constructor(status: number, detail: string) {
+  constructor(status: number, detail: string, kind: "auth" | "credits" = "auth") {
     super(
-      status === 0
-        ? `OPENROUTER_API_KEY тохируулаагүй байна${detail ? ` (${detail})` : ""}`
-        : `OpenRouter ${status}: түлхүүр буруу эсвэл эрх хүрэхгүй — ${detail}`,
+      kind === "credits"
+        ? `OpenRouter: данс дууссан — openrouter.ai/settings/credits дээр цэнэглэнэ үү (${detail})`
+        : status === 0
+          ? `OPENROUTER_API_KEY тохируулаагүй байна${detail ? ` (${detail})` : ""}`
+          : `OpenRouter ${status}: түлхүүр буруу эсвэл эрх хүрэхгүй — ${detail}`,
     );
     this.name = "LlmAuthError";
     this.status = status;
+    this.kind = kind;
   }
 }
 
 export function isAuthError(e: unknown): e is LlmAuthError {
   return e instanceof LlmAuthError;
+}
+
+/**
+ * Хариу нь `max_tokens`-д багтаагүй (finish_reason = "length").
+ *
+ * Дахин оролдох нь утгагүй — ижил урттай хариу дахин гарна. Дуудагч нь эсвэл
+ * max_tokens-оо нэмэх, эсвэл ажлаа жижиг хэсгүүдэд хуваах ёстой.
+ */
+export function isTruncated(e: unknown): boolean {
+  return (e as { truncated?: boolean } | null)?.truncated === true;
 }
 
 /**
@@ -60,11 +75,24 @@ function apiKeyOrThrow(): string {
   return key;
 }
 
-/** 401/403 бол түгжээг тавиад алдааг буцаана, үгүй бол null */
+/**
+ * Дахин оролдох утгагүй алдаа бол түгжээг тавиад буцаана, үгүй бол null.
+ *
+ *   401/403 — түлхүүр буруу
+ *   402 «Insufficient credits» — данс дууссан. Бүх дараагийн дуудлага мөн л унах тул
+ *     эндээс зогсоох нь чухал: эс тэгвээс алхам бүр дахин оролдож лог, цаг үрнэ.
+ *     (402-ийн «in_flight» хувилбар нь түр хязгаар тул үүнд хамаарахгүй.)
+ */
 function authErrorFor(status: number, body: string): LlmAuthError | null {
-  if (status !== 401 && status !== 403) return null;
-  authFailure = new LlmAuthError(status, body.slice(0, 200));
-  return authFailure;
+  if (status === 401 || status === 403) {
+    authFailure = new LlmAuthError(status, body.slice(0, 200));
+    return authFailure;
+  }
+  if (status === 402 && /insufficient credits/i.test(body) && !/in_flight/i.test(body)) {
+    authFailure = new LlmAuthError(status, "үлдэгдэл хүрэлцэхгүй", "credits");
+    return authFailure;
+  }
+  return null;
 }
 
 /** Тестэд түгжээг сэргээнэ */
@@ -157,7 +185,11 @@ async function callOnce<T>(
   const choice = json.choices?.[0];
   // Бодох модельд reasoning токен нь max_tokens-оос иддэг — дахин оролдоод нэмэргүй
   if (choice?.finish_reason === "length") {
-    throw new Error(`OpenRouter chat: хариу таслагдсан (max_tokens=${opts.maxTokens} хүрэлцэхгүй)`);
+    const err = new Error(
+      `OpenRouter chat: хариу таслагдсан (max_tokens=${opts.maxTokens} хүрэлцэхгүй)`,
+    ) as Error & { truncated?: boolean };
+    err.truncated = true;
+    throw err;
   }
   const content = choice?.message?.content;
   if (!content) throw new Error("OpenRouter chat: хоосон хариу");

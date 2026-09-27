@@ -31,6 +31,19 @@ export interface DigestOut {
 /** Үүнээс цөөн мэдээтэй бол digest гаргахгүй */
 export const MIN_ARTICLES = 3;
 
+/**
+ * Нэг дуудлагаар бичүүлэх оролдлогын токены хязгаар.
+ *
+ * Монгол кирилл нь токен идэмхий (нэг үг ≈ 2–3 токен): 4 хэсэг × 3 догол мөр нь
+ * 4000-д багтахгүй байсан (2026-09-27-ны production алдаа). 8000 бол бүтэн тоймд
+ * хүрэлцдэг; хүрэхгүй бол `writeInParts` хэсэгчилсэн горимд шилжинэ.
+ */
+export const DIGEST_MAX_TOKENS = 8_000;
+
+/** Хэсэгчилсэн горимын нэг дуудлагын хязгаар */
+export const OUTLINE_MAX_TOKENS = 2_000;
+export const SECTION_MAX_TOKENS = 2_500;
+
 /** Digest гаргах өдөр — Ням гараг (UTC) */
 export function isDigestDay(d: Date): boolean {
   return d.getUTCDay() === 0;
@@ -76,6 +89,112 @@ export const DIGEST_SCHEMA = {
   required: ["titleMn", "leadMn", "sections", "nextWeek"],
   additionalProperties: false,
 };
+
+// ---------- Хэсэгчилсэн горим (нэг дуудлагад багтаагүй үед) ----------
+
+/** Эхний дуудлага: зөвхөн бүтэц — гарчиг, тойм, хэсгүүдийн гарчиг + аль мэдээ орох */
+export interface DigestOutline {
+  titleMn: string;
+  leadMn: string;
+  sections: { heading: string; slugs: string[] }[];
+  nextWeek: string[];
+}
+
+export const DIGEST_OUTLINE_SCHEMA = {
+  type: "object",
+  properties: {
+    titleMn: { type: "string", description: 'Гарчиг, "AI-ийн долоо хоног: 9/15–9/21" хэлбэртэй' },
+    leadMn: { type: "string", description: "2–3 өгүүлбэр, долоо хоногийн гол агуулга. 250 тэмдэгт хүртэл" },
+    sections: {
+      type: "array",
+      minItems: 2,
+      maxItems: 5,
+      items: {
+        type: "object",
+        properties: {
+          heading: { type: "string", description: "Сэдвийн гарчиг, 60 тэмдэгт хүртэл" },
+          slugs: {
+            type: "array",
+            minItems: 1,
+            items: { type: "string" },
+            description: "Энэ хэсэгт орох мэдээнүүдийн slug — зөвхөн өгөгдсөн жагсаалтаас",
+          },
+        },
+        required: ["heading", "slugs"],
+        additionalProperties: false,
+      },
+    },
+    nextWeek: {
+      type: "array", minItems: 3, maxItems: 3, items: { type: "string" },
+      description: "Дараагийн долоо хоногт анхаарах 3 зүйл, тус бүр нэг өгүүлбэр",
+    },
+  },
+  required: ["titleMn", "leadMn", "sections", "nextWeek"],
+  additionalProperties: false,
+};
+
+/** Хоёр дахь дуудлага: нэг хэсгийн бие */
+export const DIGEST_SECTION_SCHEMA = {
+  type: "object",
+  properties: {
+    body: {
+      type: "string",
+      description:
+        "2–4 догол мөр markdown. Мэдээ дурдах бүрдээ [гарчиг](/medee/<slug>) хэлбэрээр холбоос тавина",
+    },
+  },
+  required: ["body"],
+  additionalProperties: false,
+};
+
+/**
+ * Зохиосон slug-ийг шүүнэ — LLM жагсаалтад байхгүй мэдээ нэрлэвэл хэсэг хоосон
+ * холбоостой болно. Мэдээгүй үлдсэн хэсгийг дуудагч нь алгасна.
+ */
+export function cleanOutline(outline: DigestOutline, known: string[]): DigestOutline {
+  const valid = new Set(known);
+  return {
+    ...outline,
+    sections: outline.sections
+      .map((s) => ({ ...s, slugs: [...new Set(s.slugs.filter((x) => valid.has(x)))] }))
+      .filter((s) => s.slugs.length > 0),
+  };
+}
+
+/** Аль ч хэсэгт ороогүй мэдээг эхний хэсэгт нэмнэ — digest-ээс мэдээ унахгүй */
+export function fillUnused(outline: DigestOutline, known: string[]): DigestOutline {
+  if (outline.sections.length === 0) return outline;
+  const used = new Set(outline.sections.flatMap((s) => s.slugs));
+  const missing = known.filter((s) => !used.has(s));
+  if (missing.length === 0) return outline;
+
+  const sections = outline.sections.map((s, i) =>
+    i === outline.sections.length - 1 ? { ...s, slugs: [...s.slugs, ...missing] } : s,
+  );
+  return { ...outline, sections };
+}
+
+/**
+ * Бүтцийг ашиглахад бэлэн болгоно.
+ *
+ * 1. Зохиосон slug-ийг шүүнэ.
+ * 2. Аль ч хэсэгт ороогүй мэдээг сүүлийн хэсэгт нэмнэ.
+ * 3. **Бүх slug зохиомол байсан** бол гарчгуудыг нь үлдээгээд мэдээг тэнцүү хуваана —
+ *    LLM slug-аа буруу бичсэнээс болж долоо хоногийн тойм бүхэлдээ унах ёсгүй.
+ */
+export function resolveOutline(outline: DigestOutline, known: string[]): DigestOutline {
+  if (known.length === 0) return { ...outline, sections: [] };
+
+  const cleaned = cleanOutline(outline, known);
+  if (cleaned.sections.length > 0) return fillUnused(cleaned, known);
+
+  const headings = outline.sections.map((s) => s.heading).filter((h) => h.trim());
+  if (headings.length === 0) return { ...outline, sections: [] };
+
+  const sections = headings.map((heading) => ({ heading, slugs: [] as string[] }));
+  known.forEach((slug, i) => sections[i % sections.length]!.slugs.push(slug));
+  return { ...outline, sections: sections.filter((s) => s.slugs.length > 0) };
+}
 
 /** Жагсаалтын өөрчлөлтийг markdown болгоно — LLM оролцохгүй, тоо нь баталгаатай */
 export function rankingSection(changes: RankingChange): string {

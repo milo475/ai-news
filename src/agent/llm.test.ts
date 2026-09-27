@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, test } from "node:test";
-import { chatJson, chatText, isAuthError, LlmAuthError, resetAuthFailure } from "./llm";
+import {
+  chatJson, chatText, isAuthError, isTruncated, LlmAuthError, resetAuthFailure,
+} from "./llm";
 
 const KEY = "OPENROUTER_API_KEY";
 const realFetch = globalThis.fetch;
@@ -90,4 +92,47 @@ test("isAuthError — бусад алдааг ялгана", () => {
 test("LlmAuthError — мессеж нь юу хийхийг хэлнэ", () => {
   assert.match(new LlmAuthError(0, "").message, /OPENROUTER_API_KEY тохируулаагүй/);
   assert.match(new LlmAuthError(401, "no credentials").message, /401/);
+});
+
+test("isTruncated: max_tokens-д багтаагүй хариуг таньж, дахин оролдохгүй", async () => {
+  globalThis.fetch = (async () => {
+    calls++;
+    return Response.json({
+      choices: [{ finish_reason: "length", message: { content: '{"a":' } }],
+      usage: { total_tokens: 4000 },
+    });
+  }) as typeof fetch;
+
+  await assert.rejects(
+    () => chatJson(JSON_OPTS),
+    (e) => isTruncated(e) && !isAuthError(e) && /max_tokens=100/.test((e as Error).message),
+  );
+  assert.equal(calls, 1, "тасралт дээр дахин оролдох нь утгагүй");
+});
+
+test("isTruncated: бусад алдаанд false", () => {
+  assert.equal(isTruncated(new Error("сүлжээ")), false);
+  assert.equal(isTruncated(null), false);
+  assert.equal(isTruncated(undefined), false);
+  assert.equal(isTruncated("мөр"), false);
+});
+
+test("402 «Insufficient credits» — түгжигдэж, дахин оролдохгүй", async () => {
+  mockFetch(402, '{"error":{"message":"Insufficient credits. Add more using https://openrouter.ai/settings/credits"}}');
+  await assert.rejects(
+    () => chatJson(JSON_OPTS),
+    (e) => isAuthError(e) && e.kind === "credits" && /данс дууссан/.test(e.message),
+  );
+  assert.equal(calls, 1);
+
+  // Дараагийн алхмууд сүлжээнд огт хүрэхгүй — мөнгө, цаг үрэхгүй
+  for (let i = 0; i < 5; i++) await assert.rejects(() => chatText(TEXT_OPTS));
+  assert.equal(calls, 1);
+});
+
+test("402 «in_flight» — түр хязгаар тул дахин оролдоно", async () => {
+  mockFetch(402, '{"error":{"message":"in_flight budget exceeded"}}');
+  await assert.rejects(() => chatJson(JSON_OPTS), (e) => !isAuthError(e));
+  // Түр алдаа тул backoff-той дахин оролдоно
+  assert.ok(calls > 1, `${calls} дуудлага`);
 });

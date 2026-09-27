@@ -21,8 +21,11 @@ export async function runCli(fn: () => Promise<void>): Promise<void> {
     console.error(`\n✗ ${msg}`);
     if (isAuthError(e)) {
       console.error(
-        "  Бүх дуудлага ижил унах тул зогслоо. OPENROUTER_API_KEY-г шалгана уу —\n" +
-          "  Railway Console (SSH) нь үйлчилгээний Variables-ыг автоматаар өгдөггүй.",
+        e.kind === "credits"
+          ? "  Бүх LLM дуудлага ижил унах тул зогслоо. openrouter.ai/settings/credits\n" +
+            "  дээр үлдэгдлээ шалгаж цэнэглэнэ үү."
+          : "  Бүх дуудлага ижил унах тул зогслоо. OPENROUTER_API_KEY-г шалгана уу —\n" +
+            "  Railway Console (SSH) нь үйлчилгээний Variables-ыг автоматаар өгдөггүй.",
       );
     } else if (process.env.DEBUG) {
       console.error(e);
