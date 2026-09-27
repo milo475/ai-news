@@ -16,7 +16,7 @@ import {
   checkSeed, sanitizeSeed, SEED_SCHEMA, SEED_SYSTEM, SEED_TOPICS, type SeedDraft, type SeedTopic,
 } from "./seed.api";
 import { PROMPT_CATEGORY_HINT, PROMPT_CATEGORY_LABEL } from "./prompt.api";
-import { runCli } from "../lib/cli";
+import { isEntry, runCli } from "../lib/cli";
 
 type Chat = typeof chatJson;
 
@@ -113,7 +113,7 @@ export async function seedPrompts(opts: { only?: number } = {}): Promise<SeedRes
   return r;
 }
 
-if (process.argv[1]?.endsWith("seed.ts") && process.argv[1]?.includes("prompts")) {
+if (isEntry("seed.ts") && process.argv[1]?.includes("prompts")) {
   await runCli(async () => {
     const onlyArg = process.argv.indexOf("--only");
     const r = await seedPrompts({ only: onlyArg > -1 ? Number(process.argv[onlyArg + 1]) : undefined });

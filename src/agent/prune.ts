@@ -14,7 +14,7 @@
 import "dotenv/config";
 import { prisma } from "../db";
 import { staleBefore, STALE_RAW_DAYS } from "./raw.api";
-import { runCli } from "../lib/cli";
+import { isEntry, runCli } from "../lib/cli";
 
 export interface PruneResult {
   /** Хоцрогдсон гэж үзсэн хил */
@@ -46,7 +46,7 @@ export async function pruneStaleRaw(
   return { before, skipped: count };
 }
 
-if (process.argv[1]?.endsWith("prune.ts")) {
+if (isEntry("prune.ts")) {
   await runCli(async () => {
     const daysArg = process.argv.indexOf("--days");
     const days = daysArg > -1 ? Number(process.argv[daysArg + 1]) : STALE_RAW_DAYS;

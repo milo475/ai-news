@@ -15,7 +15,7 @@ import "dotenv/config";
 import "../publish/fonts";
 import { prisma } from "../db";
 import { isAuthError } from "../agent/llm";
-import { runCli } from "../lib/cli";
+import { isEntry, runCli } from "../lib/cli";
 
 export interface BackfillResult {
   created: { slug: string; from: "hero" | "new" }[];
@@ -116,7 +116,7 @@ export async function backfillCards(
   return r;
 }
 
-if (process.argv[1]?.endsWith("backfill.ts")) {
+if (isEntry("backfill.ts")) {
   await runCli(async () => {
     const limitArg = process.argv.indexOf("--limit");
     const r = await backfillCards({

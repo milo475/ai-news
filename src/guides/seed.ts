@@ -12,7 +12,7 @@ import { prisma } from "../db";
 import { createGuide } from "./write";
 import type { GuideLevel } from "../generated/prisma/enums";
 import { isAuthError } from "../agent/llm";
-import { runCli } from "../lib/cli";
+import { isEntry, runCli } from "../lib/cli";
 
 export interface SeedTopic {
   topic: string;
@@ -88,7 +88,7 @@ export async function seedGuides(opts: { withHero?: boolean; only?: number } = {
   return r;
 }
 
-if (process.argv[1]?.endsWith("seed.ts") && process.argv[1]?.includes("guides")) {
+if (isEntry("seed.ts") && process.argv[1]?.includes("guides")) {
   await runCli(async () => {
     const onlyArg = process.argv.indexOf("--only");
     const r = await seedGuides({

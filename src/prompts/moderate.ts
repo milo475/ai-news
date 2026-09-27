@@ -21,7 +21,8 @@ export async function moderatePrompt(
         `Prompt:\n${input.body.slice(0, 3_000)}`,
       ].join("\n"),
       schema: MODERATE_SCHEMA,
-      maxTokens: 500,
+      // Кирилл текст токен идэмхий; бодох модель max_tokens-оос иддэг
+      maxTokens: 1_500,
       temperature: 0,
       reasoning: false,
     });

@@ -36,7 +36,8 @@
     "audit:seo": "node scripts/audit-seo.mjs",
     "report:weekly": "tsx src/admin/report.ts",
     "bench:reset": "tsx src/bench/reset.ts",
-    "insights:sync": "tsx src/publish/insights.ts"
+    "insights:sync": "tsx src/publish/insights.ts",
+    "cards:fix": "tsx src/gallery/recard.ts"
   },
   "keywords": [],
   "author": "",

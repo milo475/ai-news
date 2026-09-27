@@ -8,6 +8,7 @@
 import "dotenv/config";
 import { prisma } from "../db";
 import type { ToolPricing } from "../generated/prisma/enums";
+import { isEntry } from "../lib/cli";
 
 interface SeedTool {
   name: string;
@@ -282,6 +283,6 @@ async function main() {
   await prisma.$disconnect();
 }
 
-if (process.argv[1]?.endsWith("usecases.seed.ts")) {
+if (isEntry("usecases.seed.ts")) {
   main().catch((e) => { console.error(e); process.exit(1); });
 }

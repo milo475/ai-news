@@ -13,7 +13,7 @@
 import "dotenv/config";
 import { prisma } from "../db";
 import { userAgent } from "../lib/site";
-import { runCli } from "../lib/cli";
+import { isEntry, runCli } from "../lib/cli";
 
 export interface SeedProject {
   slug: string;
@@ -140,7 +140,7 @@ export async function seedProjects(opts: { check?: boolean } = {}): Promise<Seed
   return r;
 }
 
-if (process.argv[1]?.endsWith("projects.seed.ts")) {
+if (isEntry("projects.seed.ts")) {
   await runCli(async () => {
     const r = await seedProjects({ check: !process.argv.includes("--no-check") });
     console.log(

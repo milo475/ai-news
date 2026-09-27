@@ -75,7 +75,7 @@ export async function writeBenchArticle(
     system: ARTICLE_SYSTEM,
     user: articleUser(run.month, top, bestByCategory, taskCount),
     schema: ARTICLE_SCHEMA,
-    maxTokens: 3_000,
+    maxTokens: 5_000,
     temperature: 0.4,
     reasoning: false,
   });

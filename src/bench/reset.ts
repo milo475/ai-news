@@ -13,7 +13,7 @@
  */
 import "dotenv/config";
 import { prisma } from "../db";
-import { runCli } from "../lib/cli";
+import { isEntry, runCli } from "../lib/cli";
 import { currentMonth } from "./summary.api";
 import { describePlan, isMonth, parseArgs, type Plan } from "./reset.api";
 
@@ -78,7 +78,7 @@ export async function resetMonth(
   return { month, deleted: true, plan, articleDeleted };
 }
 
-if (process.argv[1]?.endsWith("reset.ts") && process.argv[1]?.includes("bench")) {
+if (isEntry("reset.ts")) {
   await runCli(async () => {
     const args = parseArgs(process.argv);
     const month = args.month ?? currentMonth();

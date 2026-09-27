@@ -19,6 +19,7 @@ import {
 } from "./digest.api";
 import { chatJson, isTruncated } from "./llm";
 import { slugify } from "./slug";
+import { isEntry } from "../lib/cli";
 
 const WRITE_MODEL = process.env.WRITE_MODEL ?? "google/gemini-3.8-flash";
 const GLOSSARY = readFileSync(join(process.cwd(), "src/agent/glossary.md"), "utf8");
@@ -300,7 +301,7 @@ async function uniqueSlug(base: string): Promise<string> {
   }
 }
 
-if (process.argv[1]?.endsWith("digest.ts")) {
+if (isEntry("digest.ts")) {
   runDigest(process.argv.includes("--publish"))
     .catch((e) => { console.error(e); process.exitCode = 1; })
     .finally(() => prisma.$disconnect());

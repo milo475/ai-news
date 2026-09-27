@@ -13,7 +13,7 @@
 import "dotenv/config";
 import { prisma } from "../db";
 import type { ArticleCategory, Region } from "../generated/prisma/enums";
-import { runCli } from "../lib/cli";
+import { isEntry, runCli } from "../lib/cli";
 
 export interface SeedSource {
   name: string;
@@ -138,7 +138,7 @@ export async function seedSources(): Promise<{ created: number; updated: number;
   return { created, updated, active };
 }
 
-if (process.argv[1]?.endsWith("sources.seed.ts")) {
+if (isEntry("sources.seed.ts")) {
   await runCli(async () => {
     await seedSources();
   });

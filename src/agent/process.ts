@@ -293,7 +293,7 @@ export async function processOne(
     const score = await chatJson<ScoreOut>({
       model: SCORE_MODEL, system: SCORE_SYSTEM, user: scoreUser, schema: SCORE_SCHEMA,
       // Кирилл текст токен идэмхий: 300 нь урт тайлбарт хүрэлцэхгүй байж нийтлэл унадаг байв
-      maxTokens: 600, temperature: 0.1, reasoning: false,
+      maxTokens: 1_200, temperature: 0.1, reasoning: false,
     });
     addTokens(SCORE_MODEL, score.tokens);
     addCost(score.costUsd);

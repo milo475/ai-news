@@ -7,7 +7,8 @@ import {
   imageDailyLimit, imageModel, isGenericScene, isLabScene, MAX_HOOK_CHARS, MAX_LINES, overlaySvg,
   PAD, PHOTO_PROMPT_NEGATIVE, PHOTO_PROMPT_PREFIX, pickHook, RECENT_SCENES, recentScenesBlock,
   SCENE_SYSTEM, sceneTooSimilar, stripDates, useSourceImage, wrapLines, type ScoredHook,
-  brandFirst, hookTypeOf, HOOK_SYSTEM,
+  brandFirst, fallbackHeadline, hookTypeOf, HOOK_SYSTEM, presetFor, rankHooks,
+  SCENE_PRESETS, sceneOf, sourceHasNumber,
 } from "./card.api";
 import { heroJpeg, renderCard } from "./card";
 
@@ -121,7 +122,8 @@ test("overlaySvg: gradient, wordmark, headline, CTA бүгд байна", () => 
 
 test("buildPhotoPrompt: кино кадрын стиль + хориглох жагсаалт", () => {
   const prompt = buildPhotoPrompt("  a night shift nurse checking a monitor  ");
-  for (const rule of ["documentary photograph", "35mm film look", "slight grain", "natural lighting"]) {
+  // «natural lighting», «shallow depth of field» нь одоо preset-д — тогтмол угтварт байхгүй
+  for (const rule of ["documentary photograph", "35mm film look", "slight grain", "4:5 vertical framing"]) {
     assert.ok(prompt.includes(rule), rule);
   }
   for (const banned of ["no text", "no logos", "no watermark", "no 3D render", "no neon", "no CGI"]) {
@@ -132,7 +134,7 @@ test("buildPhotoPrompt: кино кадрын стиль + хориглох жа
 
   // 4:5 картын компози — гол объект дээд 2/3-д, доод 1/3 хоосон
   assert.ok(PHOTO_PROMPT_PREFIX.includes("upper two-thirds"));
-  assert.ok(PHOTO_PROMPT_PREFIX.includes("lower third empty"));
+  assert.ok(PHOTO_PROMPT_PREFIX.includes("lower third left clear"));
 });
 
 test("renderCard: 1080×1350 JPEG, суурь зургаас өөр (overlay зурагдсан)", async () => {
@@ -342,4 +344,92 @@ test("hookTypeOf: загварыг таньж, тайланд ангилна", (
   assert.equal(hookTypeOf(""), "plain");
   // Тоо нь асуултаас хойш — асуулт давуу
   assert.equal(hookTypeOf("Танай 3 хүүхэд ийм апп хэрэглэдэг үү?"), "question");
+});
+
+// ---------- Үнэн зөв байдал, тоон шаардлага, нөөц гарчиг ----------
+
+test("sourceHasNumber: огноо тоонд тооцогдохгүй", () => {
+  assert.equal(sourceHasNumber("Загвар 40 хувиар хурдан болжээ."), true);
+  assert.equal(sourceHasNumber("1,500 оролцогчтой шалгаруулалт"), true);
+  // Огноо — тоо биш
+  assert.equal(sourceHasNumber("2026 оны 9-р сарын 21-нд болов."), false);
+  assert.equal(sourceHasNumber("Dario Amodei зохицуулалтын талаар байр сууриа илэрхийлэв."), false);
+  assert.equal(sourceHasNumber(""), false);
+});
+
+test("checkHook: тоогүй эх мэдээнд тоо шаардахгүй", () => {
+  const noNumber = "Зохицуулалтгүй бол эрсдэл нэмэгдэнэ гэж тэрбээр анхааруулав.";
+  // Анхдагчаар тоо шаардана — Dario-гийн карт яг ингэж унасан
+  assert.ok(checkHook(noNumber).some((p) => p.code === "no-number"));
+  // Эх мэдээнд тоо байхгүй бол шаардахгүй → гарчиг давна
+  assert.deepEqual(checkHook(noNumber, { requireNumber: false }), []);
+  // Бусад шалгуур хэвээр
+  assert.ok(checkHook("2026 онд ийм болно.", { requireNumber: false }).some((p) => p.code === "date"));
+});
+
+test("rankHooks: шалгуур давсан БҮГДИЙГ оноогоор буцаана", () => {
+  const hooks = [
+    { text: "Хоёр дахь сонголт 20 хувиар хямдарлаа.", surprise: 6, relevance: 6, clarity: 6 },
+    { text: "Эхний сонголт 40 хувиар хямдарлаа.", surprise: 9, relevance: 9, clarity: 9 },
+    { text: "Тоогүй муу хувилбар.", surprise: 10, relevance: 10, clarity: 10 },
+  ];
+  const ranked = rankHooks(hooks);
+  assert.equal(ranked.length, 2, "тоогүй нь хасагдана");
+  assert.match(ranked[0]!.text, /Эхний/, "оноо өндөртэй нь түрүүлнэ");
+  assert.match(ranked[1]!.text, /Хоёр дахь/);
+  // pickHook нь эрэмбийн эхнийхийг л авна
+  assert.equal(pickHook(hooks)?.text, ranked[0]!.text);
+});
+
+test("fallbackHeadline: нийтлэлийн гарчгийг картад багтаана", () => {
+  assert.equal(fallbackHeadline("Богино гарчиг."), "Богино гарчиг.");
+  assert.equal(fallbackHeadline(null), null);
+  assert.equal(fallbackHeadline("   "), null);
+
+  const long = "Муж ChatGPT-ийг сургууль дээр гарсан буудалцаанд хүргэсэн гэж үзэн OpenAI компанийг шүүхэд өгсөн тухай мэдээлэв";
+  const cut = fallbackHeadline(long)!;
+  assert.ok(cut.length <= MAX_HOOK_CHARS, `${cut.length} тэмдэгт`);
+  assert.ok(cut.endsWith("…"));
+  assert.ok(!cut.includes("  "), "үгийн дунд тасраагүй");
+  assert.ok(long.startsWith(cut.slice(0, -1).trim()), "эхлэл нь хэвээр");
+
+  // Огноо хасагдана
+  assert.ok(!fallbackHeadline("2026 оны 9-р сард шинэ загвар гарлаа.")!.includes("2026"));
+});
+
+// ---------- Scene preset ----------
+
+test("SCENE_PRESETS: 6–8 preset, «wooden desk» анхдагчид алга", () => {
+  assert.ok(SCENE_PRESETS.length >= 6 && SCENE_PRESETS.length <= 8, `${SCENE_PRESETS.length}`);
+  const all = SCENE_PRESETS.join(" ").toLowerCase();
+  assert.ok(!all.includes("wooden desk"));
+  assert.ok(!PHOTO_PROMPT_PREFIX.toLowerCase().includes("wooden desk"));
+  // Гэрэл, өнцөг нь тогтмол угтвараас гарсан
+  assert.ok(!PHOTO_PROMPT_PREFIX.includes("natural lighting"));
+  assert.ok(!PHOTO_PROMPT_PREFIX.includes("shallow depth of field"));
+});
+
+test("presetFor: ижил нийтлэлд ижил, өөр нийтлэлд тарна", () => {
+  assert.equal(presetFor("article-1"), presetFor("article-1"));
+  const spread = new Set(["a", "b", "c", "d", "e", "f", "g", "h", "i", "j"].map((k) => presetFor(`id-${k}`)));
+  assert.ok(spread.size >= 4, `10 нийтлэлд ${spread.size} өөр preset`);
+});
+
+test("sceneOf: preset ба тогтмол хэсгийг хасаж зөвхөн дүрслэлийг үлдээнэ", () => {
+  const scene = "a studio microphone with a waveform on the screen behind it";
+  const prompt = buildPhotoPrompt(scene, SCENE_PRESETS[0]!);
+  assert.equal(sceneOf(prompt), scene);
+  // Preset-гүй ч ажиллана
+  assert.equal(sceneOf(buildPhotoPrompt(scene)), scene);
+});
+
+test("sceneTooSimilar: ЗӨВХӨН сэдвээр харьцуулна — preset нь дохио өгөхгүй", () => {
+  const a = buildPhotoPrompt("a studio microphone on a table", SCENE_PRESETS[0]!);
+  const b = buildPhotoPrompt("a wheeled delivery robot at a crossing", SCENE_PRESETS[0]!);
+  // Ижил preset ч сэдэв нь өөр — давхардал биш
+  assert.equal(sceneTooSimilar(b, [a]), false);
+
+  // Сэдэв нь ижил бол өөр preset ч давхардал
+  const c = buildPhotoPrompt("a studio microphone on a table", SCENE_PRESETS[3]!);
+  assert.equal(sceneTooSimilar(c, [a]), true);
 });

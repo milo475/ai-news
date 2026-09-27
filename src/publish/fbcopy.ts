@@ -12,6 +12,7 @@ import "dotenv/config";
 import { chatJson } from "../agent/llm";
 import { CATEGORY_LABEL } from "../agent/category";
 import { prisma } from "../db";
+import { isEntry } from "../lib/cli";
 import {
   assemblePost, bodyOf, CATEGORY_TONE, checkBody, cleanQuestion, cleanTags, domainOf,
   FB_COPY_SCHEMA, FB_COPY_SYSTEM, sanitizeVariant, showSource, type CopyVariant,
@@ -106,7 +107,8 @@ export async function generateFbCopy(
       system: FB_COPY_SYSTEM,
       user: userPrompt(a, attempt === 0 ? [] : problems),
       schema: FB_COPY_SCHEMA,
-      maxTokens: 3_000,
+      // 2 хувилбар × (контекст + яагаад + асуулт) + hashtag — кириллээр токен идэмхий
+      maxTokens: 4_500,
       temperature: 0.7,
       reasoning: false,
     });
@@ -147,7 +149,7 @@ export async function generateFbCopy(
   return { text, alt, hashtags, tokens, costUsd, problems };
 }
 
-if (process.argv[1]?.endsWith("fbcopy.ts")) {
+if (isEntry("fbcopy.ts")) {
   const key = process.argv[2];
   const dryRun = process.argv.includes("--dry");
   if (!key) {

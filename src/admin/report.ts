@@ -13,6 +13,7 @@ import { recentErrors } from "@/lib/errors";
 import { shortMessage } from "@/lib/errors.api";
 import { absUrl } from "@/lib/site";
 import { delta, renderReport, type ReportSection } from "./report.api";
+import { isEntry } from "../lib/cli";
 
 export interface ReportResult {
   skipped?: boolean;
@@ -181,7 +182,7 @@ export async function sendWeeklyReport(opts: { dry?: boolean } = {}): Promise<Re
   return { sent, subject: mail.subject };
 }
 
-if (process.argv[1]?.endsWith("report.ts")) {
+if (isEntry("report.ts")) {
   const dry = process.argv.includes("--dry");
   sendWeeklyReport({ dry })
     .then((r) => {

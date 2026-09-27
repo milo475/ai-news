@@ -94,6 +94,20 @@ export const HOOK_SYSTEM = `Чи монгол хэлний гарчиг бичд
   Буруу: "OpenAI шинэ моделиэ 40% хямдруулав."
   Зөв:   "Ийм ажилд төлдөг үнэ 40%-иар хямдарлаа — OpenAI-ийн шинэ модель."
 
+ҮНЭН ЗӨВ БАЙДАЛ (бусад бүх дүрмээс ДЭЭГҮҮР):
+- Нийтлэлд БАЙХГҮЙ баримт, тодотгол, шинж чанарыг бүү нэм. «Чатбот» гэснийг
+  «хүүхдийн ашигладаг чатбот» гэж болохгүй.
+- Нийтлэлд байхгүй шалтгаан-үр дагаврыг бүү зохио («улмаас», «-аас болж», «оронд»).
+- Хамрах хүрээг бүү өргөн: нэг муж → улс даяар, нэг төрөл → бүх төрөл,
+  оролцогч → төсөл, дэд байр → «хоёрт шалгарсан» гэж болохгүй.
+- Тоог контекстоос нь бүү салга. «1500 оролцогчтой тэмцээний нэг төрөлд шалгарав» гэснийг
+  «1500 төслөөс хоёрт» гэж бичихгүй.
+- БУРУУТГАЛ, нэхэмжлэл, шүүх, компанийн мэдэгдэл, судалгаа, таамаг бол эх сурвалжийг
+  гарчигт ҮЛДЭЭ: «...гэж буруутгав», «...хэмээн шүүхэд өгчээ», «Anthropic зарлав»,
+  «судалгаагаар». Хэн нэгний үгийг тогтсон үнэн мэт бүү бич.
+  Буруу: «Чатбот халдлагад нөлөөлжээ.»
+  Зөв:   «Чатбот халдлагад хүргэсэн гэж үзэн муж OpenAI-г шүүхэд өгчээ.»
+
 ХОРИОТОЙ:
 - Огноо (2026, 9-р сарын 21, 21-нд) — зурган дээр огноо хэрэггүй.
 - Мэдээллийн хуурай хэллэг: "танилцуулжээ", "зарлажээ", "төлөвлөжээ", "мэдэгдлээ".
@@ -114,6 +128,8 @@ export const HOOK_SYSTEM = `Чи монгол хэлний гарчиг бичд
 - Google Gemini 4-ийг зарлалаа.  (брэнд эхэнд, хүнд ямар хамаатай нь тодорхойгүй)
 
 Тоо байхгүй сэдэвт харьцуулалт, эсрэгцүүлэл хэрэглэж болно ("хүртэл", "ч гэсэн", "гэвч").
+Нийтлэлд ТОО огт байхгүй (үзэл бодол, бодлого, шүүхийн мэдээ) бол тоо бүү зохио —
+баримтаа тодорхой хэлэхэд л хангалттай.
 
 Гурван өөр хувилбар бич — өөр өөр баримтаас эхэлсэн байх. Хувилбар бүрийг ӨӨРӨӨ үнэл:
 surprise (гайхшрал), relevance (монгол уншигчид хамаатай эсэх), clarity (нэг уншаад ойлгогдох эсэх),
@@ -142,6 +158,23 @@ export const HOOK_SCHEMA = {
   required: ["hooks"],
   additionalProperties: false,
 };
+
+/**
+ * Гарчиг огт гаргаж чадаагүй үеийн нөөц — нийтлэлийн ӨӨРИЙН гарчиг.
+ *
+ * Үргэлж үнэн зөв (редактор бичсэн), зөвхөн урт нь картад багтах ёстой.
+ * Карт хэзээ ч бүтэн унах ёсгүй — гарчиггүй байснаас энэ дээр.
+ */
+export function fallbackHeadline(titleMn: string | null, max = MAX_HOOK_CHARS): string | null {
+  const text = stripDates((titleMn ?? "").replace(/\s+/g, " ").trim());
+  if (!text) return null;
+  if (text.length <= max) return text;
+
+  // Үгийн зааг дээр таслана — дунд нь тасарсан үг гарахгүй
+  const cut = text.slice(0, max - 1);
+  const at = cut.lastIndexOf(" ");
+  return `${(at > max * 0.5 ? cut.slice(0, at) : cut).replace(/[.,;:—-]+$/, "")}…`;
+}
 
 export interface ScoredHook {
   text: string;
@@ -196,14 +229,32 @@ const PRESS_RELEASE =
   /(танилцуул|зарла|төлөвлө|мэдэгдэ|хэлэлцэ|нээлтээ хий)[а-яөүё]*?(жээ|лаа|лээ|на|нэ|в)(?=\s|$|[.,!?])/iu;
 
 /** Headline-ий шалгуур. Хоосон массив = зүгээр. */
-export function checkHook(hook: string): HookProblem[] {
+/**
+ * Эх мэдээнд тоо байна уу — гарчигт тоо шаардах эсэхийг үүгээр шийднэ.
+ *
+ * Тоогүй мэдээнд (үзэл бодол, бодлого, шүүхийн хэрэг) тоо шаардвал загвар тоо
+ * ЗОХИОДОГ — яг энэ нь үнэн зөв байдлыг эвддэг. Огноо тоонд тооцогдохгүй.
+ */
+export function sourceHasNumber(text: string): boolean {
+  return /\d/.test(stripDates(text ?? ""));
+}
+
+export interface CheckHookOptions {
+  /**
+   * Үр дагаврын тоо/харьцуулалт шаардах эсэх. Анхдагчаар тийм; эх мэдээнд тоо
+   * байхгүй бол дуудагч нь `sourceHasNumber`-ээр false болгоно.
+   */
+  requireNumber?: boolean;
+}
+
+export function checkHook(hook: string, opts: CheckHookOptions = {}): HookProblem[] {
   const text = hook.trim();
   const problems: HookProblem[] = [];
 
   if (!text) return [{ code: "empty", detail: "хоосон" }];
   if (text.length > MAX_HOOK_CHARS) problems.push({ code: "too-long", detail: `${text.length} тэмдэгт` });
   if (stripDates(text) !== text) problems.push({ code: "date", detail: "огноо байна" });
-  if (!hasImpactNumber(text)) {
+  if ((opts.requireNumber ?? true) && !hasImpactNumber(text)) {
     problems.push({ code: "no-number", detail: "үр дагаврын тоо ч, харьцуулалт ч алга" });
   }
   if (PRESS_RELEASE.test(text)) problems.push({ code: "press-release", detail: "мэдээллийн хуурай хэллэг" });
@@ -247,15 +298,32 @@ export const BRAND_FIRST_PENALTY = 4;
  * Хамгийн сайн гарчгийг сонгоно.
  * @param brands компани/моделийн нэрс — гарчгийн эхэнд байвал торгууль
  */
-export function pickHook(hooks: ScoredHook[], brands: string[] = []): ScoredHook | null {
+export function pickHook(
+  hooks: ScoredHook[],
+  brands: string[] = [],
+  opts: CheckHookOptions = {},
+): ScoredHook | null {
+  return rankHooks(hooks, brands, opts)[0] ?? null;
+}
+
+/**
+ * Шалгуур давсан гарчгуудыг сайнаас нь эрэмбэлж БҮГДИЙГ буцаана.
+ *
+ * Fidelity шүүгч нь эрэмбийн дагуу нэг нэгээр нь шалгана: хамгийн өндөр оноотой нь
+ * эх мэдээг хэтрүүлсэн бол дараагийнх руу шилжинэ (оноо нь үнэн зөвөөс давуу биш).
+ */
+export function rankHooks(
+  hooks: ScoredHook[],
+  brands: string[] = [],
+  opts: CheckHookOptions = {},
+): ScoredHook[] {
   const score = (h: ScoredHook) =>
     hookScore(h) - (brandFirst(h.text, brands) ? BRAND_FIRST_PENALTY : 0);
 
-  const valid = hooks
+  return hooks
     .map((h) => ({ ...h, text: h.text?.trim() ?? "" }))
-    .filter((h) => checkHook(h.text).length === 0 && fitHeadline(h.text) !== null)
+    .filter((h) => checkHook(h.text, opts).length === 0 && fitHeadline(h.text) !== null)
     .sort((a, b) => (score(b) - score(a)) || (a.text.length - b.text.length));
-  return valid[0] ?? null;
 }
 
 // ---------- Hook-ийн загвар (7 хоногийн тайланд) ----------
@@ -358,10 +426,36 @@ Rules:
 - No brand names, no logos, no product names, no text or signage in the scene.
 - No recognisable real people, no faces in close-up; people seen from behind, from the side, or in soft focus.
 - No charts, no user interfaces with readable text.
-- Add one photographic detail (shallow depth of field, wide shot, overhead view, morning light).
-- If recent scenes are listed, pick a different subject and camera angle from all of them.
+- Do NOT describe the lighting, camera angle or composition — those are given separately
+  in the user message as a STYLE line. Describe only WHAT is in the frame.
+- If recent scenes are listed, pick a different subject from all of them.
 
 Return JSON only.`;
+
+/**
+ * Байршил / гэрэл / өнцгийн preset-үүд — ээлжлэн ашиглана.
+ *
+ * Өмнө нь энэ бүхэн SCENE_SYSTEM ба PHOTO_PROMPT_PREFIX-д тогтмол байсан тул загвар
+ * бараг бүх картад «wooden desk + morning light from a window + high side angle» гаргаж,
+ * «өмнөхтэй төстэй» гэж хасагдаад дахин дуудагдаж байв (карт бүрд 1–2 нэмэлт дуудлага).
+ */
+export const SCENE_PRESETS: string[] = [
+  "low evening light through a doorway, eye-level shot, subject slightly off-centre",
+  "overcast daylight outdoors, wide shot from a low angle, plenty of sky above",
+  "warm lamplight indoors at night, close three-quarter view, deep shadows around the edges",
+  "flat overhead view from directly above, even diffused light, objects laid out on a plain surface",
+  "backlit against a bright window, silhouette-leaning, subject seen from behind",
+  "harsh midday sun outdoors, tight crop, strong shadow falling across the lower part of the frame",
+  "cool fluorescent light in a public interior, medium shot at chest height, shallow focus",
+  "blue hour outside just after sunset, wide establishing shot, lit windows in the distance",
+];
+
+/** Тухайн нийтлэлд аль preset ногдох вэ — ижил нийтлэлд үргэлж ижил */
+export function presetFor(key: string, presets = SCENE_PRESETS): string {
+  let h = 0;
+  for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) >>> 0;
+  return presets[h % presets.length]!;
+}
 
 export const SCENE_SCHEMA = {
   type: "object",
@@ -373,13 +467,17 @@ export const SCENE_SCHEMA = {
   additionalProperties: false,
 };
 
-/** Хадгалсан prompt-оос тогтмол угтвар/хориглох жагсаалтыг хасаж зөвхөн дүрслэлийг үлдээнэ */
+/**
+ * Хадгалсан prompt-оос тогтмол угтвар, preset, хориглох жагсаалтыг хасаж зөвхөн
+ * ДҮРСЛЭЛИЙГ үлдээнэ. Давхардлыг зөвхөн сэдвээр нь шалгахад хэрэгтэй.
+ */
 export function sceneOf(prompt: string): string {
-  return prompt
+  let out = prompt
     .replace(`${PHOTO_PROMPT_PREFIX}. `, "")
     .replace(`. ${PHOTO_PROMPT_NEGATIVE}.`, "")
-    .replace(PHOTO_PROMPT_NEGATIVE, "")
-    .trim();
+    .replace(PHOTO_PROMPT_NEGATIVE, "");
+  for (const preset of SCENE_PRESETS) out = out.replace(`${preset}. `, "").replace(preset, "");
+  return out.replace(/\s+/g, " ").replace(/^\.\s*/, "").trim();
 }
 
 /** Сүүлийн постуудын prompt-ыг LLM-д харуулж давхардлаас сэргийлнэ */
@@ -485,9 +583,9 @@ export function isLabScene(scene: string, category: ArticleCategory): boolean {
  */
 export const PHOTO_PROMPT_PREFIX =
   "documentary photograph, candid cinematic still, real people in a real place, 35mm film look, " +
-  "slight grain, natural lighting, shallow depth of field, muted colours, 4:5 vertical framing, " +
-  "main subject placed in the upper two-thirds of the frame, lower third empty and darker " +
-  "(floor, table surface, shadow or wall) leaving clean space for a text overlay";
+  "slight grain, muted colours, 4:5 vertical framing, " +
+  "main subject placed in the upper two-thirds of the frame, lower third left clear and darker " +
+  "for a text overlay";
 
 /** Хориглох жагсаалт — prompt-ийн төгсгөлд явна */
 export const PHOTO_PROMPT_NEGATIVE =
@@ -495,9 +593,19 @@ export const PHOTO_PROMPT_NEGATIVE =
   "no CGI, no neon, no glowing holograms, no futuristic UI overlays, no robot hands, " +
   "no blue digital background, no perfect studio lighting";
 
-/** Бүтэн prompt */
-export function buildPhotoPrompt(scene: string): string {
-  return `${PHOTO_PROMPT_PREFIX}. ${scene.trim().replace(/\s+/g, " ")}. ${PHOTO_PROMPT_NEGATIVE}.`;
+/**
+ * Бүтэн prompt.
+ *
+ * Бүтэц: <тогтмол стиль>. <preset: гэрэл/өнцөг>. <дүрслэл>. <хориглох жагсаалт>.
+ * Preset нь тусдаа өгүүлбэр — `sceneOf` түүнийг хасаж зөвхөн ДҮРСЛЭЛИЙГ үлдээдэг тул
+ * давхардлын шалгалт стилийн үгсээр биш, сэдвээр нь явна.
+ */
+export function buildPhotoPrompt(scene: string, preset?: string): string {
+  const parts = [PHOTO_PROMPT_PREFIX];
+  if (preset) parts.push(preset);
+  parts.push(scene.trim().replace(/\s+/g, " "));
+  parts.push(PHOTO_PROMPT_NEGATIVE);
+  return `${parts.join(". ")}.`;
 }
 
 // ---------- SVG overlay ----------

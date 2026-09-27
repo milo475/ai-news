@@ -13,7 +13,7 @@ import { prisma } from "../db";
 import { Prisma } from "../generated/prisma/client";
 import { SEED_TASKS } from "./seed.api";
 import { judgeModel } from "./models.api";
-import { runCli } from "../lib/cli";
+import { isEntry, runCli } from "../lib/cli";
 
 /** Лавлах хариулт нь жишиг тул хамгийн хүчтэй моделиор бичүүлнэ */
 function referenceModel(): string {
@@ -94,7 +94,7 @@ export async function seedBenchTasks(
   return r;
 }
 
-if (process.argv[1]?.endsWith("seed.ts") && process.argv[1]?.includes("bench")) {
+if (isEntry("seed.ts") && process.argv[1]?.includes("bench")) {
   await runCli(async () => {
     const modelArg = process.argv.indexOf("--model");
     const r = await seedBenchTasks({

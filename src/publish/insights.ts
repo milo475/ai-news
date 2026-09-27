@@ -12,7 +12,7 @@
 import "dotenv/config";
 import { prisma } from "../db";
 import { jobRunMeta } from "../jobs/meta";
-import { runCli } from "../lib/cli";
+import { isEntry, runCli } from "../lib/cli";
 import { igUserId } from "./instagram.api";
 import {
   buildReport, INSIGHTS_BATCH, INSIGHTS_DELAY_HOURS, insightsDue, parseFbStats, parseIgStats,
@@ -187,7 +187,7 @@ export async function weeklyReport(
   return { ...buildReport(mapped, opts.minPosts ?? 1), days };
 }
 
-if (process.argv[1]?.endsWith("insights.ts")) {
+if (isEntry("insights.ts")) {
   await runCli(async () => {
     const r = await syncInsights({ all: process.argv.includes("--all") });
     if (r.skipped) {

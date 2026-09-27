@@ -94,20 +94,69 @@ test("LlmAuthError — мессеж нь юу хийхийг хэлнэ", () => 
   assert.match(new LlmAuthError(401, "no credentials").message, /401/);
 });
 
-test("isTruncated: max_tokens-д багтаагүй хариуг таньж, дахин оролдохгүй", async () => {
-  globalThis.fetch = (async () => {
+/** Илгээсэн body-г шалгахын тулд */
+function captureFetch(handler: (body: Record<string, any>, n: number) => unknown) {
+  const bodies: Record<string, any>[] = [];
+  globalThis.fetch = (async (_url: string, init?: { body?: string }) => {
     calls++;
-    return Response.json({
-      choices: [{ finish_reason: "length", message: { content: '{"a":' } }],
-      usage: { total_tokens: 4000 },
-    });
+    const body = JSON.parse(init?.body ?? "{}");
+    bodies.push(body);
+    return Response.json(handler(body, calls));
   }) as typeof fetch;
+  return bodies;
+}
+
+test("тасралт: max_tokens 2 дахин өргөж, reasoning унтраан НЭГ удаа дахин", async () => {
+  const bodies = captureFetch((_b, n) =>
+    n === 1
+      ? {
+          choices: [{ finish_reason: "length", message: { content: '{"a":' } }],
+          usage: { total_tokens: 100, completion_tokens_details: { reasoning_tokens: 94 } },
+        }
+      : { choices: [{ finish_reason: "stop", message: { content: '{"ok":true}' } }], usage: {} },
+  );
+
+  const r = await chatJson<{ ok: boolean }>(JSON_OPTS);
+  assert.deepEqual(r.data, { ok: true });
+  assert.equal(calls, 2);
+  assert.equal(bodies[0]!.max_tokens, 100);
+  assert.equal(bodies[1]!.max_tokens, 200, "2 дахин өргөх ёстой");
+  assert.deepEqual(bodies[1]!.reasoning, { enabled: false }, "reasoning унтраасан байх ёстой");
+});
+
+test("тасралт: хоёр дахь удаад ч багтахгүй бол алдаа, гурав дахь оролдлого байхгүй", async () => {
+  captureFetch(() => ({
+    choices: [{ finish_reason: "length", message: { content: "{" } }],
+    usage: { completion_tokens_details: { reasoning_tokens: 180 } },
+  }));
 
   await assert.rejects(
     () => chatJson(JSON_OPTS),
-    (e) => isTruncated(e) && !isAuthError(e) && /max_tokens=100/.test((e as Error).message),
+    (e) => isTruncated(e) && !isAuthError(e) && /max_tokens=200/.test((e as Error).message),
   );
-  assert.equal(calls, 1, "тасралт дээр дахин оролдох нь утгагүй");
+  assert.equal(calls, 2, "нэг л удаа өргөнө");
+});
+
+test("тасралтын мессежид reasoning токены тоо бичигдэнэ", async () => {
+  captureFetch(() => ({
+    choices: [{ finish_reason: "length", message: { content: "{" } }],
+    usage: { completion_tokens_details: { reasoning_tokens: 2_950 } },
+  }));
+  await assert.rejects(() => chatJson(JSON_OPTS), /2950 токеныг reasoning идсэн/);
+});
+
+test("chatText: тасралтад мөн ижил дүрэм", async () => {
+  const bodies = captureFetch((_b, n) =>
+    n === 1
+      ? { choices: [{ finish_reason: "length", message: { content: "хагас" } }], usage: {} }
+      : { choices: [{ finish_reason: "stop", message: { content: "бүтэн" } }], usage: {} },
+  );
+
+  const r = await chatText(TEXT_OPTS);
+  assert.equal(r.text, "бүтэн");
+  assert.equal(calls, 2);
+  assert.equal(bodies[1]!.max_tokens, 200);
+  assert.deepEqual(bodies[1]!.reasoning, { enabled: false });
 });
 
 test("isTruncated: бусад алдаанд false", () => {

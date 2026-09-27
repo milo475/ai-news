@@ -20,13 +20,18 @@ import { chatImage, chatJson } from "../agent/llm";
 import { prisma } from "../db";
 import {
   buildPhotoPrompt, CARD_H, CARD_W, CATEGORY_SCENE_HINT, CTA_FB, checkHook, creditText,
-  EVERYDAY_ONLY, FALLBACK_IMAGE_MODEL, fitHeadline, hookScore, HOOK_SCHEMA, HOOK_SYSTEM,
-  hookTypeOf, imageModel,
-  isGenericScene, isLabScene, overlaySvg, pickHook, recentScenesBlock, SCENE_SCHEMA, SCENE_SYSTEM,
-  sceneTooSimilar, useSourceImage, type ScoredHook,
+  EVERYDAY_ONLY, fallbackHeadline, FALLBACK_IMAGE_MODEL, fitHeadline, hookScore, HOOK_SCHEMA,
+  HOOK_SYSTEM, hookTypeOf, imageModel, isGenericScene, isLabScene, overlaySvg, presetFor,
+  rankHooks, recentScenesBlock, SCENE_SCHEMA, SCENE_SYSTEM, sceneTooSimilar, sourceHasNumber,
+  useSourceImage, type ScoredHook,
 } from "./card.api";
+import { judgeFidelity } from "./fidelity";
+import { isEntry } from "../lib/cli";
 
 const JPEG_QUALITY = 86;
+
+/** Нэг оролдлогод хэдэн хувилбарыг үнэн зөвөөр шалгах вэ (дуудлагын тоог барина) */
+const MAX_FIDELITY_CHECKS = 2;
 
 type Chat = typeof chatJson;
 type ImageCall = typeof chatImage;
@@ -101,7 +106,12 @@ export async function writeHeadline(
 ): Promise<{ headline: string; costUsd: number }> {
   const chat = opts.chat ?? chatJson;
   let costUsd = 0;
-  let problems: string[] = [];
+  let feedback: string[] = [];
+
+  // Эх мэдээнд тоо байхгүй бол гарчигт тоо ШААРДАХГҮЙ — эс тэгвээс загвар тоо зохиодог
+  const sourceText = [a.titleMn, a.summaryMn, a.bodyMn].filter(Boolean).join(" ");
+  const requireNumber = sourceHasNumber(sourceText);
+  const brands = [...(a.models ?? []), ...(a.companies ?? [])].map((x) => x.name);
 
   for (let attempt = 0; attempt < 2; attempt++) {
     const out = await chat<{ hooks: ScoredHook[] }>({
@@ -111,29 +121,51 @@ export async function writeHeadline(
         `Гарчиг: ${a.titleMn ?? ""}`,
         `Хураангуй: ${a.summaryMn ?? ""}`,
         `Нийтлэл: ${(a.bodyMn ?? "").slice(0, 1_500)}`,
-        ...(attempt === 0 ? [] : ["", `Өмнөх оролдлого амжилтгүй: ${problems.join("; ")}`]),
+        ...(requireNumber ? [] : ["", "Энэ нийтлэлд тоо байхгүй — тоо БҮҮ зохио."]),
+        ...(feedback.length === 0 ? [] : ["", "Өмнөх оролдлогын алдаа — давтаж болохгүй:", ...feedback.map((f) => `- ${f}`)]),
       ].join("\n"),
       schema: HOOK_SCHEMA,
-      maxTokens: 3_000,
+      // Бодох модель max_tokens-ийг дотоод бодолтод иддэг — 3000 дээр тасарч байв
+      maxTokens: 5_000,
       temperature: attempt === 0 ? 0.6 : 0.9,
       reasoning: false,
     });
     costUsd += out.costUsd;
 
     const hooks = out.data.hooks ?? [];
-    // Брэндийн нэрээр эхэлсэн гарчиг сонголтод хожигдоно
-    const brands = [...(a.models ?? []), ...(a.companies ?? [])].map((x) => x.name);
-    const picked = pickHook(hooks, brands);
-    if (picked) {
-      console.log(`  headline оноо: ${hookScore(picked)}/30 (${hooks.length} хувилбараас)`);
-      return { headline: picked.text, costUsd };
+    // Шалгуур давсан бүгдийг оноогоор — дараа нь үнэн зөвөөр шүүнэ
+    const ranked = rankHooks(hooks, brands, { requireNumber });
+
+    for (const h of ranked.slice(0, MAX_FIDELITY_CHECKS)) {
+      const verdict = await judgeFidelity(
+        { hook: h.text, titleMn: a.titleMn, summaryMn: a.summaryMn, bodyMn: a.bodyMn },
+        { chat },
+      );
+      costUsd += verdict.costUsd;
+      if (verdict.faithful) {
+        console.log(`  headline оноо: ${hookScore(h)}/30 (${hooks.length} хувилбараас, үнэн зөв ✓)`);
+        return { headline: h.text, costUsd };
+      }
+      // Оноо нь үнэн зөв байдлаас ХЭЗЭЭ Ч давуу биш — дараагийн хувилбар руу
+      console.warn(`  ⚠ гарчиг эх мэдээг хэтрүүлэв: "${h.text.slice(0, 60)}" — ${verdict.issues[0] ?? ""}`);
+      feedback = verdict.issues;
     }
-    problems = hooks.flatMap((h) =>
-      checkHook(h.text ?? "").map((p) => `"${(h.text ?? "").slice(0, 40)}" — ${p.detail}`),
-    );
-    console.warn(`  ⚠ headline тохирсонгүй: ${problems.slice(0, 3).join("; ")}`);
+
+    if (ranked.length === 0) {
+      feedback = hooks.flatMap((h) =>
+        checkHook(h.text ?? "", { requireNumber }).map((p) => `"${(h.text ?? "").slice(0, 40)}" — ${p.detail}`),
+      );
+      console.warn(`  ⚠ headline тохирсонгүй: ${feedback.slice(0, 3).join("; ")}`);
+    }
   }
-  throw new Error("Headline бичигдсэнгүй (шалгуур давсангүй)");
+
+  // Карт хэзээ ч бүтэн унахгүй — нийтлэлийн өөрийн гарчиг үргэлж үнэн зөв
+  const fallback = fallbackHeadline(a.titleMn);
+  if (fallback && fitHeadline(fallback) !== null) {
+    console.warn(`  ↳ нийтлэлийн гарчгийг ашиглав: "${fallback}"`);
+    return { headline: fallback, costUsd };
+  }
+  throw new Error("Headline бичигдсэнгүй (нийтлэлийн гарчиг ч багтсангүй)");
 }
 
 /** Нийтлэлээс зургийн дүрслэл гаргуулна (ерөнхий/давхардсаныг нэг удаа дахин) */
@@ -141,7 +173,9 @@ async function writeScene(
   a: ArticleForCard,
   recent: string[],
   chat: Chat,
-): Promise<{ scene: string; subject: string; costUsd: number }> {
+): Promise<{ scene: string; subject: string; preset: string; costUsd: number }> {
+  // Байршил/гэрэл/өнцгийг загвар биш, бид сонгоно — ижил кадар давтагдахгүй
+  const preset = presetFor(a.id);
   const everyday = EVERYDAY_ONLY.includes(a.category);
   const base = [
     `Category: ${a.category} (${CATEGORY_LABEL[a.category]}) — ${CATEGORY_SCENE_HINT[a.category]}.`,
@@ -151,6 +185,7 @@ async function writeScene(
       : "",
     `Headline: ${a.titleMn ?? ""}`,
     `Summary: ${a.summaryMn ?? ""}`,
+    `STYLE (already decided — do not describe lighting or camera): ${preset}`,
     recentScenesBlock(recent),
   ].filter(Boolean);
 
@@ -178,7 +213,7 @@ async function writeScene(
             ]),
       ].join("\n"),
       schema: SCENE_SCHEMA,
-      maxTokens: 400,
+      maxTokens: 1_000,
       temperature: attempt === 0 ? 0.6 : 0.9,
       reasoning: false,
     });
@@ -193,7 +228,7 @@ async function writeScene(
     if (!bad) break;
     console.warn(`  ⚠ дүрслэл ${bad}: ${scene}`);
   }
-  return { scene, subject, costUsd };
+  return { scene, subject, preset, costUsd };
 }
 
 /**
@@ -206,10 +241,10 @@ export async function buildHero(
   const chat = opts.chat ?? chatJson;
   const image = opts.image ?? chatImage;
 
-  const { scene, subject, costUsd: sceneCost } = await writeScene(a, opts.recentPrompts ?? [], chat);
-  console.log(`  зургийн сэдэв: ${subject}`);
+  const { scene, subject, preset, costUsd: sceneCost } = await writeScene(a, opts.recentPrompts ?? [], chat);
+  console.log(`  зургийн сэдэв: ${subject} · ${preset.split(",")[0]}`);
 
-  const prompt = buildPhotoPrompt(scene);
+  const prompt = buildPhotoPrompt(scene, preset);
   const model = imageModel();
   let out;
   try {
@@ -298,7 +333,7 @@ export async function cardForArticle(
   return buildCard(a, opts);
 }
 
-if (process.argv[1]?.endsWith("card.ts")) {
+if (isEntry("card.ts")) {
   const key = process.argv[2];
   const outArg = process.argv.indexOf("--out");
   const out = outArg > -1 ? process.argv[outArg + 1] : null;

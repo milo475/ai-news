@@ -17,7 +17,7 @@ import { uniqueToolSlug } from "./mutations";
 import { SEED_TOOLS } from "./seed.api";
 import type { MongolianSupport, ToolPlan } from "../generated/prisma/enums";
 import { isAuthError } from "../agent/llm";
-import { runCli } from "../lib/cli";
+import { isEntry, runCli } from "../lib/cli";
 
 export interface SeedResult {
   created: { name: string; slug: string }[];
@@ -159,7 +159,7 @@ export async function linkAlternatives(): Promise<number> {
   return linked;
 }
 
-if (process.argv[1]?.endsWith("seed.ts") && process.argv[1]?.includes("tools")) {
+if (isEntry("seed.ts") && process.argv[1]?.includes("tools")) {
   await runCli(async () => {
     const onlyArg = process.argv.indexOf("--only");
     const r = await seedTools({

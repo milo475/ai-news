@@ -48,6 +48,8 @@ function baseWhere(category?: ArticleCategory): Prisma.ArticleWhereInput {
   return {
     status: "PUBLISHED",
     fbImageAt: { not: null },
+    // Гараар нуусан карт (буруу гарчиг гэх мэт) галерейд гарахгүй
+    cardHidden: false,
     ...(category ? { category } : {}),
   };
 }

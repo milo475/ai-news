@@ -9,7 +9,7 @@
  */
 import "dotenv/config";
 import { chatJson, chatText, isAuthError } from "../agent/llm";
-import { runCli } from "../lib/cli";
+import { isEntry, runCli } from "../lib/cli";
 import { prisma } from "../db";
 import { jobRunMeta } from "../jobs/meta";
 import { benchModels } from "./models";
@@ -310,7 +310,7 @@ async function execute(opts: RunOptions, jobId: string): Promise<RunSummary> {
   return result;
 }
 
-if (process.argv[1]?.endsWith("run.ts") && process.argv[1]?.includes("bench")) {
+if (isEntry("run.ts") && process.argv[1]?.includes("bench")) {
   const arg = (name: string) => {
     const i = process.argv.indexOf(`--${name}`);
     return i > -1 ? process.argv[i + 1] : undefined;

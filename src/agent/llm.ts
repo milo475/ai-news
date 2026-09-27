@@ -14,6 +14,9 @@ const TITLE = "AI News";
 /** Дахин оролдох хүлээлт: 2с, 6с. Гурав дахь удаад алдааг дамжуулна. */
 const BACKOFF_MS = [2_000, 6_000];
 
+/** Хариу багтсангүй үед max_tokens-ыг хэдээр үржүүлэх вэ (нэг л удаа) */
+export const TRUNCATION_WIDEN = 2;
+
 /**
  * Түлхүүр буруу, хүчингүй эсвэл огт байхгүй (401/403).
  *
@@ -115,8 +118,19 @@ export interface ChatJsonOptions {
 
 interface ChatResponse {
   choices?: { message?: { content?: string }; finish_reason?: string }[];
-  usage?: { total_tokens?: number; cost?: number };
+  usage?: {
+    total_tokens?: number;
+    cost?: number;
+    /** Бодох моделийн дотоод «бодолт» — max_tokens-оос иддэг */
+    completion_tokens_details?: { reasoning_tokens?: number };
+  };
   error?: { message?: string };
+}
+
+/** Хариу нь max_tokens-д багтаагүй үед хэдэн токеныг reasoning идсэнийг харуулна */
+function reasoningNote(json: ChatResponse): string {
+  const r = json.usage?.completion_tokens_details?.reasoning_tokens;
+  return r ? ` — үүнээс ${r} токеныг reasoning идсэн` : "";
 }
 
 function sleep(ms: number): Promise<void> {
@@ -186,9 +200,10 @@ async function callOnce<T>(
   // Бодох модельд reasoning токен нь max_tokens-оос иддэг — дахин оролдоод нэмэргүй
   if (choice?.finish_reason === "length") {
     const err = new Error(
-      `OpenRouter chat: хариу таслагдсан (max_tokens=${opts.maxTokens} хүрэлцэхгүй)`,
-    ) as Error & { truncated?: boolean };
+      `OpenRouter chat: хариу таслагдсан (max_tokens=${opts.maxTokens} хүрэлцэхгүй${reasoningNote(json)})`,
+    ) as Error & { truncated?: boolean; reasoningTokens?: number };
     err.truncated = true;
+    err.reasoningTokens = json.usage?.completion_tokens_details?.reasoning_tokens ?? 0;
     throw err;
   }
   const content = choice?.message?.content;
@@ -218,6 +233,7 @@ export async function chatJson<T>(
   let call = opts;
   let noReasoning = opts.reasoning === false;
   let lowered = false;
+  let widened = false;
   let attempt = 0;
   for (;;) {
     try {
@@ -226,6 +242,20 @@ export async function chatJson<T>(
       // Provider reasoning-ийг шаардаж байвал асаагаад шууд дахин — оролдлого зарцуулахгүй
       if ((e as { reasoningRejected?: boolean }).reasoningRejected && noReasoning) {
         noReasoning = false;
+        continue;
+      }
+      // Хариу багтсангүй — НЭГ удаа хоёр дахин өргөн, reasoning-ийг унтраагаад дахин.
+      // Бодох модель нь max_tokens-ийг дотоод бодолтод иддэг тул зүгээр дахин оролдох нь
+      // ижил үр дүн өгнө.
+      if (isTruncated(e) && !widened) {
+        widened = true;
+        const wider = call.maxTokens * TRUNCATION_WIDEN;
+        console.warn(
+          `  ↔ ${call.model}: max_tokens ${call.maxTokens} → ${wider}, reasoning унтраав ` +
+            `(${(e as Error).message.replace(/^OpenRouter chat: /, "")})`,
+        );
+        call = { ...call, maxTokens: wider };
+        noReasoning = true;
         continue;
       }
       // Кредит хүрэлцэхгүй бол OpenRouter-ийн зөвшөөрсөн хэмжээгээр нэг удаа дахин
@@ -276,6 +306,10 @@ export interface ChatTextResult {
 export async function chatText(opts: ChatTextOptions): Promise<ChatTextResult> {
   const apiKey = apiKeyOrThrow();
 
+  let call = opts;
+  let noReasoning = opts.reasoning === false;
+  let widened = false;
+
   for (let attempt = 0; ; attempt++) {
     const started = Date.now();
     try {
@@ -288,16 +322,16 @@ export async function chatText(opts: ChatTextOptions): Promise<ChatTextResult> {
           "X-Title": TITLE,
         },
         body: JSON.stringify({
-          model: opts.model,
+          model: call.model,
           messages: [
-            ...(opts.system ? [{ role: "system", content: opts.system }] : []),
-            { role: "user", content: opts.user },
+            ...(call.system ? [{ role: "system", content: call.system }] : []),
+            { role: "user", content: call.user },
           ],
-          temperature: opts.temperature ?? 0.3,
-          max_tokens: opts.maxTokens,
-          ...(opts.reasoning === false ? { reasoning: { enabled: false } } : {}),
+          temperature: call.temperature ?? 0.3,
+          max_tokens: call.maxTokens,
+          ...(noReasoning ? { reasoning: { enabled: false } } : {}),
         }),
-        signal: AbortSignal.timeout(opts.timeoutMs ?? 60_000),
+        signal: AbortSignal.timeout(call.timeoutMs ?? 60_000),
       });
 
       if (!res.ok) {
@@ -314,7 +348,17 @@ export async function chatText(opts: ChatTextOptions): Promise<ChatTextResult> {
       };
       if (json.error) throw new Error(`OpenRouter chat: ${json.error.message ?? "тодорхойгүй алдаа"}`);
 
-      const text = json.choices?.[0]?.message?.content ?? "";
+      const choice = json.choices?.[0];
+      if (choice?.finish_reason === "length") {
+        const err = new Error(
+          `OpenRouter chat: хариу таслагдсан (max_tokens=${call.maxTokens} хүрэлцэхгүй${reasoningNote(json)})`,
+        ) as Error & { truncated?: boolean; reasoningTokens?: number };
+        err.truncated = true;
+        err.reasoningTokens = json.usage?.completion_tokens_details?.reasoning_tokens ?? 0;
+        throw err;
+      }
+
+      const text = choice?.message?.content ?? "";
       if (!text.trim()) throw new Error("OpenRouter chat: хоосон хариу");
 
       return {
@@ -325,6 +369,19 @@ export async function chatText(opts: ChatTextOptions): Promise<ChatTextResult> {
         latencyMs: Date.now() - started,
       };
     } catch (e) {
+      // Хариу багтсангүй — chatJson-той ижил дүрэм: нэг удаа 2 дахин өргөн, reasoning унтраана
+      if (isTruncated(e) && !widened) {
+        widened = true;
+        const wider = call.maxTokens * TRUNCATION_WIDEN;
+        console.warn(
+          `  ↔ ${call.model}: max_tokens ${call.maxTokens} → ${wider}, reasoning унтраав ` +
+            `(${(e as Error).message.replace(/^OpenRouter chat: /, "")})`,
+        );
+        call = { ...call, maxTokens: wider };
+        noReasoning = true;
+        attempt--; // өргөтгөл нь дахин оролдлогын тооноос иддэггүй
+        continue;
+      }
       const retryable =
         (e as { retryable?: boolean }).retryable === true ||
         (e as Error).name === "TimeoutError" ||

@@ -10,6 +10,18 @@
 import { isAuthError } from "../agent/llm";
 import { loadEnv } from "./env";
 
+/**
+ * Энэ файл нь шууд ажиллуулсан скрипт мөн үү.
+ *
+ * `endsWith("card.ts")` нь **recard.ts**-д ч үнэн болдог — card.ts-ийн CLI нь recard-ыг
+ * ажиллуулахад дундуур нь орж ирж байсан. Тиймээс файлын нэрийг бүтнээр нь харьцуулна.
+ */
+export function isEntry(fileName: string, argv = process.argv): boolean {
+  const path = argv[1] ?? "";
+  const base = path.slice(path.lastIndexOf("/") + 1);
+  return base === fileName;
+}
+
 export async function runCli(fn: () => Promise<void>): Promise<void> {
   loadEnv();
   const { prisma } = await import("../db");
