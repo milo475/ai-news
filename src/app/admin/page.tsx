@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { prisma } from "@/db";
 import { CATEGORY_LABEL } from "@/agent/category";
-import { hourLabel, humanDelay, nextPublishAt, publishHours } from "@/jobs/mode.api";
+import { humanDelay, nextPublishAt, publishTimes, timeLabel } from "@/jobs/mode.api";
 import { publishedToday } from "@/agent/quota";
 import { dailyPublishLimit } from "@/agent/quota.api";
 import { fmtDate } from "@/components/format";
@@ -21,7 +21,7 @@ export const metadata = { title: "Админ" };
 const TABS = ["DRAFT", "RAW", "PUBLISHED", "REJECTED", "SKIPPED"] as const;
 type Status = (typeof TABS)[number];
 
-const JOBS = ["pipeline", "rss", "agent", "improve", "publish", "openrouter", "arena", "digest"] as const;
+const JOBS = ["pipeline", "rss", "agent", "improve", "publish", "openrouter", "arena", "digest", "insights"] as const;
 
 const RUN_BUTTONS = [
   { job: "rss", label: "Мэдээ татах" },
@@ -30,6 +30,7 @@ const RUN_BUTTONS = [
   { job: "publish", label: "Одоо нийтлэх" },
   { job: "arena", label: "Arena татах" },
   { job: "digest", label: "Digest бичүүлэх" },
+  { job: "insights", label: "Хүрэлт татах" },
   { job: "pipeline", label: "Бүгд" },
 ] as const;
 
@@ -69,6 +70,8 @@ export default async function Admin({
         publishedAtSource: true, sourceText: true, reviewedBy: true, source: { select: { name: true } },
         fbPostId: true, fbPostedAt: true, fbAttempts: true, fbError: true,
         fbImageUrl: true, igPostedAt: true, igMediaId: true, igAttempts: true, igError: true,
+        fbReach: true, fbLikes: true, fbShares: true, fbComments: true, fbStatsAt: true,
+        igReach: true, igLikes: true, igComments: true, fbHookType: true,
       },
     }),
     topSearches(),
@@ -81,7 +84,7 @@ export default async function Admin({
     }),
     prisma.article.count({ where: { status: "DRAFT", readyAt: { not: null } } }),
   ]);
-  const next = nextPublishAt(new Date(), publishHours());
+  const next = nextPublishAt(new Date(), publishTimes());
   const countOf = (s: string) => counts.find((c) => c.status === s)?._count ?? 0;
   const anyRunning = jobs.some(({ run }) => run && !run.finishedAt);
   const dailyLimit = dailyPublishLimit();
@@ -103,6 +106,7 @@ export default async function Admin({
           <Link href="/admin/mongol" className="text-sm text-accent hover:underline">Монгол →</Link>
           <Link href="/admin/songolt" className="text-sm text-accent hover:underline">Асуулга →</Link>
           <Link href="/admin/hereglegch" className="text-sm text-accent hover:underline">Хэрэглэгчид →</Link>
+          <Link href="/admin/tarhalt" className="text-sm text-accent hover:underline">Тархалт →</Link>
           <Link href="/admin/aldaa" className="text-sm text-accent hover:underline">Алдаа →</Link>
           {umamiUrl && (
             <a
@@ -132,10 +136,10 @@ export default async function Admin({
         <div className="rounded-lg border border-line p-3">
           <p className="text-xs text-muted">Дараагийн нийтлэх (УБ)</p>
           <p className="text-2xl font-semibold tabular-nums">
-            {hourLabel(next.hour)} <span className="text-muted text-base">({humanDelay(next.minutes)})</span>
+            {timeLabel(next.time)} <span className="text-muted text-base">({humanDelay(next.minutes)})</span>
           </p>
           <p className="text-xs text-muted">
-            {publishHours().map(hourLabel).join(" · ")} — бэлэн {readyCount} нийтлэл
+            {publishTimes().map(timeLabel).join(" · ")} — бэлэн {readyCount} нийтлэл
           </p>
         </div>
         <div className="rounded-lg border border-line p-3">
@@ -313,9 +317,15 @@ export default async function Admin({
 function FbCell({
   article,
 }: {
-  article: { id: string; fbPostId: string | null; fbPostedAt: Date | null; fbAttempts: number; fbError: string | null };
+  article: {
+    id: string; fbPostId: string | null; fbPostedAt: Date | null; fbAttempts: number;
+    fbError: string | null;
+    fbReach?: number; fbLikes?: number; fbShares?: number; fbComments?: number;
+    fbStatsAt?: Date | null;
+  };
 }) {
   if (article.fbPostedAt || article.fbPostId) {
+    const engagement = (article.fbLikes ?? 0) + (article.fbShares ?? 0) + (article.fbComments ?? 0);
     return (
       <span className="text-xs text-up">
         ✓ {article.fbPostedAt ? fmtDate(article.fbPostedAt) : "постлосон"}
@@ -328,6 +338,14 @@ function FbCell({
           >
             пост →
           </a>
+        )}
+        {/* Хүрэлтийг постлосноос 24 цагийн дараа татдаг (insights алхам) */}
+        {article.fbStatsAt ? (
+          <span className="ml-2 tabular-nums text-muted" title="хүрэлт · reaction/хуваалцалт/коммент">
+            {article.fbReach ?? 0} хүн · {engagement}
+          </span>
+        ) : (
+          <span className="ml-2 text-muted">хүрэлт хүлээгдэж байна</span>
         )}
       </span>
     );
@@ -356,11 +374,21 @@ function IgCell({
 }: {
   article: {
     id: string; igMediaId: string | null; igPostedAt: Date | null; igAttempts: number;
+    igReach?: number; igLikes?: number; igComments?: number;
     igError: string | null; fbImageUrl: string | null;
   };
 }) {
   if (article.igPostedAt || article.igMediaId) {
-    return <span className="text-xs text-up">✓ {article.igPostedAt ? fmtDate(article.igPostedAt) : "постлосон"}</span>;
+    return (
+      <span className="text-xs text-up">
+        ✓ {article.igPostedAt ? fmtDate(article.igPostedAt) : "постлосон"}
+        {(article.igReach ?? 0) > 0 && (
+          <span className="ml-2 tabular-nums text-muted">
+            {article.igReach} хүн · {(article.igLikes ?? 0) + (article.igComments ?? 0)}
+          </span>
+        )}
+      </span>
+    );
   }
   if (!article.fbImageUrl) return <span className="text-xs text-muted">зураггүй</span>;
 

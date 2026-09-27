@@ -1,8 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  BIO_LINE, buildCaption, checkCaption, IG_BASE_HASHTAGS, igUserId, MAX_CAPTION_CHARS,
-  MAX_HASHTAGS, MAX_IG_ATTEMPTS, MIN_HASHTAGS, publicImageUrl,
+  altTextFor, BIO_LINE, buildCaption, buildHashtags, checkCaption, checkHashtags,
+  hashtagComment, IG_BROAD_HASHTAGS, IG_NICHE_HASHTAGS, igUserId, MAX_ALT_CHARS,
+  MAX_CAPTION_CHARS, MAX_HASHTAGS, MAX_IG_ATTEMPTS, MAX_TOPIC_HASHTAGS, MIN_HASHTAGS,
+  publicImageUrl,
 } from "./instagram.api";
 import { postToInstagram } from "./instagram";
 
@@ -10,7 +12,8 @@ const FB_TEXT = [
   "Хуулийн фирмүүдийн 40 хувь нь ажлынхаа хэсгийг машинд даалгаж эхэлжээ.",
   "Шинэ шийдэл нь байгууллагын нууц мэдээллийг гадагш гаргалгүй ажиллах боломж олгож байна. " +
     "Энэ нь өмнө нь үнэтэй мэргэжилтэн шаарддаг байсан ажлыг хямдруулна.",
-  "Дэлгэрэнгүй: https://ainews.mn/medee/test-nijtlel",
+  "Та ажилдаа AI ашигладаг уу?",
+  "Холбоос коммент дээр.",
   "#AI #ХиймэлОюун #хууль",
 ].join("\n\n");
 
@@ -23,54 +26,90 @@ test("igUserId / publicImageUrl", () => {
   assert.equal(publicImageUrl("abc123", undefined), "http://localhost:3000/api/fb-image/abc123");
 });
 
-test("buildCaption: холбоосын мөрийг bio-гийн мөрөөр солино", () => {
-  const caption = buildCaption(FB_TEXT, ["OpenAI"]);
+test("buildCaption: холбоосын мөрийг bio-гийн мөрөөр солино, hashtag орохгүй", () => {
+  const caption = buildCaption(FB_TEXT);
   assert.ok(!caption.includes("https://"), "холбоос үлдсэн");
   assert.ok(!caption.includes("Дэлгэрэнгүй: "), "хуучин мөр үлдсэн");
+  assert.ok(!caption.includes("Холбоос коммент дээр"), "FB-ийн мөр үлдсэн");
+  assert.ok(!caption.includes("#"), "hashtag нь эхний комментод явна");
   assert.ok(caption.includes(BIO_LINE));
-  // Биет хэвээр
+  // Биет ба уншигчид хандсан асуулт хэвээр
   assert.ok(caption.startsWith("Хуулийн фирмүүдийн 40 хувь"));
   assert.ok(caption.includes("нууц мэдээллийг гадагш гаргалгүй"));
+  assert.ok(caption.includes("Та ажилдаа AI ашигладаг уу?"));
 });
 
-test("buildCaption: hashtag 5–8, суурь нь үргэлж эхэлнэ, давхардахгүй", () => {
-  const caption = buildCaption(FB_TEXT, ["OpenAI", "GPT-6 Astra", "хууль", "зохицуулалт"]);
-  const tags: string[] = caption.match(/#\S+/g) ?? [];
+test("buildHashtags: 12–15 ширхэг, гурван давхарга, сэдвийнх нь эхэлнэ", () => {
+  const tags = buildHashtags(["#хууль", "#зохицуулалт", "OpenAI", "GPT-6 Astra", "илүү"]);
 
   assert.ok(tags.length >= MIN_HASHTAGS && tags.length <= MAX_HASHTAGS, `${tags.length} hashtag`);
-  assert.deepEqual(tags.slice(0, IG_BASE_HASHTAGS.length), IG_BASE_HASHTAGS);
-  assert.equal(new Set(tags.map((t) => t.toLowerCase())).size, tags.length, "давхардсан hashtag");
-  assert.ok(tags.includes("#OpenAI"));
+  // (в) сэдвийн — дээд тал нь 4, эхэнд
+  assert.deepEqual(tags.slice(0, MAX_TOPIC_HASHTAGS), ["#хууль", "#зохицуулалт", "#OpenAI", "#GPT6Astra"]);
+  // (б) niche ба (а) өргөн хоёулаа орсон
+  assert.ok(IG_NICHE_HASHTAGS.every((t) => tags.some((x) => x.toLowerCase() === t)), "niche дутуу");
+  assert.ok(tags.some((t) => IG_BROAD_HASHTAGS.includes(t.toLowerCase())), "өргөн давхарга дутуу");
+  // Кирилл ба латин хоёулаа
+  assert.ok(tags.some((t) => /[а-яөү]/i.test(t)), "кирилл алга");
+  assert.ok(tags.some((t) => /^#[a-z]/i.test(t)), "латин алга");
+  assert.equal(new Set(tags.map((t) => t.toLowerCase())).size, tags.length, "давхардсан");
+});
 
-  // FB текстэд байсан #AI давхар орохгүй
+test("buildHashtags: сэдвийн шошго байхгүй ч 12-т хүрнэ", () => {
+  const tags = buildHashtags([]);
+  assert.ok(tags.length >= MIN_HASHTAGS, `${tags.length} hashtag`);
+  assert.deepEqual(checkHashtags(tags), []);
+});
+
+test("buildHashtags: давхардсан сэдвийн шошго niche-тэй нэгдэхгүй", () => {
+  const tags = buildHashtags(["#ai", "#AI", "#Chatgpt"]);
   assert.equal(tags.filter((t) => t.toLowerCase() === "#ai").length, 1);
+  assert.equal(tags.filter((t) => t.toLowerCase() === "#chatgpt").length, 1);
+});
 
-  // Сэдвийн шошго байхгүй ч суурь 4 нь хүрэлцэнэ гэвч доод хязгаарт тулна
-  const bare = buildCaption("Гарчиг\n\nБиет.\n\nДэлгэрэнгүй: https://a.mn/b", []);
-  assert.deepEqual(bare.match(/#\S+/g), IG_BASE_HASHTAGS);
+test("hashtagComment: зөвхөн hashtag, зайгаар", () => {
+  assert.equal(hashtagComment(["#a", "#b"]), "#a #b");
+});
+
+test("altTextFor: headline-аас, урт бол таслана", () => {
+  assert.equal(
+    altTextFor("Хиймэл оюун 5 хүн тутмын 1-ийн цагийг хэмжиж байна"),
+    "AI News картын зураг. Хиймэл оюун 5 хүн тутмын 1-ийн цагийг хэмжиж байна",
+  );
+  assert.equal(altTextFor(null, "Нөөц гарчиг"), "AI News картын зураг. Нөөц гарчиг");
+  assert.equal(altTextFor(null, null), null);
+  assert.equal(altTextFor("  "), null);
+  assert.equal(altTextFor("Гарчиг 🚀"), "AI News картын зураг. Гарчиг");
+  assert.equal(altTextFor("х".repeat(MAX_ALT_CHARS + 50))!.length, MAX_ALT_CHARS);
 });
 
 test("buildCaption: emoji хасагдана, 2200 тэмдэгтэд багтана", () => {
-  const withEmoji = buildCaption("Гарчиг 🚀\n\nБиет 😀 текст.\n\nДэлгэрэнгүй: https://a.mn/b\n\n#тест", []);
+  const withEmoji = buildCaption("Гарчиг 🚀\n\nБиет 😀 текст.\n\nДэлгэрэнгүй: https://a.mn/b\n\n#тест");
   assert.ok(!/[\p{Extended_Pictographic}]/u.test(withEmoji));
 
   const long = buildCaption(
     [`Гарчиг`, "Урт ".repeat(900), "Дэлгэрэнгүй: https://a.mn/b", "#тест"].join("\n\n"),
-    ["OpenAI"],
   );
   assert.ok(long.length <= MAX_CAPTION_CHARS, `${long.length} тэмдэгт`);
-  assert.ok(long.endsWith(IG_BASE_HASHTAGS.join(" ") + " #тест") || long.includes(BIO_LINE));
   assert.ok(long.includes(BIO_LINE), "bio мөр үлдэнэ");
 });
 
 test("checkCaption: зөрчлийг барина", () => {
-  assert.deepEqual(checkCaption(buildCaption(FB_TEXT, ["OpenAI"])), []);
+  assert.deepEqual(checkCaption(buildCaption(FB_TEXT)), []);
 
   const codes = (c: string) => checkCaption(c).map((p) => p.code);
-  assert.ok(codes("Текст 🚀\n\n#AI #ХиймэлОюун #Монгол #технологи #тест").includes("emoji"));
-  assert.ok(codes("Текст\n\n#AI #ХиймэлОюун").includes("few-hashtags"));
-  assert.ok(codes(`Текст https://a.mn\n\n${IG_BASE_HASHTAGS.join(" ")} #тест`).includes("has-link"));
-  assert.ok(codes(`${"у".repeat(2300)}\n\n${IG_BASE_HASHTAGS.join(" ")} #тест`).includes("too-long"));
+  assert.ok(codes("Текст 🚀").includes("emoji"));
+  assert.ok(codes("Текст #AI #Монгол").includes("has-hashtag"), "hashtag caption-д байх ёсгүй");
+  assert.ok(codes("Текст https://a.mn").includes("has-link"));
+  assert.ok(codes("у".repeat(2_300)).includes("too-long"));
+});
+
+test("checkHashtags: 12–15-ийн хүрээ", () => {
+  assert.deepEqual(checkHashtags(buildHashtags(["#a", "#b", "#c"])), []);
+  assert.deepEqual(checkHashtags(["#a", "#b"]).map((p) => p.code), ["few-hashtags"]);
+  assert.deepEqual(
+    checkHashtags(Array.from({ length: 20 }, (_, i) => `#t${i}`)).map((p) => p.code),
+    ["many-hashtags"],
+  );
 });
 
 // ---------- HTTP mock: 2 алхамт нийтлэлт ----------
@@ -89,6 +128,7 @@ function fakeGraph(statuses: string[], opts: { failAt?: string } = {}) {
       return { ok: false, status: 400, json: async () => ({ error: { message: "Тестийн алдаа" } }) };
     }
     if (url.includes("/media_publish")) return { ok: true, status: 200, json: async () => ({ id: "IG_MEDIA_1" }) };
+    if (url.includes("/comments")) return { ok: true, status: 200, json: async () => ({ id: "IG_COMMENT_1" }) };
     if (url.includes("/media")) return { ok: true, status: 200, json: async () => ({ id: "CREATION_1" }) };
     return { ok: true, status: 200, json: async () => ({ status_code: queue.shift() ?? "FINISHED" }) };
   }) as unknown as typeof fetch;
@@ -102,23 +142,45 @@ test("postToInstagram: media → status poll → media_publish", async () => {
   const slept: number[] = [];
   const { fetchImpl, calls } = fakeGraph(["IN_PROGRESS", "IN_PROGRESS", "FINISHED"]);
 
-  const id = await postToInstagram("https://ainews.mn/api/fb-image/a1", "caption", {
-    fetchImpl,
-    sleep: async (ms) => { slept.push(ms); },
-  });
+  const r = await postToInstagram(
+    "https://ainews.mn/api/fb-image/a1",
+    "caption",
+    { fetchImpl, sleep: async (ms) => { slept.push(ms); } },
+    { altText: "alt текст", hashtags: ["#a", "#b"] },
+  );
 
-  assert.equal(id, "IG_MEDIA_1");
+  assert.equal(r.igMediaId, "IG_MEDIA_1");
+  assert.equal(r.commentId, "IG_COMMENT_1");
   assert.ok(calls[0]!.url.endsWith("/17841400000000000/media"));
   assert.equal(calls[0]!.body?.image_url, "https://ainews.mn/api/fb-image/a1");
   assert.equal(calls[0]!.body?.caption, "caption");
+  assert.equal(calls[0]!.body?.alt_text, "alt текст", "alt_text дамжаагүй");
 
   const polls = calls.filter((c) => c.url.includes("fields=status_code"));
   assert.equal(polls.length, 3, "FINISHED болтол шалгана");
   assert.deepEqual(slept, [3000, 3000], "3 сек тутам");
 
-  const publish = calls.at(-1)!;
-  assert.ok(publish.url.endsWith("/media_publish"));
+  const publish = calls.find((c) => c.url.endsWith("/media_publish"))!;
   assert.equal(publish.body?.creation_id, "CREATION_1");
+
+  // Hashtag нь ПОСТЛОСНЫ ДАРАА коммент болж явна
+  const comment = calls.at(-1)!;
+  assert.ok(comment.url.includes("/IG_MEDIA_1/comments"));
+  assert.equal(comment.body?.message, "#a #b");
+});
+
+test("postToInstagram: hashtag-ийн коммент унасан ч пост үлдэнэ", async () => {
+  process.env.IG_USER_ID = "17841400000000000";
+  process.env.FB_PAGE_ACCESS_TOKEN = "TOKEN";
+  const { fetchImpl } = fakeGraph(["FINISHED"], { failAt: "/comments" });
+
+  const r = await postToInstagram(
+    "https://a.mn/i.jpg", "caption",
+    { fetchImpl, sleep: async () => {} },
+    { hashtags: ["#a"] },
+  );
+  assert.equal(r.igMediaId, "IG_MEDIA_1");
+  assert.equal(r.commentId, null);
 });
 
 test("postToInstagram: контейнер ERROR бол алдаа шидэнэ", async () => {

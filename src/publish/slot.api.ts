@@ -1,15 +1,15 @@
 /**
  * Өдрийн 3 постын slot — pipeline ажилласан цагаас (УБ) тодорхойлно.
  *
- *   09:00  morning  — хамгийн өндөр оноотой NEWS / RISK
- *   13:00  noon     — Мягмар/Пүрэв/Ням гаригт жагсаалтын карт, бусад өдөр FACT / BUSINESS
- *   19:00  evening  — PROJECT / HOWTO / BUSINESS
+ *   07:30  morning  — хамгийн өндөр оноотой NEWS / RISK (ажилдаа явах цаг)
+ *   12:30  noon     — Мягмар/Пүрэв/Ням гаригт жагсаалтын карт, бусад өдөр FACT / BUSINESS (үдийн цай)
+ *   19:30  evening  — PROJECT / HOWTO / BUSINESS (орой гэртээ)
  *
  * Cron яг цагтаа ажиллахгүй байж болно (саатал, гараар ажиллуулах) тул цагийн мужаар шийднэ.
  */
 import type { ArticleCategory } from "../generated/prisma/enums";
 import { UB_OFFSET_MS } from "../jobs/day";
-import { nextPublishAt, publishHours } from "../jobs/mode.api";
+import { nextPublishAt, publishTimes, type PublishTime } from "../jobs/mode.api";
 
 export type Slot = "morning" | "noon" | "evening";
 
@@ -62,8 +62,8 @@ export function slotPlan(now: Date): SlotPlan {
 export interface UpcomingSlot extends SlotPlan {
   /** Хэзээ болох вэ (UTC) */
   at: Date;
-  /** УБ цагийн цаг */
-  hour: number;
+  /** УБ цагаар хэзээ */
+  time: PublishTime;
 }
 
 /**
@@ -73,15 +73,15 @@ export interface UpcomingSlot extends SlotPlan {
 export function upcomingSlots(
   now: Date,
   count: number,
-  hours = publishHours(),
+  times = publishTimes(),
 ): UpcomingSlot[] {
   const out: UpcomingSlot[] = [];
   let cursor = now;
   // Нэг долоо хоногоос цааш хайхгүй — хамгаалалт
-  for (let guard = 0; guard < 7 * hours.length && out.length < count; guard++) {
-    const next = nextPublishAt(cursor, hours);
+  for (let guard = 0; guard < 7 * times.length && out.length < count; guard++) {
+    const next = nextPublishAt(cursor, times);
     const plan = slotPlan(next.at);
-    if (!plan.ranking) out.push({ ...plan, at: next.at, hour: next.hour });
+    if (!plan.ranking) out.push({ ...plan, at: next.at, time: next.time });
     cursor = new Date(next.at.getTime() + 60_000);
   }
   return out;

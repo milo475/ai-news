@@ -2,11 +2,12 @@
  * Өдрийн нийтлэлийн квот — DRAFT-уудаас хэдийг нь нийтлэхийг сонгох цэвэр логик (DB-гүй, тесттэй).
  *
  * Дүрэм:
- *   1. Оноо өндөрөөс нь эхэлнэ (тэнцвэл эх сурвалжийн шинэ мэдээ түрүүлнэ).
+ *   1. Оноо өндөрөөс нь эхэлнэ. Оноо нь үнэлгээ + **ангиллын давуу оноо**:
+ *      RISK/FACT/HOWTO/BUSINESS +1, NEWS ба PROJECT 0 (`CATEGORY_BONUS`).
+ *      Тэнцвэл эх сурвалжийн шинэ мэдээ түрүүлнэ.
  *   2. Нэг эх сурвалжаас өдөрт 2-оос илүүг авахгүй — нэг сайтын эгнээ болохгүйн тулд.
- *   3. Нэг ангиллаас (NEWS, PROJECT ...) өдөрт 2-оос илүүг авахгүй — өдрийн 3 пост
- *      бүгд ижил төрлийн болохгүйн тулд. Боломжтой бол өдрийн сонголтод дор хаяж нэг
- *      NEWS-ээс бусад ангилал орно (зөвхөн моделийн мэдээний хуудас болохгүйн тулд).
+ *   3. Нэг ангиллаас өдөрт 2-оос илүүг авахгүй; **NEWS-ээс өдөрт зөвхөн 1**
+ *      (`MAX_PER_CATEGORY_OVERRIDE`) — өдрийн хуудас компанийн мэдэгдлээр дүүрэхгүй.
  *   4. Ижил сэдэв/модель давхардуулахгүй — sameTopic-ийг үз.
  */
 import { CATEGORIES } from "./category";
@@ -17,6 +18,42 @@ export const MAX_PER_SOURCE = 2;
 
 /** Нэг ангиллаас өдөрт авах дээд тоо */
 export const MAX_PER_CATEGORY = 2;
+
+/**
+ * Ангилал бүрийн өдрийн дээд тоо — MAX_PER_CATEGORY-г дарна.
+ *
+ * NEWS нь компанийн мэдэгдэл: хурдан хуучирдаг, монгол уншигчид шууд хамаарал бага.
+ * Өдөрт нэгээр хязгаарлаж, суудлыг хэрэгтэй контентод (RISK/FACT/HOWTO/BUSINESS) өгнө.
+ */
+export const MAX_PER_CATEGORY_OVERRIDE: Partial<Record<ArticleCategory, number>> = {
+  NEWS: 1,
+};
+
+export function maxPerCategory(c: ArticleCategory): number {
+  return MAX_PER_CATEGORY_OVERRIDE[c] ?? MAX_PER_CATEGORY;
+}
+
+/**
+ * Сонголтын давуу оноо — үнэлгээний оноон дээр нэмэгдэнэ (DB-д хадгалагдахгүй).
+ *
+ * Хүнд шууд хэрэгтэй контент (аюул, гайхалтай баримт, заавар, бизнесийн боломж) нь
+ * ижил оноотой компанийн мэдээг ялна.
+ */
+export const CATEGORY_BONUS: Partial<Record<ArticleCategory, number>> = {
+  RISK: 1,
+  FACT: 1,
+  HOWTO: 1,
+  BUSINESS: 1,
+};
+
+export function categoryBonus(c: ArticleCategory): number {
+  return CATEGORY_BONUS[c] ?? 0;
+}
+
+/** Үнэлгээ + ангиллын давуу оноо */
+export function effectiveScore(c: Pick<PublishCandidate, "relevance" | "category">): number {
+  return c.relevance + categoryBonus(c.category);
+}
 
 /** Өдрийн сонголтод NEWS-ээс бусад ангилал хэдээс багагүй байх вэ (боломжтой бол) */
 export const MIN_NON_NEWS = 1;
@@ -122,9 +159,10 @@ export function sameTopic(a: PublishCandidate, b: PublishCandidate): boolean {
   return shared >= (bothRisk ? 1 : MIN_SHARED_TAGS);
 }
 
-/** Оноо буурахаар, тэнцвэл шинэ мэдээ түрүүлнэ */
+/** Оноо (давуу онооны хамт) буурахаар, тэнцвэл шинэ мэдээ түрүүлнэ */
 function byScore(a: PublishCandidate, b: PublishCandidate): number {
-  if (a.relevance !== b.relevance) return b.relevance - a.relevance;
+  const [sa, sb] = [effectiveScore(a), effectiveScore(b)];
+  if (sa !== sb) return sb - sa;
   const at = (a.publishedAtSource ?? a.createdAt).getTime();
   const bt = (b.publishedAtSource ?? b.createdAt).getTime();
   return bt - at;
@@ -178,7 +216,7 @@ export function selectForPublish(
 
   const fits = (c: PublishCandidate) =>
     (bySource.get(c.sourceId) ?? 0) < MAX_PER_SOURCE &&
-    (byCategory.get(c.category) ?? 0) < MAX_PER_CATEGORY &&
+    (byCategory.get(c.category) ?? 0) < maxPerCategory(c.category) &&
     !taken.some((t) => sameTopic(c, t));
 
   const add = (c: PublishCandidate) => {

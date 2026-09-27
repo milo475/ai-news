@@ -7,6 +7,7 @@ import {
   imageDailyLimit, imageModel, isGenericScene, isLabScene, MAX_HOOK_CHARS, MAX_LINES, overlaySvg,
   PAD, PHOTO_PROMPT_NEGATIVE, PHOTO_PROMPT_PREFIX, pickHook, RECENT_SCENES, recentScenesBlock,
   SCENE_SYSTEM, sceneTooSimilar, stripDates, useSourceImage, wrapLines, type ScoredHook,
+  brandFirst, hookTypeOf, HOOK_SYSTEM,
 } from "./card.api";
 import { heroJpeg, renderCard } from "./card";
 
@@ -293,4 +294,52 @@ test("overlaySvg: эх сурвалжийн зураг хэрэглэвэл cred
 
   // Credit өгөөгүй бол огт гарахгүй
   assert.ok(!overlaySvg({ lines: ["Мөр"], fontSize: 64, cta: CTA_FB }).includes("Зураг:"));
+});
+
+test("HOOK_SYSTEM: энгийн хүний өнцөг ба брэндийн дүрэм prompt дотор", () => {
+  for (const part of ["мөнгө, ажил, хүүхэд, утас, аюулгүй байдал", "ЭХЭНД бүү тавь"]) {
+    assert.ok(HOOK_SYSTEM.includes(part), part);
+  }
+});
+
+test("brandFirst: гарчгийн эхний хоёр үгэнд брэнд байвал тийм", () => {
+  const brands = ["OpenAI", "Google", "GPT-6 Astra"];
+  assert.equal(brandFirst("OpenAI шинэ моделиэ хямдруулав.", brands), true);
+  assert.equal(brandFirst("Google-ийн шинэ модель 40% хямд болжээ.", brands), true);
+  assert.equal(brandFirst("Ийм ажилд төлдөг үнэ 40%-иар хямдарлаа — OpenAI-ийн модель.", brands), false);
+  assert.equal(brandFirst("Хиймэл оюун ажлын цагийг хэмнэж байна.", brands), false);
+  assert.equal(brandFirst("OpenAI хямдруулав.", []), false, "брэнд хоосон бол шалгахгүй");
+  assert.equal(brandFirst("", brands), false);
+  // Хоёр үсэгтэй нэрээр хуурамч дохио өгөхгүй
+  assert.equal(brandFirst("Хүн бүр ашиглаж байна.", ["AI"]), false);
+});
+
+test("pickHook: брэндээр эхэлсэн гарчиг доогуур тавигдана", () => {
+  const brandy = {
+    text: "OpenAI шинэ моделийн үнийг 40 хувиар хямдруулж, бүх хэрэглэгчид нээлээ.",
+    surprise: 9, relevance: 9, clarity: 9,
+  };
+  const human = {
+    text: "Ийм ажилд төлдөг үнэ 40 хувиар хямдарлаа, шалтгаан нь шинэ модель.",
+    surprise: 7, relevance: 7, clarity: 7,
+  };
+  // Брэндгүй нь 6 оноогоор доогуур ч торгуулийн дараа ялна (27-4=23 vs 21 → брэндтэй ялна)
+  assert.equal(pickHook([brandy, human], ["OpenAI"])?.text, brandy.text);
+  // Оноо ойрхон бол брэндгүй нь ялна
+  const close = { ...human, surprise: 8, relevance: 8, clarity: 8 };
+  assert.equal(pickHook([brandy, close], ["OpenAI"])?.text, close.text);
+  // Брэнд өгөөгүй бол торгууль байхгүй
+  assert.equal(pickHook([brandy, close])?.text, brandy.text);
+});
+
+test("hookTypeOf: загварыг таньж, тайланд ангилна", () => {
+  assert.equal(hookTypeOf("Та ажилдаа AI ашигладаг уу?"), "question");
+  assert.equal(hookTypeOf("Хиймэл оюун 5 хүн тутмын 1-ийн цагийг хэмнэж байна."), "number");
+  assert.equal(hookTypeOf("Монголчуудын хэрэглэдэг апп нууц мэдээлэл цуглуулж байжээ."), "local");
+  assert.equal(hookTypeOf("Ийм ажлыг машин бүрэн хийх болно."), "forecast");
+  assert.equal(hookTypeOf("Хөгжлийн бэрхшээлтэй хүн хүртэл ийм хэрэгсэл ашиглаж чадна."), "contrast");
+  assert.equal(hookTypeOf("Шинэ хэрэгсэл гарсан."), "plain");
+  assert.equal(hookTypeOf(""), "plain");
+  // Тоо нь асуултаас хойш — асуулт давуу
+  assert.equal(hookTypeOf("Танай 3 хүүхэд ийм апп хэрэглэдэг үү?"), "question");
 });

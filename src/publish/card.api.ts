@@ -83,7 +83,16 @@ export const HOOK_SYSTEM = `Чи монгол хэлний гарчиг бичд
 
 Уншигчийг ГАЙХУУЛАХ эсвэл түүнд ШУУД ХАМААТАЙ ганц баримт сонго.
 
+ӨНЦӨГ (заавал): энэ нь ЭНГИЙН ХҮНИЙ мөнгө, ажил, хүүхэд, утас, аюулгүй байдалд
+хэрхэн нөлөөлөх вэ — тэр өнцгөөс бич. «Компани X ийм зүйл зарлав» гэдэг өнцөг БУРУУ;
+«таны цалин/ажил/хүүхдийн утсанд ийм зүйл болно» гэдэг өнцөг ЗӨВ.
+
 БҮТЭЦ: [хэн/юу] + [гайхалтай тоо эсвэл харьцуулалт] + [үр дагавар].
+
+КОМПАНИ, МОДЕЛИЙН НЭР: гарчгийн ЭХЭНД бүү тавь — уншигч брэндийн нэрээр бус
+үр дагавраар татагдана. Нэр хэрэгтэй бол гарчгийн ТӨГСГӨЛД (эсвэл дунд) байг.
+  Буруу: "OpenAI шинэ моделиэ 40% хямдруулав."
+  Зөв:   "Ийм ажилд төлдөг үнэ 40%-иар хямдарлаа — OpenAI-ийн шинэ модель."
 
 ХОРИОТОЙ:
 - Огноо (2026, 9-р сарын 21, 21-нд) — зурган дээр огноо хэрэггүй.
@@ -97,10 +106,12 @@ export const HOOK_SYSTEM = `Чи монгол хэлний гарчиг бичд
 - Компаниас нэг ажилтан гарахад орлох зардал нь жилийн цалингаас 1.5–2 дахин их байдаг.
 - Гэрийн энгийн хөргөгч хүртэл системийн алдаанаас болж унтардаг болжээ.
 - Хиймэл оюун 5 хүн тутмын 1-ийн ажлын цагийг хоногт нэг цагаар хэмнэж байна.
+- Хүүхдийн утсан дээрх чатбот эцэг эхийн зөвшөөрөлгүй мэдээлэл цуглуулж байжээ.
 
 МУУ жишээ:
 - X компани шинэ бүтээгдэхүүнээ 9-р сарын 21-нд танилцууллаа.  (огноо + хуурай хэллэг)
 - Технологи хурдацтай хөгжиж байна.  (тоо ч үгүй, баримт ч үгүй)
+- Google Gemini 4-ийг зарлалаа.  (брэнд эхэнд, хүнд ямар хамаатай нь тодорхойгүй)
 
 Тоо байхгүй сэдэвт харьцуулалт, эсрэгцүүлэл хэрэглэж болно ("хүртэл", "ч гэсэн", "гэвч").
 
@@ -212,12 +223,69 @@ export function checkHook(hook: string): HookProblem[] {
  * Хувилбаруудаас хамгийн өндөр оноотойг сонгоно (тэнцвэл богиныг).
  * Шалгуур давсан нь байхгүй бол null.
  */
-export function pickHook(hooks: ScoredHook[]): ScoredHook | null {
+/**
+ * Гарчиг брэндийн нэрээр эхэлж байна уу.
+ *
+ * Уншигч брэндийн нэрээр бус үр дагавраар татагддаг тул эхний 2 үгэнд компани/моделийн
+ * нэр байвал сонголтод хожигдоно (бүрэн хасахгүй — үгүй бол гарчиггүй үлдэж магадгүй).
+ */
+export function brandFirst(hook: string, brands: string[] = []): boolean {
+  const head = hook.trim().split(/\s+/).slice(0, 2).join(" ").toLowerCase();
+  if (!head) return false;
+  return brands.some((b) => {
+    const name = b.trim().toLowerCase();
+    // Нэрний эхний үгээр шалгана ("OpenAI Inc" → "openai")
+    const first = name.split(/\s+/)[0] ?? "";
+    return first.length >= 3 && head.startsWith(first);
+  });
+}
+
+/** Брэндээр эхэлсэн гарчгийн торгуулийн оноо */
+export const BRAND_FIRST_PENALTY = 4;
+
+/**
+ * Хамгийн сайн гарчгийг сонгоно.
+ * @param brands компани/моделийн нэрс — гарчгийн эхэнд байвал торгууль
+ */
+export function pickHook(hooks: ScoredHook[], brands: string[] = []): ScoredHook | null {
+  const score = (h: ScoredHook) =>
+    hookScore(h) - (brandFirst(h.text, brands) ? BRAND_FIRST_PENALTY : 0);
+
   const valid = hooks
     .map((h) => ({ ...h, text: h.text?.trim() ?? "" }))
     .filter((h) => checkHook(h.text).length === 0 && fitHeadline(h.text) !== null)
-    .sort((a, b) => (hookScore(b) - hookScore(a)) || (a.text.length - b.text.length));
+    .sort((a, b) => (score(b) - score(a)) || (a.text.length - b.text.length));
   return valid[0] ?? null;
+}
+
+// ---------- Hook-ийн загвар (7 хоногийн тайланд) ----------
+
+export const HOOK_TYPES = ["number", "question", "contrast", "local", "forecast", "plain"] as const;
+export type HookType = (typeof HOOK_TYPES)[number];
+
+/**
+ * Монголд хамаарлыг илэрхийлэх үгс.
+ * `\b` нь кирилл үсэгтэй ажиллахгүй тул үсэг-биш зааг lookbehind-аар шалгана.
+ */
+const LOCAL_WORDS = /(?<!\p{L})(монгол|улаанбаатар)/iu;
+/** Ирээдүйн цагийн шинж */
+const FORECAST_WORDS = /(?<!\p{L})(болно|болох\s+нь|хүрнэ|төлөвлөж|дараа\s+жил)/iu;
+/** Эсрэгцүүлэл (загвар тодорхойлоход) */
+const CONTRAST_HINT = /(?<!\p{L})(хүртэл|ч\s+гэсэн|гэвч|харин|боловч)/iu;
+
+/**
+ * Гарчгийн загварыг таамаглана — «ямар төрлийн hook хамгийн сайн ажиллаж байна»
+ * гэдгийг тоогоор харахад (`/admin/tarhalt`). Дараалал нь давуу эрхийг илэрхийлнэ.
+ */
+export function hookTypeOf(hook: string): HookType {
+  const text = hook.trim();
+  if (!text) return "plain";
+  if (text.endsWith("?")) return "question";
+  if (/\d/.test(text)) return "number";
+  if (LOCAL_WORDS.test(text)) return "local";
+  if (FORECAST_WORDS.test(text)) return "forecast";
+  if (CONTRAST_HINT.test(text)) return "contrast";
+  return "plain";
 }
 
 // ---------- Зургийн модель, тохиргоо ----------

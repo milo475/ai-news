@@ -6,9 +6,16 @@
  *
  *   <1 өгүүлбэр — headline-ыг тайлбарласан контекст> <1–2 өгүүлбэр — яагаад чухал>
  *
- *   Дэлгэрэнгүй: https://сайт/medee/slug
+ *   <Уншигчид хандсан 1 богино асуулт>
+ *
+ *   Холбоос коммент дээр.
  *
  *   Өдөр бүр AI-ийн сонирхолтой мэдээ авахыг хүсвэл AI News-ийг дагаарай.
+ *
+ * ГАДААД ХОЛБООС ПОСТЫН БИЕД БАЙХГҮЙ. Facebook нь гадагш чиглэсэн холбоостой постыг
+ * 30–50% бага хүнд үзүүлдэг тул холбоосыг постлосны ДАРАА эхний коммент болгон тавина
+ * (`linkComment()` → Graph `/{post-id}/comments`). Асуулт нь коммент цуглуулах зорилготой —
+ * коммент нь постын хүрэлтийг мөн нэмдэг.
  */
 import type { ArticleCategory } from "../generated/prisma/enums";
 
@@ -18,6 +25,34 @@ export const MAX_BODY_CHARS = 400;
 
 /** Сүүлийн мөр — дагахыг урих */
 export const FOLLOW_LINE = "Өдөр бүр AI-ийн сонирхолтой мэдээ авахыг хүсвэл AI News-ийг дагаарай.";
+
+/** Холбоос биед байхгүй гэдгийг уншигчид хэлнэ */
+export const LINK_IN_COMMENT_LINE = "Холбоос коммент дээр.";
+
+/** Эхний комментын текст */
+export function linkComment(link: string): string {
+  return `Дэлгэрэнгүй: ${link}`;
+}
+
+/** Уншигчид хандсан асуултын дээд урт */
+export const MAX_QUESTION_CHARS = 100;
+
+/**
+ * LLM-ийн санал болгосон hashtag-уудыг цэвэрлэнэ: «#» нэг л удаа, тэмдэгтгүй,
+ * давхардалгүй, дээд тал нь 4.
+ */
+export function cleanTags(raw: string[], max = 4): string[] {
+  const out: string[] = [];
+  for (const t of raw) {
+    const word = t.normalize("NFC").replace(/[^\p{L}\p{N}]/gu, "");
+    if (!word || !/\p{L}/u.test(word)) continue;
+    const tag = `#${word}`;
+    if (out.some((x) => x.toLowerCase() === tag.toLowerCase())) continue;
+    out.push(tag);
+    if (out.length >= max) break;
+  }
+  return out;
+}
 
 /** Эх сурвалжийн мөрийн угтвар (FB_SHOW_SOURCE=true үед) */
 export const SOURCE_PREFIX = "Эх сурвалж: ";
@@ -53,7 +88,17 @@ export const FB_COPY_SYSTEM = `Чи монгол хэлээр бичдэг сэ�
 БҮТЭЦ (JSON-оор):
 - context: НЭГ өгүүлбэр — гарчгийг тайлбарласан контекст (хэн, хаана, ямар нөхцөлд).
 - why: 1–2 өгүүлбэр — яагаад чухал вэ, монгол уншигчид юу гэсэн үг вэ.
-- hashtags: 2–4 ширхэг сэдвийн шошго, "#" тэмдэгтээр эхэлнэ.
+- question: уншигчид хандсан НЭГ богино асуулт (${MAX_QUESTION_CHARS} тэмдэгтээс багa).
+- hashtags: 3–4 ширхэг сэдвийн шошго, "#" тэмдэгтээр эхэлнэ.
+
+АСУУЛТ (question):
+- Сэдэвтэй ЯГ холбоотой, хариулахад хялбар, «тийм/үгүй» эсвэл өөрийн туршлагаа хуваалцах
+  боломжтой байх. Жишээ: "Та ажилдаа AI ашигладаг уу?", "Танай хүүхэд ийм апп хэрэглэдэг үү?"
+- Зорилго нь коммент авах — сониуч, гэхдээ шар мэдээ биш.
+- Ерөнхий, хоосон асуулт БОЛОХГҮЙ ("Та юу гэж бодож байна?" гэх мэт).
+
+HASHTAG: кирилл ба латин ХОЛИМОГ бай (жишээ: #хиймэлоюун #chatgpt #технологи #openai).
+Зөвхөн сэдвийн шошго — #Монгол, #AI зэрэг ерөнхийг систем өөрөө нэмнэ.
 
 context + why нийлээд ${MIN_BODY_CHARS}–${MAX_BODY_CHARS} тэмдэгт байна.
 
@@ -67,7 +112,7 @@ context + why нийлээд ${MIN_BODY_CHARS}–${MAX_BODY_CHARS} тэмдэг�
 - Харин компани, модель, бүтээгдэхүүн, хүний нэрийг (Google, Gemini 4, Samsung, OpenAI) ТОДОРХОЙ бич —
   "судалгааны төв", "нэгэн компани" гэх мэт бүрхэг үг хэрэглэхийг хориглоно.
 - Нийтлэлд байхгүй баримт, тоо бүү нэм.
-- Холбоос бүү бич — систем өөрөө нэмнэ.
+- Холбоос бүү бич — систем түүнийг эхний коммент болгон тавина.
 
 Хоёр хувилбар бич (өөр өнцгөөс).`;
 
@@ -83,14 +128,18 @@ export const FB_COPY_SCHEMA = {
         properties: {
           context: { type: "string", description: "Нэг өгүүлбэр — гарчгийн контекст" },
           why: { type: "string", description: "1–2 өгүүлбэр — яагаад чухал" },
+          question: {
+            type: "string",
+            description: `Уншигчид хандсан нэг богино асуулт, ${MAX_QUESTION_CHARS} тэмдэгтээс багa`,
+          },
         },
-        required: ["context", "why"],
+        required: ["context", "why", "question"],
         additionalProperties: false,
       },
     },
     hashtags: {
-      type: "array", items: { type: "string" }, minItems: 2, maxItems: 4,
-      description: "#-ээр эхэлсэн сэдвийн шошго",
+      type: "array", items: { type: "string" }, minItems: 3, maxItems: 4,
+      description: "#-ээр эхэлсэн сэдвийн шошго, кирилл+латин холимог",
     },
   },
   required: ["variants", "hashtags"],
@@ -100,6 +149,20 @@ export const FB_COPY_SCHEMA = {
 export interface CopyVariant {
   context: string;
   why: string;
+  /** Уншигчид хандсан асуулт — постын сүүлд, коммент авах зорилготой */
+  question: string;
+}
+
+/** Хоосон, хэт урт, эсвэл хэт ерөнхий асуултыг хаяна */
+const VAGUE_QUESTION =
+  /^(та\s+)?(юу\s+гэж\s+бодож\s+байна|ямар\s+санаа|та\s+юу\s+гэж\s+үзэж\s+байна)/iu;
+
+export function cleanQuestion(raw: string): string | null {
+  const q = raw.replace(EMOJI_ALL, "").replace(/["«»“”]/g, "").replace(/\s+/g, " ").trim();
+  if (!q || q.length > MAX_QUESTION_CHARS) return null;
+  if (!q.endsWith("?")) return null;
+  if (VAGUE_QUESTION.test(q)) return null;
+  return q;
 }
 
 const EMOJI = /[\p{Extended_Pictographic}️]/u;
@@ -112,17 +175,58 @@ export function bodyOf(v: CopyVariant): string {
 
 export interface PostParts {
   variant: CopyVariant;
-  link: string;
   /** FB_SHOW_SOURCE=true үед эх сурвалжийн домэйн */
   sourceDomain?: string;
 }
 
-/** FB постын бүтэн текст */
+/**
+ * FB постын бүтэн текст. **Холбоос агуулахгүй** — түүнийг `linkComment()`-ээр
+ * эхний коммент болгон тавина.
+ */
 export function assemblePost(p: PostParts): string {
-  const blocks = [bodyOf(p.variant), `Дэлгэрэнгүй: ${p.link}`];
+  const blocks = [bodyOf(p.variant)];
+  const q = cleanQuestion(p.variant.question ?? "");
+  if (q) blocks.push(q);
+  blocks.push(LINK_IN_COMMENT_LINE);
   if (p.sourceDomain) blocks.push(`${SOURCE_PREFIX}${p.sourceDomain}`);
   blocks.push(FOLLOW_LINE);
   return blocks.join("\n\n");
+}
+
+/** «Дэлгэрэнгүй: https://...» хэлбэрийн мөр */
+const STORED_LINK_LINE = /^\s*Дэлгэрэнгүй:\s*https?:\/\/\S+\s*$/i;
+
+/**
+ * DB-д хадгалсан хуучин `fbText`-ийг шинэ бүтэцтэй нийцүүлнэ.
+ *
+ * Холбоосыг комментод тавих болохоос ӨМНӨ бичигдсэн текстүүд биедээ
+ * «Дэлгэрэнгүй: <url>» мөр агуулдаг. Тэднийг дахин бичүүлэхгүйгээр зөв постлоно:
+ * холбоосын мөрийг хасаад «Холбоос коммент дээр» мөрийг нэмнэ.
+ */
+export function ensureLinkInComment(text: string): string {
+  const blocks = text
+    .split(/\n{2,}/)
+    .map((b) => b.trim())
+    .filter((b) => b && !STORED_LINK_LINE.test(b));
+
+  if (blocks.includes(LINK_IN_COMMENT_LINE)) return blocks.join("\n\n");
+
+  // Дагах уриалгын ӨМНӨ тавина — эс тэгвээс төгсгөлд
+  const at = blocks.indexOf(FOLLOW_LINE);
+  if (at === -1) blocks.push(LINK_IN_COMMENT_LINE);
+  else blocks.splice(at, 0, LINK_IN_COMMENT_LINE);
+  return blocks.join("\n\n");
+}
+
+/**
+ * Зураггүй нөөц хувилбар (link preview) — тэр постод холбоос нь хавсралт болж
+ * ордог тул «Холбоос коммент дээр» гэсэн мөр нь зөрчилддөг. Түүнийг арилгана.
+ */
+export function withoutLinkNotice(text: string): string {
+  return text
+    .split(/\n{2,}/)
+    .filter((b) => b.trim() !== LINK_IN_COMMENT_LINE)
+    .join("\n\n");
 }
 
 export interface CopyProblem {
@@ -163,6 +267,6 @@ export function checkBody(body: string, forbidden: string[] = []): CopyProblem[]
 /** Засаж болох зөрчлийг механикаар арилгана */
 export function sanitizeVariant(v: CopyVariant): CopyVariant {
   const clean = (s: string) =>
-    s.replace(EMOJI_ALL, "").replace(/["«»“”]/g, "").replace(/https?:\/\/\S+/g, "").replace(/\s+/g, " ").trim();
-  return { context: clean(v.context), why: clean(v.why) };
+    (s ?? "").replace(EMOJI_ALL, "").replace(/["«»“”]/g, "").replace(/https?:\/\/\S+/g, "").replace(/\s+/g, " ").trim();
+  return { context: clean(v.context), why: clean(v.why), question: clean(v.question) };
 }

@@ -1,5 +1,7 @@
 node_modules
-.env
+# Нууц утга агуулсан бүх хувилбар (.env.bak, .env.local ...) — зөвхөн жишээг хадгална
+.env*
+!.env.example
 dist
 src/generated
 .next

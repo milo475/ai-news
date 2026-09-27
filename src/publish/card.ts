@@ -20,7 +20,8 @@ import { chatImage, chatJson } from "../agent/llm";
 import { prisma } from "../db";
 import {
   buildPhotoPrompt, CARD_H, CARD_W, CATEGORY_SCENE_HINT, CTA_FB, checkHook, creditText,
-  EVERYDAY_ONLY, FALLBACK_IMAGE_MODEL, fitHeadline, hookScore, HOOK_SCHEMA, HOOK_SYSTEM, imageModel,
+  EVERYDAY_ONLY, FALLBACK_IMAGE_MODEL, fitHeadline, hookScore, HOOK_SCHEMA, HOOK_SYSTEM,
+  hookTypeOf, imageModel,
   isGenericScene, isLabScene, overlaySvg, pickHook, recentScenesBlock, SCENE_SCHEMA, SCENE_SYSTEM,
   sceneTooSimilar, useSourceImage, type ScoredHook,
 } from "./card.api";
@@ -50,6 +51,9 @@ interface ArticleForCard {
   sourceImageUrl?: string | null;
   /** Эх сурвалжийн зураг хэрэглэсэн үед картад бичих нэр */
   source?: { name: string } | null;
+  /** Гарчгийн эхэнд орох ёсгүй брэндүүд */
+  models?: { name: string }[];
+  companies?: { name: string }[];
 }
 
 /** Эх сурвалжийн зургийг татна (FB_USE_SOURCE_IMAGE) */
@@ -117,7 +121,9 @@ export async function writeHeadline(
     costUsd += out.costUsd;
 
     const hooks = out.data.hooks ?? [];
-    const picked = pickHook(hooks);
+    // Брэндийн нэрээр эхэлсэн гарчиг сонголтод хожигдоно
+    const brands = [...(a.models ?? []), ...(a.companies ?? [])].map((x) => x.name);
+    const picked = pickHook(hooks, brands);
     if (picked) {
       console.log(`  headline оноо: ${hookScore(picked)}/30 (${hooks.length} хувилбараас)`);
       return { headline: picked.text, costUsd };
@@ -269,6 +275,8 @@ export async function saveCard(articleId: string, r: CardResult): Promise<void> 
       fbImagePrompt: r.prompt,
       fbImageAt: new Date(),
       fbHook: r.headline,
+      // Ямар загварын гарчиг хамгийн сайн ажиллаж байгааг тоогоор харахад (/admin/tarhalt)
+      fbHookType: hookTypeOf(r.headline),
     },
   });
 }
@@ -283,6 +291,8 @@ export async function cardForArticle(
     select: {
       id: true, titleMn: true, summaryMn: true, bodyMn: true, category: true, sourceImageUrl: true,
       source: { select: { name: true } },
+      models: { select: { name: true } },
+      companies: { select: { name: true } },
     },
   })) as ArticleForCard;
   return buildCard(a, opts);

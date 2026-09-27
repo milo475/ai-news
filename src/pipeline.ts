@@ -6,9 +6,9 @@
  *   npx tsx src/pipeline.ts --only rss          # зөвхөн нэг алхам (горим, өдрийн шалгалтыг алгасна)
  *   npx tsx src/pipeline.ts --skip openrouter,arena
  *
- * Cron цаг бүр ажиллана (`0 * * * *` UTC), код нь УБ цагаар горимоо сонгоно:
+ * Cron хагас цаг тутам ажиллана (`0,30 * * * *` UTC), код нь УБ цагаар горимоо сонгоно:
  *
- *   НИЙТЛЭХ (publish) — УБ 07:00, 15:00, 19:00 (PUBLISH_HOURS_UB): бэлэн нийтлэлийг сайтад
+ *   НИЙТЛЭХ (publish) — УБ 07:30, 12:30, 19:30 (PUBLISH_TIMES_UB): бэлэн нийтлэлийг сайтад
  *     гаргаад тэр дор нь FB-д постлоно. RSS, үнэлгээ хийхгүй тул нэг минутын дотор дуусна.
  *   БЭЛТГЭХ (prepare) — бусад цагт: мэдээ татах, үнэлэх, дараагийн slot-д текст/зураг бэлдэх.
  *     Өдөрт нэг удаагийн алхмууд (openrouter, arena, digest, newsletter, report) УБ DAILY_HOUR_UB (3)
@@ -25,7 +25,7 @@ import { runAgent } from "./agent/process";
 import { prisma } from "./db";
 import { openRouterKey } from "./env";
 import { ubDayRange } from "./jobs/day";
-import { dailyHour, modeFor, publishHours, type Mode } from "./jobs/mode.api";
+import { dailyHour, modeFor, publishTimes, type Mode } from "./jobs/mode.api";
 import { runArena } from "./fetchers/arena";
 import { runOpenRouter } from "./fetchers/openrouter";
 import { runRss } from "./fetchers/rss";
@@ -224,6 +224,18 @@ const STEPS: Step[] = [
     },
   },
   {
+    name: "insights",
+    mode: "prepare",
+    run: async () => {
+      // Постлосноос 24 цагийн дараа хүрэлтийг татна (/admin/tarhalt-ийн тайлан)
+      const { syncInsights } = await import("./publish/insights");
+      const r = await syncInsights();
+      if (r.skipped) return r.skipped;
+      if (r.checked === 0) return "хүлээгдэж байгаа пост алга";
+      return `${r.checked} пост — FB ${r.fbUpdated}, IG ${r.igUpdated} шинэчлэв`;
+    },
+  },
+  {
     name: "report",
     mode: "prepare",
     oncePerDay: true,
@@ -280,7 +292,7 @@ async function main() {
   const forced = arg("--mode").toLowerCase();
   const now = new Date();
   const mode: Mode =
-    forced === "publish" || forced === "prepare" ? forced : modeFor(now, publishHours());
+    forced === "publish" || forced === "prepare" ? forced : modeFor(now, publishTimes());
   // Алхмаа нэрлэсэн бол горимыг нь өөрөөс нь авна
   const stepMode = selected ? STEPS.find((s) => selected.has(s.name))?.mode : null;
   const activeMode = stepMode ?? mode;

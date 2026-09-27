@@ -10,9 +10,12 @@
  * нээлттэй, public cache) хаягийг өгнө — **зураггүй нийтлэл IG-д орохгүй**.
  *
  * Хоёр алхамт нийтлэлт:
- *   1. POST /{ig-user-id}/media { image_url, caption } → creation_id
+ *   1. POST /{ig-user-id}/media { image_url, caption, alt_text } → creation_id
  *   2. creation_id-ийн status_code FINISHED болтол 3 сек тутам шалгана (дээд тал нь 60 сек)
  *   3. POST /{ig-user-id}/media_publish { creation_id } → media id
+ *   4. POST /{ig-media-id}/comments { message } → hashtag-ийн коммент
+ *
+ * Hashtag нь caption-д БИШ, эхний комментод явна (instagram.api.ts-ийн тайлбарыг үз).
  */
 import "dotenv/config";
 import { prisma } from "../db";
@@ -20,7 +23,8 @@ import { ubDayRange } from "../jobs/day";
 import { jobRunMeta } from "../jobs/meta";
 import { dailyPublishLimit } from "../agent/quota.api";
 import {
-  buildCaption, checkCaption, igUserId, MAX_IG_ATTEMPTS, publicImageUrl,
+  altTextFor, buildCaption, buildHashtags, checkCaption, checkHashtags, hashtagComment,
+  igUserId, MAX_IG_ATTEMPTS, publicImageUrl,
 } from "./instagram.api";
 
 const GRAPH = "https://graph.facebook.com/v21.0";
@@ -57,12 +61,20 @@ async function graph(
   return json;
 }
 
+export interface IgPostOptions {
+  /** Хараагүй хүнд зориулсан тайлбар — IG-ийн хайлтад ч хэрэглэгддэг */
+  altText?: string | null;
+  /** Эхний коммент болгон тавих hashtag-ууд */
+  hashtags?: string[];
+}
+
 /** Зураг + caption-аас IG пост үүсгэнэ. Media id буцаана. */
 export async function postToInstagram(
   imageUrl: string,
   caption: string,
   deps: InstagramDeps = {},
-): Promise<string> {
+  opts: IgPostOptions = {},
+): Promise<{ igMediaId: string; commentId: string | null }> {
   const userId = igUserId();
   const token = process.env.FB_PAGE_ACCESS_TOKEN;
   if (!userId) throw new Error("IG_USER_ID тохируулаагүй байна");
@@ -75,6 +87,7 @@ export async function postToInstagram(
   const created = await graph(fetchImpl, `${GRAPH}/${userId}/media`, {
     image_url: imageUrl,
     caption,
+    ...(opts.altText ? { alt_text: opts.altText } : {}),
     access_token: token,
   });
   const creationId = created.id;
@@ -103,13 +116,33 @@ export async function postToInstagram(
     access_token: token,
   });
   if (!published.id) throw new Error("Instagram: media id ирсэнгүй");
-  return published.id;
+  const igMediaId = published.id;
+
+  // 4. Hashtag-ийн коммент. Бүтэхгүй ч постыг унагаахгүй — пост аль хэдийн явсан.
+  let commentId: string | null = null;
+  const tags = opts.hashtags ?? [];
+  if (tags.length > 0) {
+    try {
+      const c = await graph(fetchImpl, `${GRAPH}/${igMediaId}/comments`, {
+        message: hashtagComment(tags),
+        access_token: token,
+      });
+      commentId = c.id ?? null;
+    } catch (e) {
+      console.warn(`  ⚠ IG hashtag коммент нэмэгдсэнгүй: ${(e as Error).message.slice(0, 120)}`);
+    }
+  }
+  return { igMediaId, commentId };
 }
 
-export async function markIgPosted(articleId: string, igMediaId: string): Promise<void> {
+export async function markIgPosted(
+  articleId: string,
+  igMediaId: string,
+  igCommentId: string | null = null,
+): Promise<void> {
   await prisma.article.update({
     where: { id: articleId },
-    data: { igMediaId, igPostedAt: new Date(), igError: null },
+    data: { igMediaId, igPostedAt: new Date(), igError: null, igCommentId },
   });
 }
 
@@ -143,11 +176,12 @@ export async function igPostedToday(now = new Date()): Promise<number> {
 export async function publishArticleToInstagram(
   articleId: string,
   deps: InstagramDeps = {},
-): Promise<{ igMediaId: string; caption: string } | null> {
+): Promise<{ igMediaId: string; igCommentId: string | null; caption: string; hashtags: string[] } | null> {
   const a = await prisma.article.findUniqueOrThrow({
     where: { id: articleId },
     select: {
-      id: true, titleMn: true, fbText: true, fbImageData: true, tags: true,
+      id: true, titleMn: true, fbText: true, fbImageData: true, tags: true, fbTags: true,
+      fbHook: true,
       models: { select: { name: true } }, companies: { select: { name: true } },
     },
   });
@@ -157,13 +191,24 @@ export async function publishArticleToInstagram(
   }
   if (!a.fbText) throw new Error("FB текст байхгүй — эхлээд fbcopy ажиллуулна");
 
-  const extraTags = [...a.models.map((m) => m.name), ...a.companies.map((c) => c.name), ...a.tags];
-  const caption = buildCaption(a.fbText, extraTags);
-  const problems = checkCaption(caption);
-  if (problems.length) console.warn(`  ⚠ IG caption: ${problems.map((p) => p.detail).join("; ")}`);
+  // Сэдвийн давхарга: LLM-ийн санал түрүүлж, дутвал нэрс, шошгоор нөхнө
+  const topicTags = [
+    ...a.fbTags,
+    ...a.models.map((m) => m.name),
+    ...a.companies.map((c) => c.name),
+    ...a.tags,
+  ];
+  const caption = buildCaption(a.fbText);
+  const hashtags = buildHashtags(topicTags);
 
-  const igMediaId = await postToInstagram(publicImageUrl(a.id), caption, deps);
-  return { igMediaId, caption };
+  const problems = [...checkCaption(caption), ...checkHashtags(hashtags)];
+  if (problems.length) console.warn(`  ⚠ IG: ${problems.map((p) => p.detail).join("; ")}`);
+
+  const posted = await postToInstagram(publicImageUrl(a.id), caption, deps, {
+    altText: altTextFor(a.fbHook, a.titleMn),
+    hashtags,
+  });
+  return { igMediaId: posted.igMediaId, igCommentId: posted.commentId, caption, hashtags };
 }
 
 export interface InstagramRunResult {
@@ -213,7 +258,7 @@ export async function postPendingInstagram(
     try {
       const out = await publishArticleToInstagram(a.id, deps);
       if (!out) continue;
-      await markIgPosted(a.id, out.igMediaId);
+      await markIgPosted(a.id, out.igMediaId, out.igCommentId);
       posted++;
       console.log(`✓ IG: ${a.titleMn} → ${out.igMediaId}`);
     } catch (e) {

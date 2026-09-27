@@ -147,7 +147,7 @@ async function postOneInstagram(id: string): Promise<string> {
   try {
     const out = await publishArticleToInstagram(a.id);
     if (!out) return "Зураг байхгүй тул постлогдсонгүй.";
-    await markIgPosted(a.id, out.igMediaId);
+    await markIgPosted(a.id, out.igMediaId, out.igCommentId);
     return "";
   } catch (e) {
     const message = (e as Error).message;

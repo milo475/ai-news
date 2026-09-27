@@ -35,7 +35,8 @@
     "db:generate": "prisma generate",
     "audit:seo": "node scripts/audit-seo.mjs",
     "report:weekly": "tsx src/admin/report.ts",
-    "bench:reset": "tsx src/bench/reset.ts"
+    "bench:reset": "tsx src/bench/reset.ts",
+    "insights:sync": "tsx src/publish/insights.ts"
   },
   "keywords": [],
   "author": "",

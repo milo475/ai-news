@@ -1,8 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  assemblePost, bodyOf, checkBody, domainOf, FOLLOW_LINE, MAX_BODY_CHARS, MIN_BODY_CHARS,
-  sanitizeVariant, showSource, SOURCE_PREFIX, type CopyVariant,
+  assemblePost, bodyOf, checkBody, cleanQuestion, cleanTags, domainOf, ensureLinkInComment,
+  FOLLOW_LINE,
+  LINK_IN_COMMENT_LINE, linkComment, MAX_BODY_CHARS, MAX_QUESTION_CHARS, MIN_BODY_CHARS,
+  sanitizeVariant, showSource, SOURCE_PREFIX, withoutLinkNotice, type CopyVariant,
 } from "./fbcopy.api";
 
 const LINK = "https://ainews.mn/medee/test-nijtlel";
@@ -13,27 +15,65 @@ const variant = (over: Partial<CopyVariant> = {}): CopyVariant => ({
   why:
     "Ийм саатал нь иргэдийн эмзэг мэдээлэл хэр удаан хамгаалалтгүй байснаа мэдэх боломжийг хаадаг. " +
     "Монголд ч төрийн системд гадны хэрэгсэл нэвтрүүлэхдээ хэн, хэзээ мэдэгдэх журмыг урьдчилан тогтоох нь чухал болохыг харуулж байна.",
+  question: "Та төрийн онлайн үйлчилгээнд хувийн мэдээллээ өгөхөөс эмээдэг үү?",
   ...over,
 });
 
-test("assemblePost: биет / холбоос / дагах уриалга гэсэн 3 хэсэг", () => {
-  const post = assemblePost({ variant: variant(), link: LINK });
-  const blocks = post.split("\n\n");
-
-  assert.equal(blocks.length, 3);
-  assert.equal(blocks[0], bodyOf(variant()));
-  assert.equal(blocks[1], `Дэлгэрэнгүй: ${LINK}`);
-  assert.equal(blocks[2], FOLLOW_LINE);
-  assert.ok(!post.includes("#"), "FB постод hashtag байхгүй");
-});
-
-test("assemblePost: FB_SHOW_SOURCE үед эх сурвалжийн домэйн нэмэгдэнэ", () => {
-  const post = assemblePost({ variant: variant(), link: LINK, sourceDomain: "theverge.com" });
+test("assemblePost: биет / асуулт / холбоосын мөр / дагах уриалга", () => {
+  const post = assemblePost({ variant: variant() });
   const blocks = post.split("\n\n");
 
   assert.equal(blocks.length, 4);
-  assert.equal(blocks[2], `${SOURCE_PREFIX}theverge.com`);
+  assert.equal(blocks[0], bodyOf(variant()));
+  assert.equal(blocks[1], variant().question);
+  assert.equal(blocks[2], LINK_IN_COMMENT_LINE);
   assert.equal(blocks[3], FOLLOW_LINE);
+  assert.ok(!post.includes("#"), "FB постод hashtag байхгүй");
+  assert.ok(!/https?:\/\//.test(post), "постын биед ГАДААД ХОЛБООС байж болохгүй");
+});
+
+test("assemblePost: асуулт нь буруу бол алгасагдана, пост эвдрэхгүй", () => {
+  const post = assemblePost({ variant: variant({ question: "Та юу гэж бодож байна?" }) });
+  const blocks = post.split("\n\n");
+  assert.equal(blocks.length, 3, "хэт ерөнхий асуулт орох ёсгүй");
+  assert.equal(blocks[1], LINK_IN_COMMENT_LINE);
+});
+
+test("linkComment: холбоос эхний коммент болж явна", () => {
+  assert.equal(linkComment(LINK), `Дэлгэрэнгүй: ${LINK}`);
+});
+
+test("withoutLinkNotice: link preview постод «коммент дээр» мөр хэрэггүй", () => {
+  const post = assemblePost({ variant: variant() });
+  const fallback = withoutLinkNotice(post);
+  assert.ok(!fallback.includes(LINK_IN_COMMENT_LINE));
+  assert.equal(fallback.split("\n\n").length, 3);
+});
+
+test("cleanQuestion: асуултын шалгуур", () => {
+  assert.equal(cleanQuestion("Та ажилдаа AI ашигладаг уу?"), "Та ажилдаа AI ашигладаг уу?");
+  assert.equal(cleanQuestion("  Танай хүүхэд   ийм апп хэрэглэдэг үү?  "), "Танай хүүхэд ийм апп хэрэглэдэг үү?");
+  assert.equal(cleanQuestion("Асуултын тэмдэггүй"), null);
+  assert.equal(cleanQuestion(""), null);
+  assert.equal(cleanQuestion("Та юу гэж бодож байна?"), null, "хэт ерөнхий");
+  assert.equal(cleanQuestion(`${"х".repeat(MAX_QUESTION_CHARS)}?`), null, "хэт урт");
+  assert.equal(cleanQuestion("Та AI ашигладаг уу? 🙂"), "Та AI ашигладаг уу?", "emoji хасагдана");
+});
+
+test("cleanTags: # нэг удаа, давхардалгүй, дээд тал нь 4", () => {
+  assert.deepEqual(cleanTags(["#хиймэлоюун", "chatgpt", "#ChatGPT", "технологи", "#ai", "#нэмэлт"]),
+    ["#хиймэлоюун", "#chatgpt", "#технологи", "#ai"]);
+  assert.deepEqual(cleanTags(["#", "!!!", ""]), []);
+  assert.deepEqual(cleanTags(["#нэг", "#хоёр"], 1), ["#нэг"]);
+});
+
+test("assemblePost: FB_SHOW_SOURCE үед эх сурвалжийн домэйн нэмэгдэнэ", () => {
+  const post = assemblePost({ variant: variant(), sourceDomain: "theverge.com" });
+  const blocks = post.split("\n\n");
+
+  assert.equal(blocks.length, 5);
+  assert.equal(blocks[3], `${SOURCE_PREFIX}theverge.com`);
+  assert.equal(blocks[4], FOLLOW_LINE);
 });
 
 test("showSource / domainOf", () => {
@@ -83,4 +123,27 @@ test("sanitizeVariant: emoji, хашилт, холбоосыг хасна", () =
   assert.ok(!/[🚀😀«»]/u.test(`${clean.context}${clean.why}`));
   assert.ok(!clean.context.includes("http"));
   assert.equal(clean.why, "Сайн байна уу.");
+});
+
+test("ensureLinkInComment: хуучин текстийн холбоосыг хасаж, мөрийг нэмнэ", () => {
+  const old = [
+    "Биетийн текст.",
+    `Дэлгэрэнгүй: ${LINK}`,
+    FOLLOW_LINE,
+  ].join("\n\n");
+
+  const fixed = ensureLinkInComment(old);
+  assert.deepEqual(fixed.split("\n\n"), ["Биетийн текст.", LINK_IN_COMMENT_LINE, FOLLOW_LINE]);
+  assert.ok(!/https?:\/\//.test(fixed));
+});
+
+test("ensureLinkInComment: шинэ текстийг хөндөхгүй (идемпотент)", () => {
+  const post = assemblePost({ variant: variant() });
+  assert.equal(ensureLinkInComment(post), post);
+  assert.equal(ensureLinkInComment(ensureLinkInComment(post)), post);
+});
+
+test("ensureLinkInComment: дагах уриалга байхгүй бол төгсгөлд нэмнэ", () => {
+  const fixed = ensureLinkInComment(`Биет.\n\nДэлгэрэнгүй: ${LINK}`);
+  assert.deepEqual(fixed.split("\n\n"), ["Биет.", LINK_IN_COMMENT_LINE]);
 });

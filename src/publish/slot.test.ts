@@ -51,21 +51,24 @@ test("slotPlan: жагсаалтын карт зөвхөн өдрийн slot д�
 });
 
 test("upcomingSlots: дараагийн slot-уудын ангилал (БЭЛТГЭХ горимд)", () => {
-  const HOURS = [7, 15, 19];
+  // Одоогийн бодит хуваарь: УБ 07:30, 12:30, 19:30
+  const TIMES = [{ hour: 7, minute: 30 }, { hour: 12, minute: 30 }, { hour: 19, minute: 30 }];
+  const label = (s: { time: { hour: number; minute: number } }) =>
+    `${s.time.hour}:${String(s.time.minute).padStart(2, "0")}`;
 
-  // Лхагва УБ 09:00 (UTC 01:00) → дараагийнх нь 15:00, 19:00, дараа өдрийн 07:00
-  const next3 = upcomingSlots(new Date("2026-09-23T01:00:00Z"), 3, HOURS);
-  assert.deepEqual(next3.map((s) => s.hour), [15, 19, 7]);
+  // Лхагва УБ 09:00 (UTC 01:00) → дараагийнх нь 12:30, 19:30, дараа өдрийн 07:30
+  const next3 = upcomingSlots(new Date("2026-09-23T01:00:00Z"), 3, TIMES);
+  assert.deepEqual(next3.map(label), ["12:30", "19:30", "7:30"]);
   assert.deepEqual(next3.map((s) => s.slot), ["noon", "evening", "morning"]);
   assert.deepEqual(next3[0]!.categories, ["FACT", "BUSINESS"]);
   assert.deepEqual(next3[1]!.categories, ["PROJECT", "HOWTO", "BUSINESS"]);
   assert.deepEqual(next3[2]!.categories, ["NEWS", "RISK"]);
 
   // Жагсаалтын картын slot-д нийтлэл хэрэггүй тул алгасагдана.
-  // Мягмар (2026-09-22) УБ 09:00 → 15:00 нь картынх → 19:00, дараа Лхагва 07:00, 15:00
-  const skipsCard = upcomingSlots(new Date("2026-09-22T01:00:00Z"), 3, HOURS);
-  assert.deepEqual(skipsCard.map((s) => s.hour), [19, 7, 15]);
+  // Мягмар (2026-09-22) УБ 09:00 → 12:30 нь картынх → 19:30, дараа Лхагва 07:30, 12:30
+  const skipsCard = upcomingSlots(new Date("2026-09-22T01:00:00Z"), 3, TIMES);
+  assert.deepEqual(skipsCard.map(label), ["19:30", "7:30", "12:30"]);
   assert.ok(skipsCard.every((s) => !s.ranking));
 
-  assert.deepEqual(upcomingSlots(new Date("2026-09-23T01:00:00Z"), 0, HOURS), []);
+  assert.deepEqual(upcomingSlots(new Date("2026-09-23T01:00:00Z"), 0, TIMES), []);
 });

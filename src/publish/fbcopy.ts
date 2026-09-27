@@ -12,10 +12,9 @@ import "dotenv/config";
 import { chatJson } from "../agent/llm";
 import { CATEGORY_LABEL } from "../agent/category";
 import { prisma } from "../db";
-import { articleLink } from "./facebook.api";
 import {
-  assemblePost, bodyOf, CATEGORY_TONE, checkBody, domainOf, FB_COPY_SCHEMA, FB_COPY_SYSTEM,
-  sanitizeVariant, showSource, type CopyVariant,
+  assemblePost, bodyOf, CATEGORY_TONE, checkBody, cleanQuestion, cleanTags, domainOf,
+  FB_COPY_SCHEMA, FB_COPY_SYSTEM, sanitizeVariant, showSource, type CopyVariant,
 } from "./fbcopy.api";
 
 /** FB текст бичих модель — нийтлэл бичих моделиос тусад нь сольж болно */
@@ -90,7 +89,6 @@ export async function generateFbCopy(
     },
   });
 
-  const link = articleLink(a.slug);
   // Эх сурвалжийн нэрний үндсэн үг: "MIT Technology Review AI" → "MIT Technology Review"
   const forbidden = [a.source.name, a.source.name.replace(/\s+AI$/i, "")];
   const sourceDomain = showSource() ? domainOf(a.sourceUrl) : undefined;
@@ -130,13 +128,19 @@ export async function generateFbCopy(
 
   // A/B: санамсаргүй нэгийг постлоно, нөгөө нь нөөцөд
   const first = rand() < 0.5 ? 0 : 1;
-  const text = assemblePost({ variant: variants[first]!, link, sourceDomain });
-  const alt = assemblePost({ variant: variants[1 - first]!, link, sourceDomain });
+  const text = assemblePost({ variant: variants[first]!, sourceDomain });
+  const alt = assemblePost({ variant: variants[1 - first]!, sourceDomain });
+  const question = cleanQuestion(variants[first]!.question ?? "");
 
   if (!opts.dryRun) {
     await prisma.article.update({
       where: { id: a.id },
-      data: { fbText: text, fbTextAlt: alt, tokensUsed: { increment: tokens } },
+      data: {
+        fbText: text, fbTextAlt: alt, fbQuestion: question,
+        // IG-ийн 3 дахь давхаргад хэрэглэнэ (hashtag-ийн коммент)
+        fbTags: cleanTags(hashtags),
+        tokensUsed: { increment: tokens },
+      },
     });
   }
   if (problems.length) console.warn(`  ⚠ FB текст: ${problems.join("; ")}`);

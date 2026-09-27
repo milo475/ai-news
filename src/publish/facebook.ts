@@ -22,6 +22,9 @@ import { ubDateLabel } from "../jobs/day";
 import { jobRunMeta } from "../jobs/meta";
 import { articleLink, buildPost, MAX_ATTEMPTS, postsPerRun } from "./facebook.api";
 import { generateFbCopy } from "./fbcopy";
+import {
+  ensureLinkInComment, LINK_IN_COMMENT_LINE, linkComment, withoutLinkNotice,
+} from "./fbcopy.api";
 import { cardForArticle, saveCard } from "./card";
 import { recentImagePrompts, rankingCard } from "./fbimage";
 import { slotPlan } from "./slot.api";
@@ -67,6 +70,30 @@ export async function postPhoto(image: Buffer, caption: string): Promise<string>
   return graphPost(`${GRAPH}/${pageId}/photos`, form);
 }
 
+/**
+ * Постын доор коммент нэмнэ.
+ *
+ * Гадаад холбоосыг ЭНД тавина: Facebook нь гадагш чиглэсэн холбоостой постыг
+ * 30–50% бага хүнд үзүүлдэг тул постын биед холбоос байхгүй.
+ */
+export async function postComment(postId: string, message: string): Promise<string> {
+  const { token } = credentials();
+  return graphPost(
+    `${GRAPH}/${postId}/comments`,
+    JSON.stringify({ message, access_token: token }),
+  );
+}
+
+/** Коммент нэмэхийг оролдоно — бүтэхгүй ч постыг унагаахгүй */
+export async function addLinkComment(postId: string, link: string): Promise<string | null> {
+  try {
+    return await postComment(postId, linkComment(link));
+  } catch (e) {
+    console.warn(`  ⚠ холбоосын коммент нэмэгдсэнгүй: ${(e as Error).message.slice(0, 120)}`);
+    return null;
+  }
+}
+
 /** Зураггүй нөөц хувилбар — холбоосын preview-ээр og:image гарна */
 export async function postLink(message: string, link: string): Promise<string> {
   const { pageId, token } = credentials();
@@ -87,10 +114,14 @@ export const POSTABLE_SELECT = {
 } as const;
 
 /** Амжилттай постыг тэмдэглэнэ */
-export async function markPosted(articleId: string, fbPostId: string): Promise<void> {
+export async function markPosted(
+  articleId: string,
+  fbPostId: string,
+  linkCommentId: string | null = null,
+): Promise<void> {
   await prisma.article.update({
     where: { id: articleId },
-    data: { fbPostId, fbPostedAt: new Date(), fbError: null },
+    data: { fbPostId, fbPostedAt: new Date(), fbError: null, fbLinkCommentId: linkCommentId },
   });
 }
 
@@ -114,6 +145,8 @@ export interface PublishOutcome {
   /** photo = зурагтай, link = зураггүй нөөц */
   kind: "photo" | "link";
   costUsd: number;
+  /** Холбоосын комментын id — нэмэгдээгүй бол null */
+  linkCommentId: string | null;
 }
 
 /**
@@ -126,9 +159,11 @@ export async function publishArticleToFacebook(
 ): Promise<PublishOutcome> {
   const a = await prisma.article.findUniqueOrThrow({ where: { id: articleId }, select: POSTABLE_SELECT });
 
-  // FB текст: agent-ийн хураангуйг биш, FB-д зориулж бичсэнийг хэрэглэнэ
+  // FB текст: agent-ийн хураангуйг биш, FB-д зориулж бичсэнийг хэрэглэнэ.
+  // Хуучин (холбоос биедээ байсан) текстийг шинэ бүтэцтэй нийцүүлнэ.
   let text = a.fbText;
   if (!text) text = (await generateFbCopy(a.id)).text;
+  text = ensureLinkInComment(text);
 
   const link = articleLink(a.slug);
   let costUsd = 0;
@@ -149,19 +184,24 @@ export async function publishArticleToFacebook(
 
   if (photo) {
     try {
-      return { fbPostId: await postPhoto(photo, text), kind: "photo", costUsd };
+      const fbPostId = await postPhoto(photo, text);
+      // Холбоосыг эхний коммент болгоно. Бүтэхгүй бол постыг унагаахгүй —
+      // холбоосгүй пост ч тавигдсан нь дээр.
+      const linkCommentId = await addLinkComment(fbPostId, link);
+      return { fbPostId, kind: "photo", costUsd, linkCommentId };
     } catch (e) {
       // Зурагтай пост амжилтгүй (хэмжээ, эрх) — текстээ алдалгүй link постоор
       console.warn(`  ⚠ зурагтай пост унасан: ${(e as Error).message.slice(0, 120)} — link постоор оролдоно`);
     }
   }
 
-  // Нөөц: холбоосын preview (og:image)
-  const message = text ?? buildPost({
+  // Нөөц: холбоосын preview (og:image). Энд холбоос нь хавсралт болж ордог тул
+  // «Холбоос коммент дээр» гэсэн мөр хэрэггүй.
+  const message = withoutLinkNotice(text ?? buildPost({
     titleMn: a.titleMn, summaryMn: a.summaryMn, bodyMn: a.bodyMn, link,
     modelNames: a.models.map((m) => m.name), companyNames: a.companies.map((c) => c.name),
-  });
-  return { fbPostId: await postLink(message, link), kind: "link", costUsd };
+  }));
+  return { fbPostId: await postLink(message, link), kind: "link", costUsd, linkCommentId: null };
 }
 
 /** Өнөөдөр жагсаалтын карт тавьсан уу */
@@ -181,11 +221,12 @@ export async function postRankingCard(now = new Date()): Promise<boolean> {
   const caption = [
     `Өнөөдрийн хэрэглээний топ 5 — аль AI моделийг хамгийн их ашиглаж байна вэ.`,
     `Жагсаалт өдөр бүр шинэчлэгддэг: өсөлт, уналтыг өмнөх өдөртэй харьцуулж харуулна.`,
-    `Дэлгэрэнгүй: ${site}/jagsaalt`,
-    `#AI #ХиймэлОюун #Жагсаалт`,
+    `Та аль моделийг хамгийн их ашигладаг вэ?`,
+    LINK_IN_COMMENT_LINE,
   ].join("\n\n");
 
   const fbPostId = await postPhoto(card.buffer, caption);
+  await addLinkComment(fbPostId, `${site}/jagsaalt`);
   await prisma.fbRankingPost.create({ data: { day: ubDateLabel(now), fbPostId } });
   console.log(`✓ жагсаалтын карт → ${fbPostId}`);
   return true;
@@ -215,11 +256,12 @@ export async function postBenchCard(): Promise<boolean> {
     `${board.label}: монгол хэлээр хамгийн сайн ажилласан AI модель бол ${best.name}.`,
     `${board.rows.length} моделийг монгол хэлний ${board.taskCount} бодит даалгавраар тестэллээ — ` +
       `орчуулга, товчлол, албан бичиг, тоон бодлого, монгол соёлын мэдлэг. Оноо 0-10.`,
-    `Бүтэн эрэмбэ, аргачлал: ${site}/benchmark`,
-    `#AI #ХиймэлОюун #МонголХэл`,
+    `Та монголоор аль AI-тай ажиллахад хамгийн дүнтэй байна вэ?`,
+    LINK_IN_COMMENT_LINE,
   ].join("\n\n");
 
   const fbPostId = await postPhoto(card.buffer, caption);
+  await addLinkComment(fbPostId, `${site}/benchmark`);
   await prisma.fbRankingPost.create({ data: { day: key, fbPostId } });
   console.log(`✓ бенчмаркийн карт → ${fbPostId}`);
   return true;
@@ -302,7 +344,7 @@ export async function postPending(now = new Date()): Promise<PostPendingResult> 
         try {
           const out = await publishArticleToFacebook(a.id, { now });
           costUsd += out.costUsd;
-          await markPosted(a.id, out.fbPostId);
+          await markPosted(a.id, out.fbPostId, out.linkCommentId);
           posted++;
           console.log(`✓ [${a.category}] ${a.titleMn} → ${out.fbPostId} (${out.kind})`);
         } catch (e) {

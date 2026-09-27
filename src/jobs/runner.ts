@@ -11,7 +11,7 @@ import { prisma } from "../db";
 
 export const JOB_NAMES = [
   "rss", "agent", "improve", "publish", "instagram", "openrouter", "arena", "digest", "newsletter",
-  "bench", "fbstats", "html", "local", "pipeline",
+  "bench", "fbstats", "html", "local", "insights", "pipeline",
 ] as const;
 export type JobName = (typeof JOB_NAMES)[number];
 
@@ -30,9 +30,10 @@ const JOB_ROWS: Record<JobName, string[]> = {
   fbstats: ["fbstats"],
   html: ["html"],
   local: ["local"],
+  insights: ["insights"],
   pipeline: [
     "pipeline", "openrouter", "arena", "rss", "agent", "improve", "publish", "instagram",
-    "digest", "newsletter", "bench", "fbstats", "html", "local",
+    "digest", "newsletter", "bench", "fbstats", "html", "local", "insights",
   ],
 };
 

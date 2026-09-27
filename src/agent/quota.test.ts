@@ -1,8 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  autoPublishMinScore, CATEGORY_MIN_SCORE, dailyPublishLimit, MAX_PER_CATEGORY, MAX_PER_SOURCE,
-  MIN_NON_NEWS, MIN_SHARED_TAGS, minScoreFor, minScoreGroups, relaxedScore, sameTopic, selectForPublish,
+  autoPublishMinScore, categoryBonus, CATEGORY_MIN_SCORE, dailyPublishLimit, effectiveScore,
+  maxPerCategory, MAX_PER_CATEGORY, MAX_PER_SOURCE, MIN_NON_NEWS, MIN_SHARED_TAGS, minScoreFor,
+  minScoreGroups, relaxedScore, sameTopic, selectForPublish,
   type PublishCandidate,
 } from "./quota.api";
 
@@ -25,14 +26,41 @@ function draft(id: string, relevance: number, over: Partial<PublishCandidate> = 
 test("selectForPublish: оноо өндөрөөс нь квотын хэрээр сонгоно", () => {
   const picked = selectForPublish(
     [
-      draft("a", 7, { category: "HOWTO" }),
-      draft("b", 10, { category: "NEWS" }),
-      draft("c", 9, { category: "RISK" }),
-      draft("d", 8, { category: "PROJECT" }),
+      draft("howto", 7, { category: "HOWTO" }),    // 7 + 1 = 8
+      draft("news", 10, { category: "NEWS" }),     // 10 + 0 = 10
+      draft("risk", 9, { category: "RISK" }),      // 9 + 1 = 10
+      draft("project", 6, { category: "PROJECT" }), // 6 + 0 = 6
     ],
     3,
   );
-  assert.deepEqual(picked.map((p) => p.id), ["b", "c", "d"]);
+  // NEWS ба RISK тэнцсэн (10), дараа нь HOWTO (8), PROJECT (6) хоцорно
+  assert.deepEqual(picked.map((p) => p.id).sort(), ["howto", "news", "risk"]);
+});
+
+test("categoryBonus / effectiveScore: хэрэгтэй контент +1, компанийн мэдээ 0", () => {
+  for (const c of ["RISK", "FACT", "HOWTO", "BUSINESS"] as const) {
+    assert.equal(categoryBonus(c), 1, c);
+  }
+  assert.equal(categoryBonus("NEWS"), 0);
+  assert.equal(categoryBonus("PROJECT"), 0);
+
+  // Ижил үнэлгээтэй үед RISK нь NEWS-ийг ялна
+  assert.ok(
+    effectiveScore({ relevance: 8, category: "RISK" }) >
+      effectiveScore({ relevance: 8, category: "NEWS" }),
+  );
+  // Давуу оноо нь 1 л — 2 оноогоор дээгүүр NEWS-ийг ялахгүй
+  assert.ok(
+    effectiveScore({ relevance: 10, category: "NEWS" }) >
+      effectiveScore({ relevance: 8, category: "FACT" }),
+  );
+});
+
+test("maxPerCategory: NEWS өдөрт 1, бусад 2", () => {
+  assert.equal(maxPerCategory("NEWS"), 1);
+  for (const c of ["RISK", "FACT", "HOWTO", "BUSINESS", "PROJECT"] as const) {
+    assert.equal(maxPerCategory(c), MAX_PER_CATEGORY, c);
+  }
 });
 
 test("selectForPublish: квот 0 эсвэл нэр дэвшигчгүй бол хоосон", () => {
@@ -111,18 +139,19 @@ test("selectForPublish: ижил модель/сэдвийг давхардуу�
   assert.deepEqual(picked.map((p) => p.id), ["gpt-1", "openai-money-1", "anthropic"]);
 });
 
-test("selectForPublish: нэг ангиллаас өдөрт 2-оос илүүг авахгүй", () => {
+test("selectForPublish: NEWS өдөрт 1, бусад ангиллаас 2-оос илүүгүй", () => {
   assert.equal(MAX_PER_CATEGORY, 2);
   const picked = selectForPublish(
     [
       draft("news-1", 10, { category: "NEWS" }),
-      draft("news-2", 9, { category: "NEWS" }),
-      draft("news-3", 8, { category: "NEWS" }),   // 3 дахь NEWS — алгасагдана
+      draft("news-2", 9, { category: "NEWS" }),   // 2 дахь NEWS — алгасагдана
+      draft("news-3", 8, { category: "NEWS" }),
       draft("howto", 5, { category: "HOWTO" }),
+      draft("fact", 4, { category: "FACT" }),
     ],
     3,
   );
-  assert.deepEqual(picked.map((p) => p.id), ["news-1", "news-2", "howto"]);
+  assert.deepEqual(picked.map((p) => p.id), ["news-1", "howto", "fact"]);
 
   // Өнөөдөр 2 RISK нийтлэгдсэн бол гурав дахь RISK орохгүй
   const withToday = selectForPublish(
@@ -133,35 +162,36 @@ test("selectForPublish: нэг ангиллаас өдөрт 2-оос илүүг
   assert.deepEqual(withToday.map((p) => p.id), ["fact"]);
 });
 
-test("selectForPublish: сүүлийн суудлыг NEWS-ээс бусдад өгнө", () => {
+test("selectForPublish: өдөрт нэг ч NEWS — үлдсэн суудал хэрэгтэй контентод", () => {
   assert.equal(MIN_NON_NEWS, 1);
 
-  // Оноогоор бол 3 NEWS сонгогдох байсан ч сүүлийнх нь HOWTO болно
+  // Оноогоор бол 3 NEWS сонгогдох байсан ч зөвхөн нэг нь орно
   const picked = selectForPublish(
     [
       draft("news-1", 10, { category: "NEWS" }),
       draft("news-2", 9, { category: "NEWS" }),
       draft("news-3", 8, { category: "NEWS" }),
       draft("howto", 4, { category: "HOWTO" }),
+      draft("business", 3, { category: "BUSINESS" }),
     ],
     3,
   );
-  assert.deepEqual(picked.map((p) => p.id), ["news-1", "news-2", "howto"]);
+  assert.deepEqual(picked.map((p) => p.id), ["news-1", "howto", "business"]);
 
-  // Өнөөдөр 1 NEWS нийтлэгдсэн, квот 2 үлдсэн → нэг нь NEWS, нэг нь бусад
+  // Өнөөдөр NEWS аль хэдийн нийтлэгдсэн бол дараагийнх нь орохгүй
   const withToday = selectForPublish(
     [draft("news-b", 10, { category: "NEWS" }), draft("risk", 5, { category: "RISK" })],
     2,
     [draft("news-a", 9, { category: "NEWS" })],
   );
-  assert.deepEqual(withToday.map((p) => p.id), ["news-b", "risk"]);
+  assert.deepEqual(withToday.map((p) => p.id), ["risk"]);
 
-  // NEWS-ээс бусад нэр дэвшигч байхгүй бол NEWS-ээр дүүргэнэ (суудал хоосон үлдэхгүй)
+  // NEWS-ээс бусад нэр дэвшигч байхгүй бол суудал хоосон үлдэнэ (эгнээ болгохгүй)
   const onlyNews = selectForPublish(
     [draft("n1", 10, { category: "NEWS" }), draft("n2", 9, { category: "NEWS" })],
     3,
   );
-  assert.deepEqual(onlyNews.map((p) => p.id), ["n1", "n2"]);
+  assert.deepEqual(onlyNews.map((p) => p.id), ["n1"]);
 });
 
 test("selectForPublish: өнөөдөр нийтлэгдсэн нь эх сурвалж/сэдвийн хязгаарт тооцогдоно", () => {

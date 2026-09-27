@@ -214,9 +214,18 @@ model Article {
   fbImageAt     DateTime?
   /// AI зургийн англи prompt — /admin дээр харах, дахин үүсгэхэд
   fbImagePrompt String?
+  /// Постын сүүлд тавих уншигчид хандсан асуулт (коммент авах зорилготой)
+  fbQuestion    String?
+  /// LLM-ийн санал болгосон сэдвийн hashtag — IG-ийн 3 дахь давхарга
+  fbTags        String[]  @default([])
+  /// Постын доор нэмсэн «Дэлгэрэнгүй: <url>» комментын id
+  fbLinkCommentId String?
   /// FB постын reaction/share — Graph API-аас өдөрт нэг удаа синк (/barimt-ийн «шилдэг»)
   fbLikes       Int       @default(0)
   fbShares      Int       @default(0)
+  /// Комментын тоо ба хүрсэн хүний тоо (post_impressions_unique) — 24 цагийн дараа
+  fbComments    Int       @default(0)
+  fbReach       Int       @default(0)
   fbStatsAt     DateTime?
   /// Галерейгээс карт татсан/хуулсан тоо — FB тоо байхгүй үед эрэмбийн сурвалж
   cardCopies    Int       @default(0)
@@ -225,6 +234,13 @@ model Article {
   igMediaId     String?
   igAttempts    Int       @default(0)
   igError       String?
+  /// Hashtag-ийг caption-д биш, эхний коммент болгон тавьдаг — тэр комментын id
+  igCommentId   String?
+  /// IG media insights — 24 цагийн дараа татна
+  igReach       Int       @default(0)
+  igLikes       Int       @default(0)
+  igComments    Int       @default(0)
+  igStatsAt     DateTime?
 
   /// Текстийг нэг удаа сайжруулсан огноо (БЭЛТГЭХ горим) — дахин засахгүйн тулд
   improvedAt DateTime?
