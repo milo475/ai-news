@@ -96,3 +96,109 @@ export function decide(out: ModerationOutput | null): Verdict {
     language: out.language,
   };
 }
+
+// ---------- «Промпт студи»-ийн шалгалт ----------
+
+/**
+ * Студийн хүсэлт нь сангийн prompt-оос өөр: хүн юу хийхийг хүсэж байгаагаа
+ * чөлөөтэй бичнэ, бид түүнд зориулж ЗУРАГ, ВИДЕО үүсгэх промпт бэлдэнэ.
+ * Тиймээс шалгалт нь «нийтлүүлэх үү» биш «бид үүнийг хийж өгөх үү» гэдэг асуулт.
+ */
+export const STUDIO_MODERATE_SYSTEM = `Чи монгол AI үйлчилгээний аюулгүй байдлын шалгагч.
+Хэрэглэгч зураг, видео, бичвэр, хөгжим үүсгэх промпт захиалж байна. Хийж өгч болох
+эсэхийг шийднэ.
+
+ТАТГАЛЗАХ (ok=false):
+- deepfake: бодит, нэрлэсэн хүнийг (улс төрч, дуучин, жүжигчин, танил хүн) зурах,
+  ярьж буй мэт видео хийх, түүний царай, дуу хоолойг хуулбарлах.
+- minor: насанд хүрээгүй хүүхдийг гол дүр болгосон зураг/видео — ялангуяа царайг нь
+  тодоор. (Хүүхэд байгаа гэр бүлийн ерөнхий дүр зураг бол зөвшөөрнө.)
+- sexual: бэлгийн, нүцгэн, дур булаам агуулга.
+- violence: цус, хүчирхийлэл, зэвсэг, гэмтэл, өөрийгөө гэмтээх.
+- political: сонгууль, улс төрчийн талаарх худал мэдээлэл, хуурамч мэдээ, хуурамч
+  албан ёсны мэдэгдэл, хуурамч баримт бичиг, логоны хуурамч хэрэглээ.
+- illegal: хууль бус үйлдэл, мансууруулах бодис, залилан, хуурамч гэрчилгээ.
+- hate: үндэс, шашин, хүйс, үндэстний бүлгийг доромжлох.
+
+ЗӨВШӨӨРӨХ (ok=true):
+- Ажил, сургалт, бизнес, зар сурталчилгаа, баяр ёслол, гэр бүл, байгаль.
+- Нэргүй, ерөнхий хүн дүрслэх ("залуу эмэгтэй дээлтэй") — асуудалгүй.
+- Өөрийн бизнесийн лого, өөрийн бүтээгдэхүүн.
+- Түүхэн, соёлын сэдэв.
+
+Эргэлзэж байвал ЗӨВШӨӨР — гэхдээ дээрх 7 зүйлийн аль нэг нь ТОДОРХОЙ байвал татгалз.
+Шалтгаанаа монголоор, эелдэг, нэг өгүүлбэрээр тайлбарла. Хэрэглэгчийг бүү зэмлэ.`;
+
+export type StudioReject = "deepfake" | "minor" | "sexual" | "violence" | "political" | "illegal" | "hate";
+
+const STUDIO_REASONS: StudioReject[] = ["deepfake", "minor", "sexual", "violence", "political", "illegal", "hate"];
+
+export const STUDIO_MODERATE_SCHEMA = {
+  type: "object",
+  properties: {
+    ok: { type: "boolean", description: "Хийж өгч болох эсэх" },
+    reason: { type: "string", enum: ["ok", ...STUDIO_REASONS] },
+    explanation: { type: "string", description: "Монголоор, эелдэг, нэг өгүүлбэр" },
+  },
+  required: ["ok", "reason", "explanation"],
+  additionalProperties: false,
+};
+
+export interface StudioModerationOutput {
+  ok: boolean;
+  reason: StudioReject | "ok";
+  explanation: string;
+}
+
+/** Хэрэглэгчид харуулах эелдэг татгалзал */
+export const STUDIO_REJECT_LABEL: Record<StudioReject, string> = {
+  deepfake: "Бодит, нэрлэсэн хүний царай эсвэл дуу хоолойг хуулбарлах промпт бэлдэж чадахгүй.",
+  minor: "Хүүхдийг гол дүр болгосон зураг, видеоны промпт бэлдэж чадахгүй.",
+  sexual: "Бэлгийн агуулгатай промпт бэлдэж чадахгүй.",
+  violence: "Хүчирхийлэл, цус, зэвсгийн агуулгатай промпт бэлдэж чадахгүй.",
+  political: "Улс төрийн эсвэл албан ёсны мэдэгдлийг дуурайсан агуулга бэлдэж чадахгүй.",
+  illegal: "Хууль бус үйлдэлтэй холбоотой промпт бэлдэж чадахгүй.",
+  hate: "Бүлэг хүмүүсийг доромжилсон агуулга бэлдэж чадахгүй.",
+};
+
+export interface StudioVerdict {
+  ok: boolean;
+  /** Татгалзсан бол хэрэглэгчид харуулах эелдэг мессеж */
+  message: string | null;
+  reason: StudioReject | null;
+}
+
+/**
+ * Шалгалтын шийдвэр.
+ *
+ * LLM дуудлага унавал (null) ЗӨВШӨӨРНӨ — аюулгүй байдлын шалгалт унасныг
+ * хэрэглэгч рүү чилээх нь буруу, харин доорх механик шүүлт хэвээр ажиллана.
+ */
+export function decideStudio(out: StudioModerationOutput | null): StudioVerdict {
+  if (!out) return { ok: true, message: null, reason: null };
+  const reason = STUDIO_REASONS.includes(out.reason as StudioReject) ? (out.reason as StudioReject) : null;
+  if (out.ok || !reason) return { ok: true, message: null, reason: null };
+
+  const extra = out.explanation?.trim();
+  const label = STUDIO_REJECT_LABEL[reason];
+  return {
+    ok: false,
+    reason,
+    message: extra && extra !== label ? `${label} ${extra}` : label,
+  };
+}
+
+/**
+ * LLM-гүй урьдчилсан шүүлт — илт тохиолдлыг хямдхан барина.
+ * Зөвхөн МАШ тодорхой үгсийг барина; эргэлзээтэйг LLM-д үлдээнэ.
+ */
+const HARD_BLOCK: [StudioReject, RegExp][] = [
+  ["sexual", /(нүцгэн|порно|эротик|секс(ээ|ийн|тэй)?\b|nsfw|nude|porn)/iu],
+  ["violence", /(цус сарвагар|толгой тас|алж буй|цаазал|бөөнөөр ал)/iu],
+  ["illegal", /(мансууруул|героин|метамфетамин|хуурамч гэрчилгээ|хуурамч үнэмлэх|хуурамч паспорт)/iu],
+];
+
+export function hardBlock(request: string): StudioReject | null {
+  for (const [reason, re] of HARD_BLOCK) if (re.test(request)) return reason;
+  return null;
+}

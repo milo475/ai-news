@@ -18,7 +18,7 @@
     "publish:facebook": "tsx src/publish/facebook.ts",
     "newsletter:send": "tsx src/newsletter/send.ts",
     "pipeline": "tsx src/pipeline.ts",
-    "test": "tsx --test src/*.test.ts src/admin/*.test.ts src/agent/*.test.ts src/auth/*.test.ts src/bookmarks/*.test.ts src/fetchers/*.test.ts src/guides/*.test.ts src/jobs/*.test.ts src/lib/*.test.ts src/newsletter/*.test.ts src/bench/*.test.ts src/compare/*.test.ts src/gallery/*.test.ts src/mongol/*.test.ts src/songolt/*.test.ts src/prompts/*.test.ts src/tools/*.test.ts src/publish/*.test.ts && node --test scripts/*.test.mjs",
+    "test": "tsx --test src/*.test.ts src/admin/*.test.ts src/agent/*.test.ts src/auth/*.test.ts src/bookmarks/*.test.ts src/fetchers/*.test.ts src/guides/*.test.ts src/jobs/*.test.ts src/lib/*.test.ts src/newsletter/*.test.ts src/bench/*.test.ts src/compare/*.test.ts src/gallery/*.test.ts src/mongol/*.test.ts src/songolt/*.test.ts src/prompts/*.test.ts src/tools/*.test.ts src/publish/*.test.ts src/studio/*.test.ts && node --test scripts/*.test.mjs",
     "db:migrate": "prisma migrate dev",
     "seed:sources": "tsx src/fetchers/sources.seed.ts",
     "seed:guides": "tsx src/guides/seed.ts",
@@ -37,7 +37,8 @@
     "report:weekly": "tsx src/admin/report.ts",
     "bench:reset": "tsx src/bench/reset.ts",
     "insights:sync": "tsx src/publish/insights.ts",
-    "cards:fix": "tsx src/gallery/recard.ts"
+    "cards:fix": "tsx src/gallery/recard.ts",
+    "studio:eval": "tsx src/studio/eval.ts"
   },
   "keywords": [],
   "author": "",

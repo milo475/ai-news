@@ -97,6 +97,19 @@ export default async function PromptsPage({ searchParams }: { searchParams: Prom
         </Link>
       </section>
 
+      <Link
+        href="/prompt/studio"
+        className="block rounded-lg border border-accent/50 bg-accent/5 p-4 transition-colors hover:bg-accent/10 sm:p-5"
+      >
+        <p className="text-lg font-semibold text-accent">Промпт студи — өөрийн ажилдаа зориулж</p>
+        <p className="mt-1 text-sm text-muted">
+          Бэлэн prompt таарахгүй байна уу? Юу хийхээ монголоор бичихэд л хангалттай. Студи
+          тодруулж асуугаад, ямар хэрэгсэл ашиглахыг хэлж, хуулаад тавихад бэлэн промпт,
+          параметр, алхам бүрийн тайлбарыг гаргана.
+        </p>
+        <p className="mt-2 text-sm text-accent">Студи нээх →</p>
+      </Link>
+
       {facets.categories.length > 0 && (
         <div className="space-y-2">
           <div className="flex flex-wrap items-center gap-1.5">

@@ -1,0 +1,48 @@
+/**
+ * Мэдлэгийн сан унших — src/studio/*.md.
+ *
+ * Файлууд нь репо дотор байдаг (standalone build биш, `next start` нь репог хэвээр
+ * ажиллуулна). Нэг уншаад санах ойд хадгална — хуудас бүрт дискнээс уншихгүй.
+ */
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
+const cache = new Map<string, string>();
+
+function read(rel: string): string {
+  const hit = cache.get(rel);
+  if (hit !== undefined) return hit;
+  try {
+    const text = readFileSync(join(process.cwd(), "src", "studio", rel), "utf8");
+    cache.set(rel, text);
+    return text;
+  } catch {
+    // Файл алга бол студи унтрахгүй — тухайн лавлах л дутна
+    console.warn(`  ⚠ студийн лавлах уншигдсангүй: ${rel}`);
+    cache.set(rel, "");
+    return "";
+  }
+}
+
+/** Промпт бичих ерөнхий лавлах */
+export function craftDoc(): string {
+  return read("craft.md");
+}
+
+/** Монгол орчны лавлах */
+export function mongolDoc(): string {
+  return read("mongol.md");
+}
+
+/**
+ * Сонгосон хэрэгслүүдийн лавлах — ЗӨВХӨН сонгосныг нь.
+ * Бүх 13 файлыг оруулбал нэг дуудлагад ~8000 токен дэмий зарцуулна.
+ */
+export function toolDocs(docs: string[]): Record<string, string> {
+  return Object.fromEntries(docs.map((d) => [d, read(join("tools", `${d}.md`))]));
+}
+
+/** Тест, скриптэд */
+export function clearDocCache(): void {
+  cache.clear();
+}

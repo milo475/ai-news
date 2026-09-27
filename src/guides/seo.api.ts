@@ -103,7 +103,7 @@ export interface SitemapInput {
 
 /** Статик хуудсууд — жагсаалт, мэдээ, хэрэглээ, заавар */
 export const STATIC_PATHS = [
-  "", "/jagsaalt", "/medee", "/mongol", "/hereglee", "/zaavar", "/prompt", "/hereglel",
+  "", "/jagsaalt", "/medee", "/mongol", "/hereglee", "/zaavar", "/prompt", "/prompt/studio", "/hereglel",
   "/harits", "/barimt", "/songolt", "/benchmark", "/benchmark/argachlal", "/nuutslal",
 ] as const;
 

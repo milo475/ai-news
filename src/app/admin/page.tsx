@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { studioStats } from "@/studio/stats";
 import { prisma } from "@/db";
 import { CATEGORY_LABEL } from "@/agent/category";
 import { humanDelay, nextPublishAt, publishTimes, timeLabel } from "@/jobs/mode.api";
@@ -53,7 +54,7 @@ export default async function Admin({
 
   const umamiUrl = process.env.NEXT_PUBLIC_UMAMI_URL?.trim().replace(/\/+$/, "") || null;
 
-  const [board, counts, jobs, articles, searches, empties, todayCount, fbQueue, readyCount] = await Promise.all([
+  const [board, counts, jobs, articles, searches, empties, todayCount, fbQueue, readyCount, studio] = await Promise.all([
     dashboard(),
     prisma.article.groupBy({ by: ["status"], _count: true }),
     Promise.all(
@@ -83,6 +84,7 @@ export default async function Admin({
       },
     }),
     prisma.article.count({ where: { status: "DRAFT", readyAt: { not: null } } }),
+    studioStats(),
   ]);
   const next = nextPublishAt(new Date(), publishTimes());
   const countOf = (s: string) => counts.find((c) => c.status === s)?._count ?? 0;
@@ -158,6 +160,8 @@ export default async function Admin({
           <p className="text-xs text-muted">slot бүрт {postsPerRun()} пост</p>
         </div>
       </section>
+
+      <StudioPanel s={studio} />
 
       <section className="rounded-lg border border-line p-4 space-y-3">
         <div className="flex flex-wrap items-center gap-2">
@@ -447,5 +451,39 @@ function SearchStats({
         </table>
       )}
     </div>
+  );
+}
+
+/** Промпт студийн өдрийн хэрэглээ ба чанар */
+function StudioPanel({ s }: { s: Awaited<ReturnType<typeof studioStats>> }) {
+  const over = s.spentToday >= s.budget;
+  return (
+    <section className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      <div className="rounded-lg border border-line p-3">
+        <p className="text-xs text-muted">Студи — өнөөдөр</p>
+        <p className="text-2xl font-semibold tabular-nums">{s.countToday}</p>
+        <p className="text-xs text-muted">7 хоногт {s.week}</p>
+      </div>
+      <div className={`rounded-lg border p-3 ${over ? "border-warn/60" : "border-line"}`}>
+        <p className="text-xs text-muted">Өнөөдрийн зардал</p>
+        <p className="text-2xl font-semibold tabular-nums">
+          ${s.spentToday.toFixed(3)}
+          <span className="text-muted text-base">/{s.budget.toFixed(2)}</span>
+        </p>
+        <p className="text-xs text-muted">{over ? "төсөв дүүрсэн — студи хаалттай" : `нэг бүтээл $${s.avgCost.toFixed(4)}`}</p>
+      </div>
+      <div className="rounded-lg border border-line p-3">
+        <p className="text-xs text-muted">👍 (7 хоног)</p>
+        <p className="text-2xl font-semibold tabular-nums">
+          {s.thumbsUpPct === null ? "—" : `${s.thumbsUpPct}%`}
+        </p>
+        <p className="text-xs text-muted">{s.rated} үнэлгээ</p>
+      </div>
+      <div className="rounded-lg border border-line p-3">
+        <p className="text-xs text-muted">Татгалзсан (7 хоног)</p>
+        <p className="text-2xl font-semibold tabular-nums">{s.rejected}</p>
+        <p className="text-xs text-muted">модерацаар</p>
+      </div>
+    </section>
   );
 }

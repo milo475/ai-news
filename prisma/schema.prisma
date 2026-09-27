@@ -456,6 +456,7 @@ model User {
   toolUpvotes   ToolUpvote[]
 
   @@index([role])
+  studioSessions StudioSession[]
 }
 
 /// Хэрэглэгчийн хадгалсан нийтлэл
@@ -864,6 +865,74 @@ enum BenchStatus {
   DONE
   FAILED
   BUDGET
+}
+
+/// —————————————————— Промпт студи (/prompt/studio) ——————————————————
+
+enum StudioFormat {
+  IMAGE
+  VIDEO
+  TEXT
+  AUDIO
+  SLIDES
+}
+
+/// Нэг бүтээлт: хүсэлт → асуулт → бриф → 3 чиглэл → эцсийн гаралт
+model StudioSession {
+  id        String   @id @default(cuid())
+  /// Нэвтэрсэн бол хэрэглэгч; эс тэгвээс зөвхөн anonId
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  /// Хөтчийн cookie дэх санамсаргүй id — нэвтрээгүй хэрэглэгчийн ажлаа олоход
+  anonId    String
+
+  /// Хэрэглэгчийн монгол хүсэлт
+  request   String
+  format    StudioFormat
+  /// Сонгосон хэрэгслийн slug-ууд ("chatgpt", "veo")
+  tools     String[]     @default([])
+  /// Хаана ашиглах: "fb" | "reels" | "presentation" | "print"
+  placement String?
+
+  /// LLM-ийн асуусан асуултууд ба хэрэглэгчийн хариултууд
+  questions Json?
+  answers   Json?
+  /// Бүтэцтэй бриф (зорилго, үзэгч, стиль, камер ...)
+  brief     Json?
+  /// 3 чиглэл: Аюулгүй / Бүтээлч / Зоримог
+  directions Json?
+  /// Сонгосон чиглэлийн индекс (0-2)
+  direction Int?      @default(0)
+  /// Хэрэгсэл тус бүрийн эцсийн гаралт
+  outputs   Json?
+
+  model     String?
+  costUsd   Decimal?  @db.Decimal(10, 6)
+  /// 👍 = true, 👎 = false
+  feedback  Boolean?
+  /// Модераци татгалзсан бол шалтгаан
+  rejected  String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId, createdAt])
+  @@index([anonId, createdAt])
+  @@index([createdAt])
+}
+
+/// Өдрийн хязгаар — нэг мөр = нэг өдөр × нэг хэрэглэгч/IP
+model StudioUsage {
+  id      String @id @default(cuid())
+  /// УБ цагийн огноо, "2026-09-28"
+  day     String
+  /// Нэвтэрсэн бол "u:<userId>", эс тэгвээс "a:<anonId>" эсвэл "ip:<ip>"
+  subject String
+  count   Int    @default(0)
+  costUsd Decimal @default(0) @db.Decimal(10, 6)
+
+  @@unique([day, subject])
+  @@index([day])
 }
 
 /// —————————————————— AI хэрэгслийн каталог (/hereglel) ——————————————————
