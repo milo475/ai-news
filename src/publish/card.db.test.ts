@@ -93,3 +93,51 @@ test(
     assert.equal(r.headline, H, "тоогүй ч гарчиг давах ёстой");
   },
 );
+
+test(
+  "writeHeadline: fidelity шүүгч унавал нийтлэлийн гарчгийг ашиглана",
+  { skip: !hasDb && "DATABASE_URL алга" },
+  async () => {
+    const { writeHeadline } = await import("./card");
+    let hookCalls = 0;
+    let judgeCalls = 0;
+
+    // Гарчиг үүснэ, гэвч шүүгч унана
+    const chat = (async (o: { schema: { properties: Record<string, unknown> } }) => {
+      if ("hooks" in o.schema.properties) {
+        hookCalls++;
+        return {
+          data: { hooks: [hook("Прокурор 40 хуудас нотлох баримт бүрдүүлсэн гэж мэдэгдэв.")] },
+          tokens: 0, costUsd: 0,
+        };
+      }
+      judgeCalls++;
+      throw new Error("шүүгч унасан");
+    }) as never;
+
+    const r = await writeHeadline(ARTICLE, { chat });
+
+    // Шалгагдаагүй гарчгийг ХҮЛЭЭН АВАХГҮЙ — нийтлэлийн гарчиг руу
+    assert.ok(ARTICLE.titleMn.startsWith(r.headline.replace(/…$/, "").trim()));
+    assert.equal(judgeCalls, 1, "шүүгч унасны дараа дахин оролдохгүй");
+    assert.equal(hookCalls, 1, "гарчиг дахин бичүүлэх нь ч утгагүй");
+  },
+);
+
+test(
+  "writeHeadline: шүүгч дутуу хариу буцаавал ч нийтлэлийн гарчиг",
+  { skip: !hasDb && "DATABASE_URL алга" },
+  async () => {
+    const { writeHeadline } = await import("./card");
+    const chat = (async (o: { schema: { properties: Record<string, unknown> } }) => {
+      if ("hooks" in o.schema.properties) {
+        return { data: { hooks: [hook("Прокурор 40 хуудас нотлох баримт бүрдүүлсэн гэж мэдэгдэв.")] }, tokens: 0, costUsd: 0 };
+      }
+      // faithful дутуу — шийдвэр биш
+      return { data: { issues: [] }, tokens: 0, costUsd: 0 };
+    }) as never;
+
+    const r = await writeHeadline(ARTICLE, { chat });
+    assert.ok(ARTICLE.titleMn.startsWith(r.headline.replace(/…$/, "").trim()));
+  },
+);

@@ -5,9 +5,10 @@
  * ашиглахгүй. Оноо нь үнэн зөв байдлаас хэзээ ч давуу биш.
  */
 import { chatJson } from "../agent/llm";
+import { ubDateLabel } from "../jobs/day";
 import {
-  dropsAttribution, FIDELITY_SCHEMA, FIDELITY_SYSTEM, fidelityUser, normalizeVerdict,
-  type FidelityInput, type FidelityVerdict,
+  dropsAttribution, FIDELITY_DAILY_WARN, FIDELITY_SCHEMA, FIDELITY_SYSTEM, fidelityUser,
+  isUsableVerdict, normalizeVerdict, type FidelityInput, type FidelityVerdict,
 } from "./fidelity.api";
 
 type Chat = typeof chatJson;
@@ -19,13 +20,21 @@ export function fidelityModel(env: Record<string, string | undefined> = process.
 
 export interface FidelityResult extends FidelityVerdict {
   costUsd: number;
+  /**
+   * Шүүгч шийдвэр гаргаж чадсан эсэх.
+   *
+   * `false` = дуудлага унасан, хоосон эсвэл таслагдсан → **шийдвэр байхгүй**.
+   * Ийм үед гарчгийг «үнэнч» гэж хүлээн авч БОЛОХГҮЙ: шалгагдаагүй гарчиг нь
+   * шалгагдаад унасантай ижил эрсдэлтэй. Дуудагч нь нийтлэлийн өөрийн гарчгийг ашиглана.
+   */
+  ok: boolean;
 }
 
 /**
  * Гарчгийг нийтлэлтэй харьцуулна.
  *
- * Шүүгч өөрөө унавал **үнэнч гэж тооцно** — нэг дуудлага унасны улмаас карт
- * бүхэлдээ үүсэхгүй байх нь илүү муу. Механик шалгалт (ишлэл) нь хэвээр ажиллана.
+ * Шүүгч унавал `ok: false` — гарчгийг хүлээн авахгүй. Өмнө нь «үнэнч» гэж тооцдог
+ * байсан нь шалгагдаагүй гарчиг нийтэд гарах цоорхой байв.
  */
 export async function judgeFidelity(
   a: FidelityInput,
@@ -35,6 +44,7 @@ export async function judgeFidelity(
   const sourceText = [a.titleMn, a.summaryMn].filter(Boolean).join(" ");
   if (dropsAttribution(a.hook, sourceText)) {
     return {
+      ok: true,
       faithful: false,
       issues: ["Эх мэдээ нь буруутгал/мэдэгдэл байтал гарчиг нь болсон баримт мэт бичсэн — «...гэж буруутгав», «...хэмээн шүүхэд өгчээ» гэх мэтээр эх сурвалжийг үлдээ."],
       costUsd: 0,
@@ -53,9 +63,40 @@ export async function judgeFidelity(
       temperature: 0,
       reasoning: false,
     });
-    return { ...normalizeVerdict(out.data), costUsd: out.costUsd };
+    // Хоосон/дутуу хариу — шийдвэр биш
+    if (!isUsableVerdict(out.data)) {
+      await recordJudgeFailure(new Error(`шүүгч дутуу хариу буцаав: ${JSON.stringify(out.data).slice(0, 200)}`));
+      return { ok: false, faithful: false, issues: [], costUsd: out.costUsd };
+    }
+    return { ok: true, ...normalizeVerdict(out.data), costUsd: out.costUsd };
   } catch (e) {
-    console.warn(`  ⚠ fidelity шүүгч ажиллсангүй: ${(e as Error).message.slice(0, 120)}`);
-    return { faithful: true, issues: [], costUsd: 0 };
+    await recordJudgeFailure(e);
+    return { ok: false, faithful: false, issues: [], costUsd: 0 };
+  }
+}
+
+/**
+ * Шүүгчийн алдааг /admin/aldaa-д бүртгэнэ.
+ *
+ * Мөрийн түлхүүрт УБ-ийн өдрийг оруулсан тул `count` нь **тухайн өдрийн** тоо болно —
+ * өдөрт FIDELITY_DAILY_WARN-оос их бол анхааруулна (шүүгч эвдэрсэн байж болзошгүй).
+ * Бүртгэл өөрөө унах нь картыг унагаах ёсгүй.
+ */
+async function recordJudgeFailure(error: unknown): Promise<void> {
+  const message = (error as Error).message?.slice(0, 120) ?? String(error);
+  try {
+    // Залхуу импорт — энэ модуль зөвхөн алдаа гарах үед л DB-д хүрнэ
+    const { logError } = await import("../lib/errors");
+    const today = await logError({
+      source: "card",
+      path: `fidelity/${ubDateLabel(new Date())}`,
+      error,
+    });
+    console.warn(
+      `  ⚠ fidelity шүүгч ажиллсангүй (өнөөдөр ${today} удаа): ${message}` +
+        (today > FIDELITY_DAILY_WARN ? "\n  ⚠ Шүүгч эвдэрсэн байж болзошгүй — /admin/aldaa шалгана уу." : ""),
+    );
+  } catch {
+    console.warn(`  ⚠ fidelity шүүгч ажиллсангүй: ${message}`);
   }
 }

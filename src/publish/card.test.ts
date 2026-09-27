@@ -8,7 +8,7 @@ import {
   PAD, PHOTO_PROMPT_NEGATIVE, PHOTO_PROMPT_PREFIX, pickHook, RECENT_SCENES, recentScenesBlock,
   SCENE_SYSTEM, sceneTooSimilar, stripDates, useSourceImage, wrapLines, type ScoredHook,
   brandFirst, fallbackHeadline, hookTypeOf, HOOK_SYSTEM, presetFor, rankHooks,
-  SCENE_PRESETS, sceneOf, sourceHasNumber,
+  isPressRelease, SCENE_PRESETS, sceneOf, sourceHasNumber,
 } from "./card.api";
 import { heroJpeg, renderCard } from "./card";
 
@@ -432,4 +432,26 @@ test("sceneTooSimilar: ЗӨВХӨН сэдвээр харьцуулна — pres
   // Сэдэв нь ижил бол өөр preset ч давхардал
   const c = buildPhotoPrompt("a studio microphone on a table", SCENE_PRESETS[3]!);
   assert.equal(sceneTooSimilar(c, [a]), true);
+});
+
+test("isPressRelease: ишлэлтэй үйл үг хуурай хэллэг БИШ", () => {
+  // Хуурай — зүгээр зарлаж байна
+  assert.equal(isPressRelease("Компани шинэ бүтээгдэхүүнээ танилцууллаа."), true);
+  assert.equal(isPressRelease("OpenAI шинэ моделиэ зарлав."), true);
+  assert.equal(isPressRelease("Хурлаар асуудлыг хэлэлцэв."), true);
+
+  // Ишлэлтэй — ХЭНИЙ үг болохыг зааж байна, гарчигт ҮЛДЭХ ёстой
+  assert.equal(isPressRelease("Прокурор 40 хуудас нотлох баримт бүрдүүлсэн гэж мэдэгдэв."), false);
+  assert.equal(isPressRelease("Чатбот халдлагад хүргэсэн гэж үзэн муж шүүхэд өгчээ."), false);
+  assert.equal(isPressRelease("Зохицуулалт хэрэгтэй гэж тэрбээр мэдэгдэв."), false);
+  assert.equal(isPressRelease("Судалгаагаар 40 хувь нь ингэж хариулжээ."), false);
+
+  // Огт хамааралгүй
+  assert.equal(isPressRelease("Үнэ 40 хувиар хямдарлаа."), false);
+});
+
+test("checkHook: ишлэлтэй гарчиг press-release гэж хасагдахгүй", () => {
+  const attributed = "Прокурор 40 хуудас нотлох баримт бүрдүүлсэн гэж мэдэгдэв.";
+  assert.deepEqual(checkHook(attributed), [], "ишлэл шаарддаг атал хасдаг байв");
+  assert.ok(checkHook("OpenAI 40 хувийн хямдралаа зарлав.").some((p) => p.code === "press-release"));
 });

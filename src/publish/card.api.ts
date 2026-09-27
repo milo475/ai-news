@@ -228,6 +228,20 @@ export function hasImpactNumber(text: string): boolean {
 const PRESS_RELEASE =
   /(танилцуул|зарла|төлөвлө|мэдэгдэ|хэлэлцэ|нээлтээ хий)[а-яөүё]*?(жээ|лаа|лээ|на|нэ|в)(?=\s|$|[.,!?])/iu;
 
+/**
+ * Ишлэлийн тэмдэг: «X гэж/хэмээн Y мэдэгдэв» — эдгээр үйл үг нь ХЭНИЙ үг болохыг
+ * заадаг тул хуурай хэллэг биш.
+ *
+ * Буруутгал, шүүх, мэдэгдэл, судалгааны мэдээнд гарчигт эх сурвалжийг үлдээхийг
+ * ШААРДДАГ (HOOK_SYSTEM) — тэр шаардлагыг press-release шалгуур зөрчих ёсгүй.
+ */
+const ATTRIBUTED = /(гэж|хэмээн|гэсэн|-ийн\s+мэдэгдлээр|судалгаагаар)/iu;
+
+/** Хуурай хэллэг мөн үү — ишлэлтэй бол биш */
+export function isPressRelease(text: string): boolean {
+  return PRESS_RELEASE.test(text) && !ATTRIBUTED.test(text);
+}
+
 /** Headline-ий шалгуур. Хоосон массив = зүгээр. */
 /**
  * Эх мэдээнд тоо байна уу — гарчигт тоо шаардах эсэхийг үүгээр шийднэ.
@@ -257,7 +271,7 @@ export function checkHook(hook: string, opts: CheckHookOptions = {}): HookProble
   if ((opts.requireNumber ?? true) && !hasImpactNumber(text)) {
     problems.push({ code: "no-number", detail: "үр дагаврын тоо ч, харьцуулалт ч алга" });
   }
-  if (PRESS_RELEASE.test(text)) problems.push({ code: "press-release", detail: "мэдээллийн хуурай хэллэг" });
+  if (isPressRelease(text)) problems.push({ code: "press-release", detail: "мэдээллийн хуурай хэллэг" });
   if (EMOJI.test(text)) problems.push({ code: "emoji", detail: "emoji байна" });
   if (/["«»“”]/.test(text)) problems.push({ code: "quotes", detail: "хашилт байна" });
   if (/[.!?…]\s+\S/.test(text)) problems.push({ code: "multi-sentence", detail: "нэгээс олон өгүүлбэр" });

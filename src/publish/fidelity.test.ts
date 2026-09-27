@@ -1,8 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  dropsAttribution, FIDELITY_SYSTEM, fidelityUser, hasAttribution, needsAttribution,
-  normalizeVerdict,
+  dropsAttribution, FIDELITY_DAILY_WARN, FIDELITY_SYSTEM, fidelityUser, hasAttribution,
+  isUsableVerdict, needsAttribution, normalizeVerdict,
 } from "./fidelity.api";
 import { judgeFidelity } from "./fidelity";
 
@@ -60,6 +60,7 @@ test("judgeFidelity: механик шалгалт LLM-д хүрэлгүй зо�
   const chat = (async () => { calls++; return { data: { faithful: true, issues: [] }, tokens: 0, costUsd: 0 }; }) as never;
 
   const v = await judgeFidelity({ hook: LAWSUIT_BAD, ...LAWSUIT }, { chat });
+  assert.equal(v.ok, true, "механик шалгалт бол шийдвэр мөн");
   assert.equal(v.faithful, false);
   assert.match(v.issues[0]!, /буруутгал|эх сурвалж/i);
   assert.equal(calls, 0, "механик барьсан бол LLM дуудахгүй");
@@ -87,17 +88,38 @@ test("judgeFidelity: жишээ 3 — механик давдаг тул LLM ш�
 
   // Эх мэдээнд буруутгал/мэдэгдлийн шинж алга — LLM хүртэл очно
   const v = await judgeFidelity({ hook: ACADEMY_BAD, ...ACADEMY }, { chat });
+  assert.equal(v.ok, true);
   assert.equal(v.faithful, false);
   assert.equal(v.issues.length, 1);
   assert.equal(v.costUsd, 0.0001);
   assert.match(seen, /1,500 оролцогчтой/, "нийтлэл шүүгчид очсон байх ёстой");
 });
 
-test("judgeFidelity: шүүгч унавал картыг унагаахгүй (үнэнч гэж тооцно)", async () => {
+test("judgeFidelity: шүүгч унавал ҮНЭНЧ ГЭЖ ТООЦОХГҮЙ (ok=false)", async () => {
   const chat = (async () => { throw new Error("сүлжээ тасарлаа"); }) as never;
   const v = await judgeFidelity({ hook: "Ямар нэг гарчиг.", titleMn: "Т", summaryMn: "Х", bodyMn: null }, { chat });
-  assert.equal(v.faithful, true);
+  // Шалгагдаагүй гарчгийг нийтэд гаргахгүй — дуудагч нь нийтлэлийн гарчгийг ашиглана
+  assert.equal(v.ok, false);
+  assert.equal(v.faithful, false);
   assert.equal(v.costUsd, 0);
+});
+
+test("judgeFidelity: дутуу/хоосон хариу ч шийдвэр биш", async () => {
+  for (const bad of [{}, { faithful: "тийм" }, { issues: [] }, { faithful: true }, null]) {
+    const chat = (async () => ({ data: bad, tokens: 0, costUsd: 0.0001 })) as never;
+    const v = await judgeFidelity({ hook: "Г.", titleMn: "Т", summaryMn: "Х", bodyMn: null }, { chat });
+    assert.equal(v.ok, false, JSON.stringify(bad));
+    assert.equal(v.faithful, false);
+  }
+});
+
+test("isUsableVerdict: faithful нь boolean, issues нь массив байх ёстой", () => {
+  assert.equal(isUsableVerdict({ faithful: true, issues: [] }), true);
+  assert.equal(isUsableVerdict({ faithful: false, issues: ["a"] }), true);
+  assert.equal(isUsableVerdict({ faithful: true }), false, "issues дутуу");
+  assert.equal(isUsableVerdict({ issues: [] }), false, "faithful дутуу");
+  assert.equal(isUsableVerdict(null), false);
+  assert.equal(FIDELITY_DAILY_WARN, 3);
 });
 
 test("normalizeVerdict: issues байвал faithful=true гэж тооцохгүй", () => {

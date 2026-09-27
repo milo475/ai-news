@@ -15,12 +15,17 @@ export interface LogErrorInput {
   error: unknown;
 }
 
-export async function logError({ source, path = null, error }: LogErrorInput): Promise<void> {
+/**
+ * @returns энэ мөрийн нийт тоо (давтагдсан удаа). Бүртгэл өөрөө унавал 0 —
+ *   дуудагч нь тоонд тулгуурлан шийдвэр гаргаж болно (жишээ нь ⚠ өгөх).
+ */
+export async function logError({ source, path = null, error }: LogErrorInput): Promise<number> {
   const message = messageOf(error);
   const fp = fingerprint(source, path, message);
+  let count = 0;
 
   try {
-    await prisma.appError.upsert({
+    const row = await prisma.appError.upsert({
       where: { fingerprint: fp },
       // Ижил алдаа давтагдвал шинэ мөр биш — тоог нэмнэ
       update: { count: { increment: 1 }, lastAt: new Date(), message: message.slice(0, 1_000) },
@@ -31,11 +36,14 @@ export async function logError({ source, path = null, error }: LogErrorInput): P
         message: message.slice(0, 1_000),
         stack: stackOf(error),
       },
+      select: { count: true },
     });
+    count = row.count;
   } catch (e) {
     console.error(`✗ алдаа бүртгэгдсэнгүй: ${(e as Error).message}`);
   }
   console.error(`✗ [${source}] ${path ?? ""} ${message}`);
+  return count;
 }
 
 /**
@@ -48,7 +56,7 @@ export async function logError({ source, path = null, error }: LogErrorInput): P
  */
 declare global {
   // eslint-disable-next-line no-var
-  var __aiNewsLogError: ((input: LogErrorInput) => Promise<void>) | undefined;
+  var __aiNewsLogError: ((input: LogErrorInput) => Promise<number>) | undefined;
 }
 globalThis.__aiNewsLogError = logError;
 

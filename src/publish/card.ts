@@ -112,6 +112,8 @@ export async function writeHeadline(
   const sourceText = [a.titleMn, a.summaryMn, a.bodyMn].filter(Boolean).join(" ");
   const requireNumber = sourceHasNumber(sourceText);
   const brands = [...(a.models ?? []), ...(a.companies ?? [])].map((x) => x.name);
+  /** Шүүгч ажиллахгүй болсон — шалгагдаагүй гарчиг хүлээн авахгүй */
+  let judgeDown = false;
 
   for (let attempt = 0; attempt < 2; attempt++) {
     const out = await chat<{ hooks: ScoredHook[] }>({
@@ -142,6 +144,14 @@ export async function writeHeadline(
         { chat },
       );
       costUsd += verdict.costUsd;
+
+      // Шүүгч шийдвэр гаргаж чадаагүй — шалгагдаагүй гарчгийг нийтэд гаргахгүй.
+      // Дахин оролдох нь утгагүй (шүүгч эвдэрсэн) тул шууд нөөц гарчиг руу.
+      if (!verdict.ok) {
+        judgeDown = true;
+        break;
+      }
+
       if (verdict.faithful) {
         console.log(`  headline оноо: ${hookScore(h)}/30 (${hooks.length} хувилбараас, үнэн зөв ✓)`);
         return { headline: h.text, costUsd };
@@ -150,6 +160,7 @@ export async function writeHeadline(
       console.warn(`  ⚠ гарчиг эх мэдээг хэтрүүлэв: "${h.text.slice(0, 60)}" — ${verdict.issues[0] ?? ""}`);
       feedback = verdict.issues;
     }
+    if (judgeDown) break;
 
     if (ranked.length === 0) {
       feedback = hooks.flatMap((h) =>
@@ -160,9 +171,12 @@ export async function writeHeadline(
   }
 
   // Карт хэзээ ч бүтэн унахгүй — нийтлэлийн өөрийн гарчиг үргэлж үнэн зөв
+  // (редактор/агент бичсэн, шалгагдсан). Шүүгч унасан үед ч энэ рүү ирнэ.
   const fallback = fallbackHeadline(a.titleMn);
   if (fallback && fitHeadline(fallback) !== null) {
-    console.warn(`  ↳ нийтлэлийн гарчгийг ашиглав: "${fallback}"`);
+    console.warn(
+      `  ↳ нийтлэлийн гарчгийг ашиглав${judgeDown ? " (шүүгч ажиллсангүй)" : ""}: "${fallback}"`,
+    );
     return { headline: fallback, costUsd };
   }
   throw new Error("Headline бичигдсэнгүй (нийтлэлийн гарчиг ч багтсангүй)");

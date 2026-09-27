@@ -122,6 +122,19 @@ export function fidelityUser(a: FidelityInput): string {
   ].join("\n");
 }
 
+/** Өдөрт ийм удаагаас олон унавал шүүгч эвдэрсэн байж болзошгүй */
+export const FIDELITY_DAILY_WARN = 3;
+
+/**
+ * Шүүгчийн хариу шийдвэр болохуйц уу.
+ *
+ * `faithful` нь заавал boolean байх ёстой: дутуу/хоосон хариуг «үнэнч» гэж уншвал
+ * шалгагдаагүй гарчиг нийтэд гарна.
+ */
+export function isUsableVerdict(raw: Partial<FidelityVerdict> | null | undefined): boolean {
+  return typeof raw?.faithful === "boolean" && Array.isArray(raw?.issues);
+}
+
 /** Шүүгчийн хариуг цэгцэлнэ — issues байвал faithful гэж тооцохгүй */
 export function normalizeVerdict(raw: Partial<FidelityVerdict> | null | undefined): FidelityVerdict {
   const issues = (raw?.issues ?? []).map((s) => String(s).trim()).filter(Boolean).slice(0, 5);
