@@ -11,6 +11,10 @@ import "dotenv/config";
 import { chatJson, chatText, isAuthError } from "../agent/llm";
 import { balanceMessage, openRouterBalance } from "../lib/balance";
 import { classifyError, completeness, completenessLabel, INFRA_RETRIES } from "./failure.api";
+import {
+  canStartChunk, CHUNK_MS, outOfTime, pairKey, pendingPairs, progressLabel, progressOf,
+} from "./chunk.api";
+import { nextPublishAt, publishTimes } from "../jobs/mode.api";
 import { isEntry, runCli } from "../lib/cli";
 import { prisma } from "../db";
 import { jobRunMeta } from "../jobs/meta";
@@ -57,6 +61,10 @@ export interface RunOptions {
   writeArticle?: boolean;
   /** Үлдэгдлийн урьдчилсан шалгалтыг алгасах (зөвхөн тест) */
   skipBalanceCheck?: boolean;
+  /** Нэг cron run-д олгох хугацаа. Тестэд богиносгоно. */
+  chunkMs?: number;
+  /** Одоогийн цаг — НИЙТЛЭХ цонхны шалгалтад (тестэд) */
+  now?: Date;
   chat?: typeof chatJson;
   text?: typeof chatText;
 }
@@ -68,7 +76,9 @@ export interface RunSummary {
   tasks: number;
   results: number;
   costUsd: number;
-  status: "DONE" | "BUDGET" | "FAILED";
+  status: "DONE" | "BUDGET" | "FAILED" | "RUNNING";
+  /** Үлдсэн (модель, даалгавар) хосын тоо. 0 = дууссан. */
+  pending: number;
   note: string | null;
   top: { modelSlug: string; avgScore: number }[];
   articleSlug?: string;
@@ -137,28 +147,107 @@ async function execute(opts: RunOptions, jobId: string): Promise<RunSummary> {
       : `  үлдэгдэл: $${balance.toFixed(2)} (шаардлага $${needUsd.toFixed(2)})`,
   );
 
-  // Сар бүр нэг run — дахин ажиллуулбал хуучныг нь солино
-  await prisma.benchRun.deleteMany({ where: { month } });
-  const run = await prisma.benchRun.create({
-    data: { month, judgeModel: jModel, judgeModel2: jModel2, status: "RUNNING" },
-    select: { id: true },
+  // Дуусаагүй run байвал ҮРГЭЛЖЛҮҮЛНЭ, эс бөгөөс шинээр эхэлнэ.
+  // Railway cron нь өмнөх run дуусаагүй бол дараагийнхыг алгасдаг тул нэг cron
+  // run-д бүгдийг нь хийх гэж оролдвол НИЙТЛЭХ slot залгигдана.
+  const existing = await prisma.benchRun.findUnique({
+    where: { month },
+    select: { id: true, status: true, startedAt: true, costUsd: true },
   });
 
-  let spent = 0;
+  const chunkStart = opts.now ?? new Date();
+  const minutesToPublish = nextPublishAt(chunkStart, publishTimes()).minutes;
+  const gate = canStartChunk({
+    runStartedAt: existing?.status === "RUNNING" ? existing.startedAt : null,
+    now: chunkStart,
+    minutesToPublish,
+    balanceUsd: balance,
+    needUsd,
+  });
+
+  // 3 хоногт дуусаагүй run — орхино
+  if (gate.block === "stale" && existing) {
+    await prisma.benchRun.update({
+      where: { id: existing.id },
+      data: { finishedAt: new Date(), status: "FAILED", note: gate.reason },
+    });
+    throw new Error(`Бенчмарк ${month}: ${gate.reason}`);
+  }
+  if (!gate.go) {
+    console.log(`Бенчмарк ${month}: ${gate.reason} — алгасав`);
+    return {
+      month, runId: existing?.id ?? "", models: 0, tasks: tasks.length, results: 0,
+      costUsd: 0, status: "RUNNING", note: gate.reason, top: [], pending: -1,
+    };
+  }
+
+  const resuming = existing?.status === "RUNNING";
+  if (!resuming) await prisma.benchRun.deleteMany({ where: { month } });
+  const run = resuming
+    ? { id: existing!.id }
+    : await prisma.benchRun.create({
+        data: { month, judgeModel: jModel, judgeModel2: jModel2, status: "RUNNING" },
+        select: { id: true },
+      });
+
+  // Аль хос хийгдсэнийг DB-ээс уншина — үргэлжлэх цэг
+  const already = await prisma.benchResult.findMany({
+    where: { runId: run.id },
+    select: { modelSlug: true, taskId: true },
+  });
+  const doneKeys = new Set(already.map((r) => pairKey(r.modelSlug, r.taskId)));
+  const pending = pendingPairs(models, tasks.map((t) => t.id), doneKeys);
+  const chunkMs = opts.chunkMs ?? CHUNK_MS;
+
+  if (resuming) {
+    console.log(
+      `  ↻ үргэлжлүүлж байна: ${progressLabel(progressOf(models.length * tasks.length, doneKeys.size))}`,
+    );
+  }
+  if (pending.length === 0) console.log("  бүх даалгавар хийгдсэн — дүгнэж байна");
+
+  let spent = existing?.costUsd ?? 0;
   let stopped: string | null = null;
   const scored: ScoredResult[] = [];
 
-  /** Модель бүрийг даалгавруудаар нь дуудна. Дундуур шидвэл run нь FAILED болно. */
-  async function runModels(): Promise<void> {
-    for (const [mi, modelSlug] of models.entries()) {
-      if (!canStartModel(spent, budget, tasks.length)) {
-        stopped = `Төсөв дүүрсэн тул ${models.length - mi} модель тестлэгдсэнгүй ($${spent.toFixed(2)}/$${budget.toFixed(2)})`;
+  /** Хугацаа дуусаж, дутуу үлдсэн эсэх */
+  let ranOutOfTime = false;
+  const byId = new Map(tasks.map((t) => [t.id, t]));
+
+  /**
+   * Дутуу (модель, даалгавар) хосуудыг дарааллаар нь гүйцэтгэнэ.
+   *
+   * Хугацаа (CHUNK_MS) дуусахад зогсоод гарна — хийсэн хэсэг нь DB-д үлдэж,
+   * дараагийн prepare run эндээс үргэлжилнэ. Дундуур шидвэл run нь FAILED болно.
+   */
+  async function runPairs(): Promise<void> {
+    let currentModel = "";
+
+    for (const [pi, pair] of pending.entries()) {
+      const modelSlug = pair.modelSlug;
+      const task = byId.get(pair.taskId);
+      if (!task) continue;
+
+      // Эхний хос үргэлж гүйцэтгэгдэнэ — хэсэг бүр дор хаяж нэг алхам урагшилна,
+      // эс тэгвээс буруу тохиргоотой үед run мөнхөд RUNNING үлдэнэ
+      if (pi > 0 && outOfTime(chunkStart, new Date(), chunkMs)) {
+        ranOutOfTime = true;
+        console.log(
+          `\n⏸ ${Math.round(chunkMs / 60_000)} минут дүүрлээ — ${pending.length - pi} даалгавар дараагийн run-д`,
+        );
+        break;
+      }
+      if (!canStartModel(spent, budget, 1)) {
+        stopped = `Төсөв дүүрсэн тул ${pending.length - pi} даалгавар хийгдсэнгүй ($${spent.toFixed(2)}/$${budget.toFixed(2)})`;
         console.warn(`⚠ ${stopped}`);
         break;
       }
-      console.log(`\n[${mi + 1}/${models.length}] ${modelSlug}`);
+      if (modelSlug !== currentModel) {
+        currentModel = modelSlug;
+        console.log(`\n[${models.indexOf(modelSlug) + 1}/${models.length}] ${modelSlug}`);
+      }
 
-      for (const task of tasks) {
+      {
         const rubric = parseRubric(task.rubric);
         const checker = parseChecker(task.checker);
 
@@ -255,15 +344,17 @@ async function execute(opts: RunOptions, jobId: string): Promise<RunSummary> {
         });
       }
 
+      // Модель бүрэн дуусах бүрд нэг мөр дүн
+      const isLast = pi === pending.length - 1 || pending[pi + 1]?.modelSlug !== modelSlug;
+      if (!isLast) continue;
+
       const mine = scored.filter((s) => s.modelSlug === modelSlug);
       const avg = summarize(mine)[0];
       const c = completeness(
         mine.map((r) => ({ error: r.error, errorKind: r.errorKind, score: r.judgeScore ?? null })),
       );
       if (!avg || avg.incomplete) {
-        console.warn(
-          `   ⚠ ${modelSlug}: дутуу (${completenessLabel(c)}) — нийтэд харуулахгүй`,
-        );
+        console.warn(`   ⚠ ${modelSlug}: дутуу (${completenessLabel(c)}) — нийтэд харуулахгүй`);
         continue;
       }
       console.log(
@@ -273,7 +364,7 @@ async function execute(opts: RunOptions, jobId: string): Promise<RunSummary> {
   }
 
   try {
-    await runModels();
+    await runPairs();
   } catch (e) {
     // Дундуур тасарсан (түлхүүр буруу гэх мэт) — run нь үүрд RUNNING үлдэх ёсгүй
     await prisma.benchRun.update({
@@ -286,14 +377,53 @@ async function execute(opts: RunOptions, jobId: string): Promise<RunSummary> {
     throw e;
   }
 
+  // ——— Хугацаа дуусаж дутуу үлдсэн бол: RUNNING хэвээр, дүгнэлт бичихгүй ———
+  const stillPending = pending.length - scored.length;
+  if (ranOutOfTime && stillPending > 0) {
+    await prisma.benchRun.update({ where: { id: run.id }, data: { costUsd: spent } });
+    const total = models.length * tasks.length;
+    const p = progressOf(total, total - stillPending);
+    await prisma.jobRun.update({
+      where: { id: jobId },
+      data: {
+        finishedAt: new Date(), ok: true,
+        itemsIn: total, itemsOut: scored.length, costUsd: spent,
+      },
+    });
+    console.log(`\n⏸ ${month}: ${progressLabel(p)} — дараагийн prepare run үргэлжлүүлнэ`);
+    return {
+      month, runId: run.id, models: 0, tasks: tasks.length, results: scored.length,
+      costUsd: spent, status: "RUNNING", note: `дутуу: ${progressLabel(p)}`, top: [],
+      pending: stillPending,
+    };
+  }
+
+  // ——— Бүх хос дууссан — БҮХ үр дүнг DB-ээс уншиж дүгнэнэ ———
+  // `scored` нь зөвхөн ЭНЭ хэсгийнх. Өмнөх хэсгүүдийнх DB-д байна.
+  const allRows = await prisma.benchResult.findMany({
+    where: { runId: run.id },
+    select: {
+      modelSlug: true, latencyMs: true, costUsd: true, outputWords: true,
+      judgeScore: true, checkerPass: true, humanScore: true, error: true, errorKind: true,
+      task: { select: { category: true, weight: true } },
+    },
+  });
+  const everything: ScoredResult[] = allRows.map((r) => ({
+    modelSlug: r.modelSlug, category: r.task.category, weight: r.task.weight,
+    latencyMs: r.latencyMs, costUsd: r.costUsd, outputWords: r.outputWords,
+    judgeScore: r.judgeScore, checkerPass: r.checkerPass, humanScore: r.humanScore,
+    error: r.error, errorKind: r.errorKind,
+  }));
+
   // Дүгнэлт нь даалгаврын ≥90%-д оноо гарсан модельд л бичигдэнэ. Дутуу нь
   // «incomplete» гэж тэмдэглэгдэж, /admin дээр харагдах ч НИЙТЭД гарахгүй.
-  const all = summarize(scored);
+  await prisma.benchModelSummary.deleteMany({ where: { runId: run.id } });
+  const all = summarize(everything);
   const summaries = all.filter((s) => !s.incomplete);
   const partial = all.filter((s) => s.incomplete);
 
   // Нэг ч бүтэн дүн гарсангүй — run амжилтгүй. Дүгнэлт, нийтлэл үүсгэхгүй.
-  const allFailed = summaries.length === 0 && scored.length > 0;
+  const allFailed = summaries.length === 0 && everything.length > 0;
   const failNote = allFailed
     ? `Нэг ч модель даалгаврын 90%-д оноо авсангүй (${partial.length} дутуу) — ` +
       `түлхүүр, үлдэгдэл, сүлжээгээ шалгана уу`
@@ -339,7 +469,7 @@ async function execute(opts: RunOptions, jobId: string): Promise<RunSummary> {
 
   const result: RunSummary = {
     month, runId: run.id, models: summaries.length, tasks: tasks.length,
-    results: scored.length, costUsd: spent, status, note,
+    results: everything.length, costUsd: spent, status, note, pending: 0,
     top: summaries.slice(0, 5).map((s) => ({ modelSlug: s.modelSlug, avgScore: s.avgScore })),
   };
 
@@ -349,7 +479,7 @@ async function execute(opts: RunOptions, jobId: string): Promise<RunSummary> {
       data: {
         finishedAt: new Date(), ok: false,
         itemsIn: models.length * tasks.length, itemsOut: 0,
-        attempted: scored.length, failed: scored.length,
+        attempted: everything.length, failed: everything.length,
         costUsd: spent, error: failNote,
       },
     });
@@ -374,7 +504,7 @@ async function execute(opts: RunOptions, jobId: string): Promise<RunSummary> {
     where: { id: jobId },
     data: {
       finishedAt: new Date(), ok: true,
-      itemsIn: models.length * tasks.length, itemsOut: scored.length,
+      itemsIn: models.length * tasks.length, itemsOut: everything.length,
       costUsd: spent,
       ...(note ? { error: note } : {}),
     },

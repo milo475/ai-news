@@ -202,3 +202,145 @@ test(
     }
   },
 );
+
+test(
+  "хугацаа дуусахад хийсэн хэсгээ хадгалж, дараагийн run үргэлжлүүлнэ",
+  { skip: !hasDb && "DATABASE_URL алга" },
+  async () => {
+    const { prisma } = await import("../db");
+    const { runBenchmark } = await import("./run");
+    const { resetMonth } = await import("./reset");
+    const { chatJson, chatText } = await import("../agent/llm");
+
+    if ((await prisma.benchTask.count({ where: { isActive: true } })) < 3) return;
+    await cleanup();
+
+    /** Дуудлага бүр 1 «секунд» зарцуулдаг мэт — тестийн цаг хурдан */
+    const text = (async () => ({
+      text: "Монгол хэл дээрх бүрэн хариулт.", tokensIn: 10, tokensOut: 20, costUsd: 0,
+      latencyMs: 5, finishReason: "stop", reasoningTokens: 0,
+    })) as typeof chatText;
+    const chat = (async () => ({ data: { score: 8, note: "сайн" }, tokens: 0, costUsd: 0 })) as unknown as typeof chatJson;
+
+    try {
+      // 1-р хэсэг: chunkMs = 0 → эхний хосын дараа шууд зогсоно
+      const first = await runBenchmark({
+        month: MONTH, skipBalanceCheck: true, chunkMs: 0,
+        models: ["test/alpha"], taskLimit: 3, text, chat, writeArticle: false,
+      });
+      assert.equal(first.status, "RUNNING", "дутуу run нь RUNNING хэвээр");
+      assert.ok(first.pending > 0, `үлдсэн ${first.pending}`);
+      assert.equal(first.models, 0, "дутуу үед дүгнэлт гарахгүй");
+
+      const mid = await prisma.benchRun.findUniqueOrThrow({
+        where: { month: MONTH },
+        select: { id: true, status: true, _count: { select: { summaries: true, results: true } } },
+      });
+      assert.equal(mid.status, "RUNNING");
+      assert.equal(mid._count.summaries, 0, "дутуу run дүгнэлт бичих ёсгүй");
+      const afterFirst = mid._count.results;
+      assert.ok(afterFirst > 0 && afterFirst < 3, `эхний хэсэгт ${afterFirst} үр дүн`);
+
+      // 2-р хэсэг: хугацаа хангалттай → үлдсэнийг дуусгана
+      const second = await runBenchmark({
+        month: MONTH, skipBalanceCheck: true,
+        models: ["test/alpha"], taskLimit: 3, text, chat, writeArticle: false,
+      });
+      assert.equal(second.status, "DONE");
+      assert.equal(second.pending, 0);
+      assert.equal(second.results, 3, "өмнөх хэсгийн үр дүн ч дүгнэлтэд орно");
+      assert.equal(second.models, 1);
+
+      const end = await prisma.benchRun.findUniqueOrThrow({
+        where: { month: MONTH },
+        select: { id: true, status: true, _count: { select: { summaries: true, results: true } } },
+      });
+      assert.equal(end.id, mid.id, "ижил run үргэлжилсэн байх ёстой");
+      assert.equal(end.status, "DONE");
+      assert.equal(end._count.results, 3, "давхар үр дүн бичигдсэн байна");
+      assert.equal(end._count.summaries, 1);
+    } finally {
+      await resetMonth(MONTH, { yes: true }).catch(() => {});
+      await cleanup();
+      await prisma.$disconnect();
+    }
+  },
+);
+
+test(
+  "НИЙТЛЭХ цонхны өмнө шинэ хэсэг эхлүүлэхгүй",
+  { skip: !hasDb && "DATABASE_URL алга" },
+  async () => {
+    const { prisma } = await import("../db");
+    const { runBenchmark } = await import("./run");
+    const { resetMonth } = await import("./reset");
+    const { chatText } = await import("../agent/llm");
+    const { publishTimes, nextPublishAt } = await import("../jobs/mode.api");
+
+    if ((await prisma.benchTask.count({ where: { isActive: true } })) < 2) return;
+    await cleanup();
+
+    // НИЙТЛЭХ цагаас 10 минутын өмнөх агшин
+    const slot = nextPublishAt(new Date(), publishTimes()).at;
+    const justBefore = new Date(slot.getTime() - 10 * 60_000);
+
+    try {
+      const r = await runBenchmark({
+        month: MONTH, skipBalanceCheck: true, now: justBefore,
+        models: ["test/alpha"], taskLimit: 2, writeArticle: false,
+        text: (async () => { throw new Error("дуудагдах ёсгүй"); }) as typeof chatText,
+      });
+      assert.equal(r.status, "RUNNING");
+      assert.match(r.note ?? "", /НИЙТЛЭХ цонх/);
+      // Run огт үүсээгүй байх ёстой
+      assert.equal(await prisma.benchRun.findUnique({ where: { month: MONTH } }), null);
+    } finally {
+      await resetMonth(MONTH, { yes: true }).catch(() => {});
+      await cleanup();
+      await prisma.$disconnect();
+    }
+  },
+);
+
+test(
+  "3 хоногт дуусаагүй run FAILED болно",
+  { skip: !hasDb && "DATABASE_URL алга" },
+  async () => {
+    const { prisma } = await import("../db");
+    const { runBenchmark } = await import("./run");
+    const { resetMonth } = await import("./reset");
+    const { chatText } = await import("../agent/llm");
+
+    if ((await prisma.benchTask.count({ where: { isActive: true } })) < 2) return;
+    await cleanup();
+
+    try {
+      await prisma.benchRun.create({
+        data: {
+          month: MONTH, judgeModel: "test/judge", status: "RUNNING",
+          startedAt: new Date(Date.now() - 4 * 86_400_000),
+        },
+      });
+
+      await assert.rejects(
+        () =>
+          runBenchmark({
+            month: MONTH, skipBalanceCheck: true,
+            models: ["test/alpha"], taskLimit: 2, writeArticle: false,
+            text: (async () => { throw new Error("дуудагдах ёсгүй"); }) as typeof chatText,
+          }),
+        /3 хоногт дуусаагүй/,
+      );
+
+      const run = await prisma.benchRun.findUniqueOrThrow({
+        where: { month: MONTH }, select: { status: true, finishedAt: true },
+      });
+      assert.equal(run.status, "FAILED");
+      assert.ok(run.finishedAt, "үүрд RUNNING үлдэх ёсгүй");
+    } finally {
+      await resetMonth(MONTH, { yes: true }).catch(() => {});
+      await cleanup();
+      await prisma.$disconnect();
+    }
+  },
+);

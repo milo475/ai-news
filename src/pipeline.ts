@@ -204,26 +204,40 @@ const STEPS: Step[] = [
     },
   },
   {
-    // Сарын эхний өдөр — монгол хэлний бенчмарк. Нэг run хэдэн арван минут явна.
+    /**
+     * Сарын эхний өдөр — монгол хэлний бенчмарк.
+     *
+     * `oncePerDay` БИШ: нэг run ~2 цаг үргэлжилдэг тул 20 минутын хэсгүүдэд
+     * хуваагдана. Дуусаагүй run байвал дараагийн prepare run үргэлжлүүлнэ.
+     * Хэсэг бүр өөрөө НИЙТЛЭХ цонх, үлдэгдэл, 3 хоногийн хязгаарыг шалгана.
+     */
     name: "bench",
     needsLlm: true,
     mode: "prepare",
-    oncePerDay: true,
     run: async () => {
       const { currentMonth } = await import("./bench/summary.api");
       const month = currentMonth();
-      const day = new Date(Date.now() + 8 * 3_600_000).getUTCDate();
+      const now = new Date();
+      const day = new Date(now.getTime() + 8 * 3_600_000).getUTCDate();
 
-      const done = await prisma.benchRun.findFirst({
-        where: { month, status: { in: ["DONE", "BUDGET"] } },
-        select: { id: true },
+      const existing = await prisma.benchRun.findUnique({
+        where: { month },
+        select: { status: true },
       });
-      if (done) return `${month} аль хэдийн хэмжигдсэн, алгасав`;
-      // Сарын 1-нд л автоматаар — /admin-аас гараар дуудвал энэ шалгалт алгасагдана
-      if (day !== 1 && !process.argv.includes("--only")) return `сарын ${day} — 1-нд ажиллана`;
+      if (existing && existing.status !== "RUNNING") return `${month} аль хэдийн хэмжигдсэн, алгасав`;
+
+      const resuming = existing?.status === "RUNNING";
+      if (!resuming) {
+        // Шинээр эхлэх нь зөвхөн сарын 1-нд, өдрийн алхмын цагаас хойш
+        if (day !== 1 && !process.argv.includes("--only")) return `сарын ${day} — 1-нд ажиллана`;
+        if (ubHour(now) < dailyHour() && !process.argv.includes("--only")) {
+          return `УБ ${dailyHour()}:00-аас хойш эхэлнэ`;
+        }
+      }
 
       const { runBenchmark } = await import("./bench/run");
       const r = await runBenchmark({ month });
+      if (r.status === "RUNNING") return `${month}: ${r.note ?? "үргэлжилж байна"}`;
       return (
         `${r.month}: ${r.models} модель × ${r.tasks} даалгавар, $${r.costUsd.toFixed(2)}` +
         (r.top[0] ? ` · тэргүүлэгч ${r.top[0].modelSlug} (${r.top[0].avgScore.toFixed(2)})` : "") +
