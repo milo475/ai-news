@@ -21,10 +21,18 @@ export interface RankingChange {
 }
 
 /** LLM-ийн буцаах бүтэц */
+export interface DigestSection {
+  heading: string;
+  /** Холбоосгүй, бүтэн өгүүлбэрүүд */
+  body: string;
+  /** Энэ хэсэгт хамаарах мэдээнүүд — холбоос нь хэсгийн ДООР жагсаалтаар гарна */
+  slugs: string[];
+}
+
 export interface DigestOut {
   titleMn: string;
   leadMn: string;
-  sections: { heading: string; body: string }[];
+  sections: DigestSection[];
   nextWeek: string[];
 }
 
@@ -71,10 +79,18 @@ export const DIGEST_SCHEMA = {
           body: {
             type: "string",
             description:
-              "2–4 догол мөр markdown. Мэдээ дурдах бүрдээ [гарчиг](/medee/<slug>) хэлбэрээр холбоос тавина",
+              "2–4 догол мөр энгийн текст. ХОЛБООС ОРУУЛАХГҮЙ, markdown-ийн [...](...) хэлбэр " +
+              "хэрэглэхгүй. Нийтлэлийн бүтэн гарчгийг өгүүлбэрт шигтгэхгүй — юу болсныг " +
+              "өөрийн үгээр, бүтэн өгүүлбэрээр бич",
+          },
+          slugs: {
+            type: "array",
+            minItems: 1,
+            items: { type: "string" },
+            description: "Энэ хэсэгт хамаарах мэдээнүүдийн slug — зөвхөн өгөгдсөн жагсаалтаас",
           },
         },
-        required: ["heading", "body"],
+        required: ["heading", "body", "slugs"],
         additionalProperties: false,
       },
     },
@@ -140,7 +156,8 @@ export const DIGEST_SECTION_SCHEMA = {
     body: {
       type: "string",
       description:
-        "2–4 догол мөр markdown. Мэдээ дурдах бүрдээ [гарчиг](/medee/<slug>) хэлбэрээр холбоос тавина",
+        "2–4 догол мөр энгийн текст. ХОЛБООС ОРУУЛАХГҮЙ, markdown-ийн [...](...) хэлбэр " +
+        "хэрэглэхгүй. Нийтлэлийн бүтэн гарчгийг өгүүлбэрт шигтгэхгүй",
     },
   },
   required: ["body"],
@@ -241,6 +258,28 @@ export function localSection(items: DigestSource[]): string {
   ].join("\n");
 }
 
+/** Хэсгийн доорх мэдээний жагсаалтын гарчиг */
+export const SECTION_LINKS_LABEL = "**Энэ хэсгийн мэдээ:**";
+
+/**
+ * Нэг хэсгийг markdown болгоно.
+ *
+ * Өгүүлбэр дотор холбоос БАЙХГҮЙ: 2026-09-27-ны тоймд нийтлэлийн бүтэн гарчгийг
+ * өгүүлбэр дундуур шигтгэснээс «…50 хувиар бууруулсан [OpenAI зардлыг 50% бууруулсан
+ * GPT-6 Sol, Luna-г танилцууллаа] мөн […] мэдэгдлийг гаргав» гэх мэт уншигдахгүй
+ * өгүүлбэрүүд үүссэн. Одоо холбоосууд хэсгийн ДООР тусдаа жагсаалтаар гарна.
+ */
+export function sectionMarkdown(s: DigestSection, bySlug: Map<string, DigestSource>): string {
+  const links = s.slugs
+    .map((slug) => bySlug.get(slug))
+    .filter((a): a is DigestSource => Boolean(a))
+    .map((a) => `- [${a.titleMn}](/medee/${a.slug})`);
+
+  const parts = [`## ${s.heading}`, "", s.body.trim()];
+  if (links.length) parts.push("", SECTION_LINKS_LABEL, "", ...links);
+  return parts.join("\n");
+}
+
 export function assembleBody(
   out: DigestOut,
   changes: RankingChange,
@@ -248,8 +287,9 @@ export function assembleBody(
   /** Долоо хоногийн дотоодын мэдээ (/mongol) */
   local: DigestSource[] = [],
 ): string {
+  const bySlug = new Map(items.map((a) => [a.slug, a]));
   const parts: string[] = [];
-  for (const s of out.sections) parts.push(`## ${s.heading}\n\n${s.body.trim()}`);
+  for (const s of out.sections) parts.push(sectionMarkdown(s, bySlug));
   const mongol = localSection(local);
   if (mongol) parts.push(mongol);
   parts.push(rankingSection(changes));
@@ -262,4 +302,130 @@ export function assembleBody(
       .join("\n")}`,
   );
   return parts.join("\n\n");
+}
+
+
+// ---------- Ижил сэдвийн давхардлыг арилгах ----------
+
+/** Утга багатай, бараг бүх гарчигт таарах үгс */
+const STOP_WORDS = new Set([
+  "болон", "мөн", "гэж", "нь", "юм", "бол", "гэдэг", "тухай", "дээр", "доор", "энэ", "тэр",
+  "шинэ", "том", "хэмээн", "байна", "болжээ", "болов", "the", "and", "for", "with", "new",
+]);
+
+/**
+ * Гарчгийг харьцуулах боломжтой үг болгоно.
+ * Монгол нөхцөлийг («Luna-г» → «luna») таслана — ижил нэр өөр үг болж тоологдохгүй.
+ */
+export function titleTokens(title: string): Set<string> {
+  const words = title
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s-]/gu, " ")
+    .split(/\s+/)
+    .map((w) => w.replace(/-[\p{Script=Cyrillic}]+$/u, "").replace(/^-+|-+$/g, ""))
+    .filter((w) => w.length >= 3 && !STOP_WORDS.has(w));
+  return new Set(words);
+}
+
+export function jaccard(a: Set<string>, b: Set<string>): number {
+  if (a.size === 0 || b.size === 0) return 0;
+  let shared = 0;
+  for (const w of a) if (b.has(w)) shared++;
+  return shared / (a.size + b.size - shared);
+}
+
+/** Ижил сэдэв гэж үзэх босго */
+export const SAME_TOPIC_JACCARD = 0.45;
+/** Энэ тооны үг давхцвал босгоос үл хамааран ижил сэдэв */
+export const SAME_TOPIC_SHARED = 4;
+
+export function sameTopic(a: string, b: string): boolean {
+  const ta = titleTokens(a);
+  const tb = titleTokens(b);
+  let shared = 0;
+  for (const w of ta) if (tb.has(w)) shared++;
+  return shared >= SAME_TOPIC_SHARED || jaccard(ta, tb) >= SAME_TOPIC_JACCARD;
+}
+
+/**
+ * Нэг мэдээний тухай хэд хэдэн нийтлэлээс ХАМГИЙН ӨНДӨР ОНООТОЙГ нь үлдээнэ.
+ *
+ * 2026-09-27-ны тоймд GPT-6 Sol/Luna-гийн тухай хоёр нийтлэл давхар орсон.
+ * Жагсаалт нь оноогоор эрэмбэлэгдсэн ирдэг тул эхнийхийг нь үлдээхэд хангалттай.
+ */
+export function dedupeItems(items: DigestSource[]): { kept: DigestSource[]; dropped: DigestSource[] } {
+  const kept: DigestSource[] = [];
+  const dropped: DigestSource[] = [];
+  for (const a of items) {
+    if (kept.some((k) => sameTopic(k.titleMn, a.titleMn))) dropped.push(a);
+    else kept.push(a);
+  }
+  return { kept, dropped };
+}
+
+// ---------- Нийтлэхийн өмнөх механик шалгалт ----------
+
+export type DigestProblem =
+  | "өгүүлбэрт бүтэн гарчиг"
+  | "өгүүлбэрт холбоос"
+  | "давхардсан мэдээ"
+  | "slug үлдэгдэл"
+  | "хоосон хэсэг"
+  | "хэсэггүй";
+
+export interface DigestIssue {
+  problem: DigestProblem;
+  detail: string;
+}
+
+/** Хэсгийн бие хамгийн багадаа ийм урттай байна */
+export const MIN_SECTION_CHARS = 120;
+
+/** Markdown холбоос — хэсгийн биед байх ёсгүй */
+const INLINE_LINK = /\[[^\]]*\]\([^)]*\)/u;
+/** «[...]», «[ ]», «[гарчиг]» гэх мэт үлдэгдэл */
+const BARE_BRACKET = /\[[^\]]*\]/u;
+/** Биед үлдсэн slug: «-tur-zogsooloo», «/medee/xyz» */
+const SLUG_RESIDUE = /\/medee\/[a-z0-9-]+|(?:^|\s)[a-z0-9]+(?:-[a-z0-9]+){3,}(?=\s|$)/u;
+
+/**
+ * Тоймыг нийтлэхээс ӨМНӨ шалгана.
+ *
+ * Алдаа олдвол дуудагч нь DRAFT болгож /admin-д мэдэгдэнэ — эвдэрсэн тойм
+ * автоматаар нийтлэгдэхээс сэргийлнэ.
+ */
+export function checkDigest(out: DigestOut, items: DigestSource[]): DigestIssue[] {
+  const issues: DigestIssue[] = [];
+  if (out.sections.length === 0) {
+    return [{ problem: "хэсэггүй", detail: "тоймд нэг ч хэсэг алга" }];
+  }
+
+  const seen = new Set<string>();
+  for (const s of out.sections) {
+    const body = s.body.trim();
+    if (body.length < MIN_SECTION_CHARS) {
+      issues.push({ problem: "хоосон хэсэг", detail: `«${s.heading}» — ${body.length} тэмдэгт` });
+    }
+    if (INLINE_LINK.test(body)) {
+      issues.push({ problem: "өгүүлбэрт холбоос", detail: `«${s.heading}» — ${body.match(INLINE_LINK)![0].slice(0, 60)}` });
+    } else if (BARE_BRACKET.test(body)) {
+      issues.push({ problem: "slug үлдэгдэл", detail: `«${s.heading}» — ${body.match(BARE_BRACKET)![0].slice(0, 60)}` });
+    }
+    if (SLUG_RESIDUE.test(body)) {
+      issues.push({ problem: "slug үлдэгдэл", detail: `«${s.heading}» — ${body.match(SLUG_RESIDUE)![0].trim().slice(0, 60)}` });
+    }
+    // Нийтлэлийн бүтэн гарчгийг өгүүлбэрт шигтгэсэн эсэх
+    for (const a of items) {
+      const t = a.titleMn.trim();
+      if (t.length >= 25 && body.includes(t)) {
+        issues.push({ problem: "өгүүлбэрт бүтэн гарчиг", detail: `«${s.heading}» — «${t.slice(0, 60)}»` });
+        break;
+      }
+    }
+    for (const slug of s.slugs) {
+      if (seen.has(slug)) issues.push({ problem: "давхардсан мэдээ", detail: slug });
+      seen.add(slug);
+    }
+  }
+  return issues;
 }

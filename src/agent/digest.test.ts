@@ -1,7 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  assembleBody, isDigestDay, MIN_ARTICLES, rankingSection, weekLabel,
+  assembleBody, checkDigest, dedupeItems, isDigestDay, MIN_ARTICLES, rankingSection,
+  sameTopic, sectionMarkdown, titleTokens, weekLabel,
   type DigestOut, type DigestSource, type RankingChange,
   cleanOutline, DIGEST_MAX_TOKENS, resolveOutline, DIGEST_OUTLINE_SCHEMA, fillUnused, OUTLINE_MAX_TOKENS,
   SECTION_MAX_TOKENS,
@@ -60,8 +61,12 @@ test("assembleBody: LLM-ийн хариуг бүтэн нийтлэл болго
     titleMn: "AI-ийн долоо хоног: 9/15–9/21",
     leadMn: "Энэ долоо хоногт хоёр том модель гарлаа.",
     sections: [
-      { heading: "Шинэ моделиуд", body: "[Эхний мэдээ](/medee/a) гарлаа.\n\nХоёр дахь догол мөр." },
-      { heading: "Зохицуулалт", body: "[Гурав дахь](/medee/c) мэдээ." },
+      {
+        heading: "Шинэ моделиуд",
+        body: "Энэ долоо хоногт хоёр том лаборатори загвараа зэрэг танилцуулав.\n\nХоёр дахь догол мөр.",
+        slugs: ["a", "b"],
+      },
+      { heading: "Зохицуулалт", body: "Зохицуулагчид шинэ шаардлага тавилаа.", slugs: ["c"] },
     ],
     nextWeek: ["Нэг", "Хоёр", "Гурав"],
   };
@@ -178,4 +183,157 @@ test("resolveOutline: мэдээ ч, гарчиг ч байхгүй бол хо�
     resolveOutline({ titleMn: "T", leadMn: "L", nextWeek: [], sections: [] }, KNOWN).sections,
     [],
   );
+});
+
+// ---------- Холбоосыг өгүүлбэрээс салгах (2026-09-27-ны тойм) ----------
+
+test("хэсгийн холбоосууд биеийн ДООР жагсаалтаар гарна", () => {
+  const items = [item("a", "OpenAI зардлыг 50% бууруулсан GPT-6 Sol, Luna-г танилцууллаа")];
+  const md = sectionMarkdown(
+    {
+      heading: "Үнэ ба загвар",
+      body: "OpenAI энэ долоо хоногт API үнээ хагасаар бууруулж, хоёр шинэ загвараа танилцуулав.",
+      slugs: ["a"],
+    },
+    new Map(items.map((x) => [x.slug, x])),
+  );
+
+  assert.match(md, /^## Үнэ ба загвар/);
+  assert.match(md, /\*\*Энэ хэсгийн мэдээ:\*\*/);
+  assert.match(md, /- \[OpenAI зардлыг 50% бууруулсан GPT-6 Sol, Luna-г танилцууллаа\]\(\/medee\/a\)/);
+  // Өгүүлбэрийн хэсэгт холбоос байхгүй
+  const prose = md.split("**Энэ хэсгийн мэдээ:**")[0]!;
+  assert.ok(!/\]\(/.test(prose), prose);
+});
+
+test("мэдээгүй хэсэгт жагсаалт нэмэхгүй", () => {
+  const md = sectionMarkdown({ heading: "Тойм", body: "Текст.", slugs: [] }, new Map());
+  assert.ok(!md.includes("Энэ хэсгийн мэдээ"));
+});
+
+test("байхгүй slug-ийг жагсаалтад оруулахгүй", () => {
+  const md = sectionMarkdown(
+    { heading: "Тойм", body: "Текст.", slugs: ["a", "байхгүй"] },
+    new Map([["a", item("a", "Эхний")]]),
+  );
+  assert.match(md, /\/medee\/a/);
+  assert.ok(!md.includes("байхгүй"));
+});
+
+// ---------- Ижил сэдвийн давхардал ----------
+
+test("нэг мэдээний хоёр нийтлэлийг ижил сэдэв гэж таана", () => {
+  // 2026-09-27-ны тоймд давхар орсон бодит хос
+  assert.equal(
+    sameTopic(
+      "OpenAI зардлыг 50% бууруулсан GPT-6 Sol, Luna-г танилцууллаа",
+      "OpenAI GPT-6 Sol болон Luna загваруудаа танилцууллаа",
+    ),
+    true,
+  );
+});
+
+test("өөр сэдвийг нэгтгэхгүй", () => {
+  assert.equal(
+    sameTopic(
+      "OpenAI GPT-6 Sol болон Luna загваруудаа танилцууллаа",
+      "Европын холбоо хиймэл оюуны шинэ журам баталлаа",
+    ),
+    false,
+  );
+  assert.equal(
+    sameTopic("Google Gemini 4 загвараа гаргалаа", "OpenAI GPT-6 загвараа гаргалаа"),
+    false,
+  );
+});
+
+test("монгол нөхцөлийг таслаж харьцуулна", () => {
+  const t = titleTokens("Luna-г танилцууллаа");
+  assert.ok(t.has("luna"), [...t].join(","));
+  // Утгагүй богино үг, холбоос үгсийг хасна
+  assert.ok(!t.has("болон"));
+});
+
+test("давхардлыг хасахдаа эхнийхийг (өндөр оноотойг) үлдээнэ", () => {
+  const list = [
+    item("a", "OpenAI зардлыг 50% бууруулсан GPT-6 Sol, Luna-г танилцууллаа"),
+    item("b", "Европын холбоо хиймэл оюуны шинэ журам баталлаа"),
+    item("c", "OpenAI GPT-6 Sol болон Luna загваруудаа танилцууллаа"),
+  ];
+  const { kept, dropped } = dedupeItems(list);
+  assert.deepEqual(kept.map((x) => x.slug), ["a", "b"]);
+  assert.deepEqual(dropped.map((x) => x.slug), ["c"]);
+});
+
+// ---------- Нийтлэхийн өмнөх механик шалгалт ----------
+
+const ITEMS = [
+  item("a", "OpenAI зардлыг 50% бууруулсан GPT-6 Sol, Luna-г танилцууллаа"),
+  item("b", "Европын холбоо хиймэл оюуны шинэ журам баталлаа"),
+];
+
+function digest(sections: DigestOut["sections"]): DigestOut {
+  return { titleMn: "Тойм", leadMn: "Тойм", sections, nextWeek: ["a", "b", "c"] };
+}
+
+const GOOD_BODY =
+  "OpenAI энэ долоо хоногт API үнээ хагасаар бууруулж, хоёр шинэ загвараа танилцуулав. " +
+  "Энэ нь өрсөлдөгчдөд шууд дарамт болох нь ойлгомжтой байна.";
+
+test("цэвэр тойм алдаагүй", () => {
+  assert.deepEqual(checkDigest(digest([{ heading: "Үнэ", body: GOOD_BODY, slugs: ["a"] }]), ITEMS), []);
+});
+
+test("өгүүлбэрт шигтгэсэн бүтэн гарчгийг барина", () => {
+  // 2026-09-27-ны бодит эвдрэл
+  const broken =
+    "OpenAI компани зардал болон API үнийг 50 хувиар бууруулсан " +
+    "OpenAI зардлыг 50% бууруулсан GPT-6 Sol, Luna-г танилцууллаа мөн мэдэгдлийг гаргав. " +
+    "Энэ нь салбарт томоохон нөлөө үзүүлэх нь тодорхой боллоо.";
+  const issues = checkDigest(digest([{ heading: "Үнэ", body: broken, slugs: ["a"] }]), ITEMS);
+  assert.ok(issues.some((i) => i.problem === "өгүүлбэрт бүтэн гарчиг"), JSON.stringify(issues));
+});
+
+test("өгүүлбэрт үлдсэн markdown холбоосыг барина", () => {
+  const issues = checkDigest(
+    digest([{ heading: "Үнэ", body: `${GOOD_BODY} [Эхний мэдээ](/medee/a) гарлаа.`, slugs: ["a"] }]),
+    ITEMS,
+  );
+  assert.ok(issues.some((i) => i.problem === "өгүүлбэрт холбоос"), JSON.stringify(issues));
+});
+
+test("«[...]» үлдэгдлийг барина", () => {
+  const issues = checkDigest(
+    digest([{ heading: "Үнэ", body: `${GOOD_BODY} [...] мэдэгдлийг гаргав.`, slugs: ["a"] }]),
+    ITEMS,
+  );
+  assert.ok(issues.some((i) => i.problem === "slug үлдэгдэл"), JSON.stringify(issues));
+});
+
+test("биед үлдсэн slug-ийг барина", () => {
+  const issues = checkDigest(
+    digest([{ heading: "Үнэ", body: `${GOOD_BODY} Дэлгэрэнгүйг /medee/openai-gpt-6-sol харна уу.`, slugs: ["a"] }]),
+    ITEMS,
+  );
+  assert.ok(issues.some((i) => i.problem === "slug үлдэгдэл"), JSON.stringify(issues));
+});
+
+test("хоосон хэсгийг барина", () => {
+  const issues = checkDigest(digest([{ heading: "Үнэ", body: "Богино.", slugs: ["a"] }]), ITEMS);
+  assert.ok(issues.some((i) => i.problem === "хоосон хэсэг"), JSON.stringify(issues));
+});
+
+test("нэг мэдээ хоёр хэсэгт орвол барина", () => {
+  const issues = checkDigest(
+    digest([
+      { heading: "Үнэ", body: GOOD_BODY, slugs: ["a"] },
+      { heading: "Загвар", body: GOOD_BODY, slugs: ["a", "b"] },
+    ]),
+    ITEMS,
+  );
+  assert.ok(issues.some((i) => i.problem === "давхардсан мэдээ" && i.detail === "a"), JSON.stringify(issues));
+});
+
+test("хэсэггүй тойм нийтлэгдэхгүй", () => {
+  assert.deepEqual(checkDigest(digest([]), ITEMS), [{ problem: "хэсэггүй", detail: "тоймд нэг ч хэсэг алга" }]);
 });

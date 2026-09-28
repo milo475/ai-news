@@ -7,9 +7,9 @@
 import { chatJson } from "../agent/llm";
 import { ubDateLabel } from "../jobs/day";
 import {
-  dropsAttribution, dropsHedge, FIDELITY_BODY_CHARS, FIDELITY_DAILY_WARN, FIDELITY_SCHEMA,
-  fidelitySystem, fidelityUser, isUsableVerdict, normalizeVerdict,
-  type FidelityInput, type FidelityVerdict,
+  dropsAttribution, dropsHedge, dropsRelay, FIDELITY_BODY_CHARS, FIDELITY_DAILY_WARN,
+  FIDELITY_SCHEMA, fidelitySystem, fidelityUser, hardensSpeculation, isUsableVerdict,
+  normalizeVerdict, type FidelityInput, type FidelityVerdict,
 } from "./fidelity.api";
 
 type Chat = typeof chatJson;
@@ -60,6 +60,26 @@ export async function judgeFidelity(
       ok: true,
       faithful: false,
       issues: ["Эх мэдээ нь ТҮР/хэсэгчилсэн үйлдлийг хэлж байтал эцсийн, бүрэн зогссон мэт бичсэн — «түр», «зарим», «хойшлуулсан» гэдгийг үлдээ."],
+      costUsd: 0,
+    };
+  }
+
+  // «Bloomberg-ийн мэдээлснээр» гэсэн давхаргыг хассан эсэх
+  if (dropsRelay(a.hook, sourceText)) {
+    return {
+      ok: true,
+      faithful: false,
+      issues: ["Нийтлэл нь өөр хэвлэлээс ДАМЖУУЛСАН мэдээлэл боловч гарчигт эх сурвалж нь алга — «…гэж Bloomberg мэдээлэв» гэх мэтээр дамжуулсныг үлдээ."],
+      costUsd: 0,
+    };
+  }
+
+  // «магадгүй / санал болгов» → «мэдэгдсэн / тогтоов»
+  if (hardensSpeculation(a.hook, withBody)) {
+    return {
+      ok: true,
+      faithful: false,
+      issues: ["Эх мэдээ нь ТААМАГ (магадгүй, санал болгов, байж болзошгүй) байтал баталгаажсан баримт мэт бичсэн — «гэж үзэж байна», «байж болзошгүй» гэдгийг үлдээ."],
       costUsd: 0,
     };
   }

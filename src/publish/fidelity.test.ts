@@ -1,8 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  dropsAttribution, dropsHedge, FIDELITY_DAILY_WARN, FIDELITY_SYSTEM, fidelitySystem, fidelityUser,
-  hasAttribution, hasFinality, hasHedge, isUsableVerdict, needsAttribution, normalizeVerdict,
+  dropsAttribution, dropsHedge, dropsRelay, FIDELITY_DAILY_WARN, FIDELITY_SYSTEM, fidelitySystem,
+  fidelityUser, hardensSpeculation, hasAssertion, hasAttribution, hasFinality, hasHedge, hasRelay,
+  hasSpeculation, isUsableVerdict, keepsRelay, needsAttribution, normalizeVerdict,
 } from "./fidelity.api";
 import { judgeFidelity } from "./fidelity";
 
@@ -202,4 +203,69 @@ test("шалгах текстийн төрөл user prompt-д гарна", () =>
     fidelityUser({ hook: "тест", titleMn: null, summaryMn: null, bodyMn: null }),
     /ШАЛГАХ ГАРЧИГ/,
   );
+});
+
+// ---------- Жишээ 2: Futurism / Пентагон (2026-09-27) ----------
+
+/** Эх нь Futurism, тэр нь Bloomberg-оос дамжуулсан. Тайлан нийтлэгдээгүй. */
+const PENTAGON_SOURCE =
+  "Bloomberg-ийн мэдээлснээр Пентагоны мөрдөн шалгалт хөлөг онгоцыг цохисон гэж дүгнэжээ. " +
+  "Мөрдөн шалгалтын тайлан нийтлэгдээгүй бөгөөд шалгалт үргэлжилж байна.";
+
+/** Трамп бичлэгийг «AI-аар үүсгэсэн байж болох» гэж САНАЛ БОЛГОСОН */
+const TRUMP_SOURCE =
+  "Трамп тухайн бичлэгийг хиймэл оюунаар үүсгэсэн байж болох гэж санал болгов. " +
+  "Тэрээр эх хувилбарыг шалгуулах шаардлагатай гэж нэмж хэлэв.";
+
+test("дамжуулсан эх сурвалжийг таана", () => {
+  assert.equal(hasRelay(PENTAGON_SOURCE), true);
+  assert.equal(hasRelay("Пентагон мэдэгдэл гаргав."), false);
+  // Гаргалт талд өргөн жагсаалт: «мэдээлэв» ч дамжуулалт хэвээр
+  assert.equal(keepsRelay("гэж Bloomberg мэдээлэв"), true);
+  assert.equal(keepsRelay("Пентагон тогтоов"), false);
+});
+
+test("БОДИТ АЛДАА: «…цохисныг Пентагон тогтоов» — дамжуулалт алга", () => {
+  assert.equal(dropsRelay("АНУ-ын хүчин завиудыг цохисныг Пентагон тогтоов", PENTAGON_SOURCE), true);
+});
+
+test("дамжуулалтаа хадгалсан гарчиг зөрчилгүй", () => {
+  assert.equal(dropsRelay("Пентагон завиудыг цохисон гэж Bloomberg мэдээлэв", PENTAGON_SOURCE), false);
+  assert.equal(dropsRelay("Bloomberg-ийн мэдээлснээр Пентагон завиудыг цохижээ", PENTAGON_SOURCE), false);
+});
+
+test("эх нь дамжуулаагүй бол шалгалт ажиллахгүй", () => {
+  assert.equal(dropsRelay("Пентагон тогтоов", "Пентагон албан ёсны мэдэгдэл гаргав."), false);
+});
+
+test("таамаг ба баталгааг ялгана", () => {
+  assert.equal(hasSpeculation(TRUMP_SOURCE), true);
+  assert.equal(hasAssertion("Трамп бичлэгийг хуурамч гэж мэдэгдсэн"), true);
+  assert.equal(hasAssertion("Трамп бичлэгийг хуурамч гэж үзэж байна"), false);
+});
+
+test("БОДИТ АЛДАА: «санал болгов» → «мэдэгдсэн»", () => {
+  assert.equal(hardensSpeculation("Трамп бичлэгийг хуурамч гэж мэдэгдсэн", TRUMP_SOURCE), true);
+  assert.equal(hardensSpeculation("Трамп бичлэг AI-аар хийгдсэн гэдгийг тогтоов", TRUMP_SOURCE), true);
+});
+
+test("таамгаа хадгалсан бол зөрчил биш", () => {
+  assert.equal(
+    hardensSpeculation("Трамп бичлэгийг AI-аар үүсгэсэн байж болзошгүй гэв", TRUMP_SOURCE),
+    false,
+  );
+});
+
+test("эх нь өөрөө баталгаатай бол зөөлрүүлэхийг шаардахгүй", () => {
+  assert.equal(
+    hardensSpeculation("Шүүх хуурамч болохыг тогтоов", "Шүүх бичлэгийг хуурамч болохыг тогтоов."),
+    false,
+  );
+});
+
+test("шүүгчийн prompt-д 8, 9 дэх зөрчлийн төрөл баримтжсан", () => {
+  const sys = fidelitySystem("гарчиг");
+  assert.match(sys, /ДАМЖУУЛСАН ЭХ СУРВАЛЖИЙГ ОРХИСОН/);
+  assert.match(sys, /ТААМГИЙГ БАТАЛГАА БОЛГОСОН/);
+  assert.match(sys, /Bloomberg/);
 });
