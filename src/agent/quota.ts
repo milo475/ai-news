@@ -127,6 +127,8 @@ export async function pickLocal(now = new Date()): Promise<{ id: string } | null
 export async function pickForSlot(
   now: Date,
   prefer: ArticleCategory[] = [],
+  /** Шалгалтад унасан тул алгассан нийтлэлүүд — дахин сонгогдохгүй */
+  exclude: string[] = [],
 ): Promise<{ id: string; category: ArticleCategory } | null> {
   const { start, end } = ubDayRange(now);
 
@@ -141,6 +143,7 @@ export async function pickForSlot(
     status: "DRAFT" as const,
     isLocal: false,
     sourceText: { not: null },
+    ...(exclude.length ? { id: { notIn: exclude } } : {}),
     ...scoreWhere(),
   };
   const order = [

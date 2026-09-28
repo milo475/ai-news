@@ -1,6 +1,9 @@
 /**
  * Долоо хоногийн digest-ийн цэвэр хэсэг (DB-гүй, LLM-гүй, тесттэй).
  */
+import { jaccard, sharedCount, titleTokens } from "../lib/text.api";
+
+export { jaccard, titleTokens };
 
 /** Digest-д орох нэг мэдээ */
 export interface DigestSource {
@@ -307,33 +310,6 @@ export function assembleBody(
 
 // ---------- Ижил сэдвийн давхардлыг арилгах ----------
 
-/** Утга багатай, бараг бүх гарчигт таарах үгс */
-const STOP_WORDS = new Set([
-  "болон", "мөн", "гэж", "нь", "юм", "бол", "гэдэг", "тухай", "дээр", "доор", "энэ", "тэр",
-  "шинэ", "том", "хэмээн", "байна", "болжээ", "болов", "the", "and", "for", "with", "new",
-]);
-
-/**
- * Гарчгийг харьцуулах боломжтой үг болгоно.
- * Монгол нөхцөлийг («Luna-г» → «luna») таслана — ижил нэр өөр үг болж тоологдохгүй.
- */
-export function titleTokens(title: string): Set<string> {
-  const words = title
-    .toLowerCase()
-    .replace(/[^\p{L}\p{N}\s-]/gu, " ")
-    .split(/\s+/)
-    .map((w) => w.replace(/-[\p{Script=Cyrillic}]+$/u, "").replace(/^-+|-+$/g, ""))
-    .filter((w) => w.length >= 3 && !STOP_WORDS.has(w));
-  return new Set(words);
-}
-
-export function jaccard(a: Set<string>, b: Set<string>): number {
-  if (a.size === 0 || b.size === 0) return 0;
-  let shared = 0;
-  for (const w of a) if (b.has(w)) shared++;
-  return shared / (a.size + b.size - shared);
-}
-
 /** Ижил сэдэв гэж үзэх босго */
 export const SAME_TOPIC_JACCARD = 0.45;
 /** Энэ тооны үг давхцвал босгоос үл хамааран ижил сэдэв */
@@ -342,9 +318,7 @@ export const SAME_TOPIC_SHARED = 4;
 export function sameTopic(a: string, b: string): boolean {
   const ta = titleTokens(a);
   const tb = titleTokens(b);
-  let shared = 0;
-  for (const w of ta) if (tb.has(w)) shared++;
-  return shared >= SAME_TOPIC_SHARED || jaccard(ta, tb) >= SAME_TOPIC_JACCARD;
+  return sharedCount(ta, tb) >= SAME_TOPIC_SHARED || jaccard(ta, tb) >= SAME_TOPIC_JACCARD;
 }
 
 /**

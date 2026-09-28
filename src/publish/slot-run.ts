@@ -23,6 +23,10 @@ import {
 import { igUserId } from "./instagram.api";
 import { markIgFailed, markIgPosted, publishArticleToInstagram } from "./instagram";
 import { slotPlan } from "./slot.api";
+import { gateBeforePublish } from "./prepublish";
+
+/** Шалгалтад унасан нийтлэлийг хэдэн удаа алгасаж дараагийнхыг авах вэ */
+const MAX_GATE_TRIES = 4;
 
 export interface SlotResult {
   slot: string;
@@ -84,13 +88,31 @@ export async function runPublishSlot(now = new Date()): Promise<SlotResult> {
     });
   }
 
-  const pick = await pickForSlot(now, plan.categories);
+  // Нийтлэхийн өмнөх шалгалт: механик fidelity + ижил үйл явдлын давхардал.
+  // Унасан нийтлэлийг алгасаад ДАРААГИЙНХЫГ авна — slot хоосон үлдэхгүй.
+  const skipped: string[] = [];
+  let pick: Awaited<ReturnType<typeof pickForSlot>> = null;
+  let gate: Awaited<ReturnType<typeof gateBeforePublish>> | null = null;
+
+  for (let tryNo = 0; tryNo < MAX_GATE_TRIES; tryNo++) {
+    const candidate = await pickForSlot(now, plan.categories, skipped);
+    if (!candidate) break;
+
+    gate = await gateBeforePublish(candidate.id, { now });
+    costUsd += gate.costUsd;
+    if (gate.ok) { pick = candidate; break; }
+
+    skipped.push(candidate.id);
+    console.warn(`⊘ алгасав: ${gate.reason}`);
+  }
+
   if (!pick) {
-    console.log("Нийтлэх нийтлэл олдсонгүй — дараалалаас постлоно");
+    const why = skipped.length ? `${skipped.length} нийтлэл шалгалтад унав` : "нэр дэвшигч алга";
+    console.log(`Нийтлэх нийтлэл олдсонгүй (${why}) — дараалалаас постлоно`);
     const posted = await postPending(now);
     return finish({
       action: posted.posted > 0 ? "queue" : "none",
-      detail: posted.posted > 0 ? `дараалалаас ${posted.posted} пост` : "нэр дэвшигч алга",
+      detail: posted.posted > 0 ? `дараалалаас ${posted.posted} пост` : why,
     });
   }
 
@@ -102,7 +124,9 @@ export async function runPublishSlot(now = new Date()): Promise<SlotResult> {
   });
   console.log(
     `↑ PUBLISHED score=${article.relevance} ${article.category} ` +
-      `"${article.titleMn}" /medee/${article.slug} (${article.readyAt ? "бэлэн" : "бэлтгэлгүй"})`,
+      `"${article.titleMn}" /medee/${article.slug} (${article.readyAt ? "бэлэн" : "бэлтгэлгүй"})` +
+      (gate?.repaired ? " · карт дахин үүсгэв" : "") +
+      (gate?.prefixed ? " · «Шинэчлэл:»" : ""),
   );
 
   // 4. Тэр дор нь FB-д
