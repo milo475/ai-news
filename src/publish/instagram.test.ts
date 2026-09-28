@@ -5,6 +5,7 @@ import {
   hashtagComment, IG_BROAD_HASHTAGS, IG_NICHE_HASHTAGS, igUserId, MAX_ALT_CHARS,
   MAX_CAPTION_CHARS, MAX_HASHTAGS, MAX_IG_ATTEMPTS, MAX_TOPIC_HASHTAGS, MIN_HASHTAGS,
   publicImageUrl,
+  breakdown, IG_MAX_AGE_HOURS, queueLabel, tooOldForIg,
 } from "./instagram.api";
 import { postToInstagram } from "./instagram";
 
@@ -210,4 +211,46 @@ test("postToInstagram: IG_USER_ID байхгүй бол алдаа", async () =>
   delete process.env.IG_USER_ID;
   await assert.rejects(postToInstagram("https://a.mn/i.jpg", "c", { fetchImpl: fetch }), /IG_USER_ID/);
   assert.equal(MAX_IG_ATTEMPTS, 3);
+});
+
+// ---------- Дараалал (2026-09-27: «0 постлосон, алдаа 0, дараалалд 6») ----------
+
+const NOW = new Date("2026-09-27T12:00:00Z");
+const hoursAgo = (h: number) => new Date(NOW.getTime() - h * 3_600_000);
+
+test("36 цагаас хуучин мэдээг IG-д тавихгүй", () => {
+  assert.equal(tooOldForIg(hoursAgo(1), NOW), false);
+  assert.equal(tooOldForIg(hoursAgo(35), NOW), false);
+  assert.equal(tooOldForIg(hoursAgo(37), NOW), true);
+  // Огноогүй бол хасахгүй — мэдэхгүй гэдэг нь хуучин гэсэн үг биш
+  assert.equal(tooOldForIg(null, NOW), false);
+  assert.equal(IG_MAX_AGE_HOURS, 36);
+});
+
+test("дараалал яагаад постлогдохгүй байгааг ангилна", () => {
+  const b = breakdown(
+    [
+      { hasImage: true, hasText: true, publishedAt: hoursAgo(2) },   // бэлэн
+      { hasImage: true, hasText: false, publishedAt: hoursAgo(3) },  // текстгүй
+      { hasImage: true, hasText: true, publishedAt: hoursAgo(50) },  // хуучин
+      { hasImage: true, hasText: false, publishedAt: hoursAgo(80) }, // хуучин (нас түрүүлнэ)
+      { hasImage: false, hasText: true, publishedAt: hoursAgo(1) },  // зураггүй
+    ],
+    NOW,
+  );
+  assert.deepEqual(b, { eligible: 1, noText: 1, tooOld: 2, noImage: 1 });
+});
+
+test("логийн мөр нь нийт ба задаргааг хоёуланг харуулна", () => {
+  const label = queueLabel({ eligible: 0, noText: 4, tooOld: 2, noImage: 0 });
+  assert.match(label, /^6 \(/, "нийт тоо эхэлнэ");
+  assert.match(label, /бэлэн 0/);
+  assert.match(label, /текстгүй 4/);
+  assert.match(label, /36ц-аас хуучин 2/);
+  // Тэг ангиллыг бичихгүй
+  assert.ok(!label.includes("зураггүй"));
+});
+
+test("бүгд бэлэн бол задаргаа товч", () => {
+  assert.equal(queueLabel({ eligible: 3, noText: 0, tooOld: 0, noImage: 0 }), "3 (бэлэн 3)");
 });

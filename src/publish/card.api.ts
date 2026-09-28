@@ -29,9 +29,38 @@ export const LINE_HEIGHT = 1.15;
 /** Headline-ий дээд урт */
 export const MAX_HOOK_CHARS = 110;
 
-/** Сурталчилгааны мөр */
-export const CTA_FB = "_дагаарай";
-export const CTA_IG = "_дэлгэрэнгүй bio-д";
+/**
+ * Картын доод зүүн буланд гарах уриалга.
+ *
+ * ЗӨВХӨН бүтэн, уншигдах монгол өгүүлбэр байна. 2026-09-25-аас 09-27 хооронд энд
+ * «_дагаарай» гэсэн ДУУСГААГҮЙ тэмдэглэгээ (урд нь тавьсан `_` нь дараа нь нөхөх
+ * гэсэн орон байсан) шууд картад зурагдаж, FB/IG-ийн бүх постод орсон. Тиймээс
+ * доорх `safeCta` шалгалт нэмэгдэв: эвдэрсэн текстийг зурахаас татгалзана.
+ */
+export const CTA_FB = "Дагаж, өдөр бүр уншаарай";
+export const CTA_IG = "Дэлгэрэнгүй — bio-д";
+
+/** Уриалгын дээд урт — PAD-аас PAD хооронд багтах ёстой (font-size 28) */
+export const MAX_CTA_CHARS = 40;
+
+/** Тэмдэглэгээ шиг харагдах эхлэл/төгсгөл: «_дагаарай», «{cta}», «TODO …» */
+const CTA_PLACEHOLDER = /^[_\-*{[<]|[_{[<]$|^(todo|tbd|fixme|xxx)\b/iu;
+
+/**
+ * Картад зурахад тэнцэх уриалга эсэхийг шалгана.
+ *
+ * Хоосон, хэт урт, кирилл үсэггүй, эсвэл тэмдэглэгээ шиг бол **null** —
+ * дуудагч тэр мөрийг огт зурахгүй. Эвдэрсэн бичиг зурснаас юу ч зураагүй нь дээр.
+ */
+export function safeCta(raw: string | null | undefined): string | null {
+  const cta = (raw ?? "").replace(/\s+/g, " ").trim();
+  if (!cta) return null;
+  if (cta.length > MAX_CTA_CHARS) return null;
+  if (CTA_PLACEHOLDER.test(cta)) return null;
+  // Кирилл үсэг огт байхгүй бол монгол уриалга биш
+  if (!/\p{Script=Cyrillic}/u.test(cta)) return null;
+  return cta;
+}
 
 /** Roboto Bold-ийн кирилл тэмдэгтийн дундаж өргөн (фонтын хэмжээнд харьцуулсан) */
 const CHAR_RATIO = 0.53;
@@ -668,6 +697,13 @@ export function overlaySvg(opts: OverlayOptions): string {
     )
     .join("\n");
 
+  // Эвдэрсэн эсвэл хоосон уриалгыг ОГТ зурахгүй — хагас бичиг картыг сүйтгэнэ
+  const ctaText = safeCta(opts.cta);
+  const cta = ctaText
+    ? `  <text x="${PAD}" y="${ctaY}" font-family="${font}" font-weight="400" font-size="28"\n` +
+      `        fill="#ffffff" fill-opacity="0.7">${esc(ctaText)}</text>`
+    : "";
+
   // Эх сурвалжийн зураг хэрэглэсэн бол доод баруун буланд жижгээр зохиогчийг нь бичнэ
   const credit = opts.credit
     ? `  <text x="${w - PAD}" y="${ctaY}" font-family="${font}" font-weight="400" font-size="24"\n` +
@@ -695,8 +731,7 @@ export function overlaySvg(opts: OverlayOptions): string {
 
 ${headline}
 
-  <text x="${PAD}" y="${ctaY}" font-family="${font}" font-weight="400" font-size="28"
-        fill="#ffffff" fill-opacity="0.7">${esc(opts.cta)}</text>
+${cta}
 ${credit}
 </svg>`;
 }

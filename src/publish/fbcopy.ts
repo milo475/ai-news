@@ -10,11 +10,12 @@
  */
 import "dotenv/config";
 import { chatJson } from "../agent/llm";
+import { judgeFidelity } from "./fidelity";
 import { CATEGORY_LABEL } from "../agent/category";
 import { prisma } from "../db";
 import { isEntry } from "../lib/cli";
 import {
-  assemblePost, bodyOf, CATEGORY_TONE, checkBody, cleanQuestion, cleanTags, domainOf,
+  assemblePost, bodyOf, CATEGORY_TONE, checkBody, checkQuestion, cleanTags, domainOf, fallbackVariant,
   FB_COPY_SCHEMA, FB_COPY_SYSTEM, sanitizeVariant, showSource, type CopyVariant,
 } from "./fbcopy.api";
 
@@ -130,9 +131,42 @@ export async function generateFbCopy(
 
   // A/B: санамсаргүй нэгийг постлоно, нөгөө нь нөөцөд
   const first = rand() < 0.5 ? 0 : 1;
-  const text = assemblePost({ variant: variants[first]!, sourceDomain });
-  const alt = assemblePost({ variant: variants[1 - first]!, sourceDomain });
-  const question = cleanQuestion(variants[first]!.question ?? "");
+  const order = [variants[first]!, variants[1 - first]!];
+
+  // Үнэн зөв байдлын шүүгч — картын гарчгийн адил. FB текст нь картаас ч олон хүнд
+  // хүрдэг: 2026-09-27-нд «түр зогсоосон»-ыг «БҮРЭН зогсоолоо» гэж бичсэн.
+  let chosen = -1;
+  for (let i = 0; i < order.length; i++) {
+    const v = order[i]!;
+    const verdict = await judgeFidelity(
+      { hook: bodyOf(v), kind: "FB текст", titleMn: a.titleMn, summaryMn: a.summaryMn, bodyMn: a.bodyMn },
+      { chat },
+    );
+    costUsd += verdict.costUsd;
+    if (verdict.ok && verdict.faithful) { chosen = i; break; }
+    const why = verdict.ok ? verdict.issues.join("; ") : "шүүгч ажиллсангүй";
+    problems.push(`хувилбар ${i + 1} хүлээж авсангүй: ${why}`);
+  }
+
+  // fail-closed: аль ч хувилбар тэнцээгүй бол нийтлэлийн өөрийн өгүүлбэрээр бичнэ
+  if (chosen === -1) {
+    const fallback = fallbackVariant(a);
+    if (!fallback) throw new Error("FB текст үнэн зөв байдлын шалгалтад тэнцсэнгүй, нөөц бие ч гарсангүй");
+    console.warn("  ⚠ FB текст: хоёр хувилбар хоёулаа тэнцсэнгүй — нийтлэлийн эхний өгүүлбэрээр бичив");
+    order.splice(0, order.length, fallback, fallback);
+    chosen = 0;
+  }
+
+  const text = assemblePost({ variant: order[chosen]!, sourceDomain });
+  const alt = assemblePost({ variant: order[1 - chosen] ?? order[chosen]!, sourceDomain });
+  const raw = order[chosen]!.question ?? "";
+  const { question, reason } = checkQuestion(raw);
+  if (reason) {
+    // Асуулт яагаад гараагүйг тодорхой хэл — LLM өгөөгүй юу, шүүлт хаясан уу
+    console.warn(`  ⚠ уншигчийн асуулт гарсангүй: ${reason}${raw.trim() ? ` — «${raw.trim().slice(0, 90)}»` : ""}`);
+  } else {
+    console.log(`  асуулт: ${question}`);
+  }
 
   if (!opts.dryRun) {
     await prisma.article.update({

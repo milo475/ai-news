@@ -1,8 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  dropsAttribution, FIDELITY_DAILY_WARN, FIDELITY_SYSTEM, fidelityUser, hasAttribution,
-  isUsableVerdict, needsAttribution, normalizeVerdict,
+  dropsAttribution, dropsHedge, FIDELITY_DAILY_WARN, FIDELITY_SYSTEM, fidelitySystem, fidelityUser,
+  hasAttribution, hasFinality, hasHedge, isUsableVerdict, needsAttribution, normalizeVerdict,
 } from "./fidelity.api";
 import { judgeFidelity } from "./fidelity";
 
@@ -144,3 +144,62 @@ test("FIDELITY_SYSTEM: 3 бодит жишээний дүрэм бүгд prompt 
 });
 
 export { LAWSUIT, LAWSUIT_BAD, LAWSUIT_GOOD, ENZYME, ENZYME_BAD, ACADEMY, ACADEMY_BAD };
+
+// ---------- «түр зогсоосон» → «зогсоолоо» (2026-09-27-ны production алдаа) ----------
+
+const PAUSE_SOURCE =
+  "OpenAI шинэ загварынхаа сургалтыг түр зогсоов. Компани аюулгүй байдлын шалгалт " +
+  "дуусмагц хэдэн долоо хоногийн дараа үргэлжлүүлнэ гэж мэдэгдэв.";
+
+test("эх мэдээний hedge-ийг таана", () => {
+  assert.equal(hasHedge(PAUSE_SOURCE), true);
+  assert.equal(hasHedge("Google загвараа бүрмөсөн хаалаа."), false);
+  assert.equal(hasHedge("Зарим бүс нутагт үйлчилгээг хязгаарлав."), true);
+});
+
+test("эцсийн өнгө аяс бүхий үгсийг таана", () => {
+  assert.equal(hasFinality("OpenAI сургалтыг зогсоолоо"), true);
+  assert.equal(hasFinality("сургалт болон үнэлгээгээ бүрэн зогсоолоо"), true);
+  assert.equal(hasFinality("OpenAI сургалтаа үргэлжлүүлнэ"), false);
+});
+
+test("«түр»-ийг хассан гарчгийг зөрчил гэж үзнэ", () => {
+  // Нийтлэлийн бодит гарчиг: «…сургалтыг зогсоолоо» (slug нь -tur- гүй байсан)
+  assert.equal(dropsHedge("OpenAI шинэ загварын сургалтыг зогсоолоо", PAUSE_SOURCE), true);
+  // FB/IG текст нь бүр өргөжүүлсэн
+  assert.equal(
+    dropsHedge("OpenAI сургалт болон үнэлгээгээ бүрэн зогсоолоо", PAUSE_SOURCE),
+    true,
+  );
+});
+
+test("«түр»-ээ хадгалсан бол зөрчил биш", () => {
+  assert.equal(dropsHedge("OpenAI сургалтаа түр зогсоов", PAUSE_SOURCE), false);
+  assert.equal(dropsHedge("OpenAI сургалтаа хэсэг хугацаанд зогсоов", "OpenAI түр зогсоов"), true);
+});
+
+test("эх мэдээ өөрөө эцсийн бол зөрчил биш", () => {
+  assert.equal(dropsHedge("Google загвараа зогсоолоо", "Google загвараа бүрмөсөн хаалаа."), false);
+});
+
+test("шүүгчийн prompt шалгаж буй зүйлийн төрлийг агуулна", () => {
+  assert.match(fidelitySystem("гарчиг"), /ГАРЧИГ нь эх нийтлэлдээ үнэнч/);
+  assert.match(fidelitySystem("FB текст"), /FB ТЕКСТ нь эх нийтлэлдээ үнэнч/);
+  assert.match(fidelitySystem("IG тайлбар"), /IG ТАЙЛБАР нь эх нийтлэлдээ үнэнч/);
+  // Тэмдэглэгээ үлдэх ёсгүй
+  assert.ok(!fidelitySystem("гарчиг").includes("{{KIND}}"));
+  // 7 дахь зөрчлийн төрөл баримтжсан эсэх
+  assert.match(fidelitySystem("гарчиг"), /ТҮР \/ ХЭСЭГЧИЛСЭНИЙГ БҮРЭН/);
+});
+
+test("шалгах текстийн төрөл user prompt-д гарна", () => {
+  const u = fidelityUser({
+    hook: "тест", kind: "FB текст", titleMn: "Гарчиг", summaryMn: null, bodyMn: null,
+  });
+  assert.match(u, /ШАЛГАХ FB ТЕКСТ: тест/);
+  // Төрөл заагаагүй бол гарчиг
+  assert.match(
+    fidelityUser({ hook: "тест", titleMn: null, summaryMn: null, bodyMn: null }),
+    /ШАЛГАХ ГАРЧИГ/,
+  );
+});

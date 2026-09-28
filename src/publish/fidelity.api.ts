@@ -47,6 +47,42 @@ export function dropsAttribution(hook: string, sourceText: string): boolean {
   return needsAttribution(sourceText) && !hasAttribution(hook);
 }
 
+/**
+ * «Түр зогсоосон» → «зогсоолоо» төрлийн зөрчил.
+ *
+ * 2026-09-27-ны production алдаа: эх мэдээ «OpenAI pauses training» (ТҮР зогсоосон)
+ * байсан атал improve алхам гарчгаас «түр»-ийг хасаж «…сургалтыг зогсоолоо» болгосон;
+ * FB/IG текст бүр «БҮРЭН зогсоолоо» гэж өргөжсөн. Хэсэгчилсэн, буцаагдах боломжтой
+ * үйлдлийг эцсийн шийдвэр мэт харуулах нь хамгийн ноцтой гуйвуулалтуудын нэг.
+ */
+const HEDGE_WORDS = [
+  "түр", "хэсэгчилсэн", "хэсэгчлэн", "зарим", "хойшлуул", "түдгэлзүү", "завсарла",
+  "түтгэлзүү", "зогсоолттой", "pause", "temporar", "partial", "suspend",
+];
+
+/** Эцсийн, буцаахгүй мэт сонсогдох үг — hedge-гүйгээр гарвал зөрчил */
+const FINALITY_WORDS = [
+  "бүрэн", "бүр мөсөн", "бүрмөсөн", "бүхэлд", "үүрд", "мөнхөд", "эцэслэн", "бүгдийг",
+  "зогсоолоо", "зогсоов", "зогсоожээ", "зогслоо", "хаалаа", "хаав", "цуцаллаа", "цуцалав",
+  "болилоо", "болив", "татгалзлаа", "бүрмөсөн зогсоо",
+];
+
+export function hasHedge(text: string): boolean {
+  return hasAny(text, HEDGE_WORDS);
+}
+
+export function hasFinality(text: string): boolean {
+  return hasAny(text, FINALITY_WORDS);
+}
+
+/**
+ * Эх мэдээ нь «түр/хэсэгчилсэн» атал гаргалт нь эцсийн мэт болсон эсэх.
+ * Гаргалт өөрөө hedge-ээ хадгалсан бол зөрчил биш.
+ */
+export function dropsHedge(text: string, sourceText: string): boolean {
+  return hasHedge(sourceText) && !hasHedge(text) && hasFinality(text);
+}
+
 // ---------- LLM шүүгч ----------
 
 export interface FidelityVerdict {
@@ -54,9 +90,12 @@ export interface FidelityVerdict {
   issues: string[];
 }
 
-export const FIDELITY_SYSTEM = `Чи баримт шалгагч. Нийтлэлээс гаргасан ГАРЧИГ нь эх нийтлэлдээ үнэнч эсэхийг шалгана.
+/** Юуг шалгаж байна вэ — нэг шүүгч гурван газар ажиллана */
+export type FidelityKind = "гарчиг" | "FB текст" | "IG тайлбар";
 
-Гарчиг нь нийтлэлд БАЙГАА зүйлийг л хэлэх ёстой. Дараах бол ЗӨРЧИЛ (faithful=false):
+export const FIDELITY_SYSTEM = `Чи баримт шалгагч. Нийтлэлээс гаргасан {{KIND}} нь эх нийтлэлдээ үнэнч эсэхийг шалгана.
+
+{{KIND}} нь нийтлэлд БАЙГАА зүйлийг л хэлэх ёстой. Дараах бол ЗӨРЧИЛ (faithful=false):
 
 1. НЭМСЭН БАРИМТ — нийтлэлд байхгүй зүйл, тодотгол, шинж чанар.
    Жишээ: нийтлэлд зүгээр «чатбот» гэснийг «хүүхдийн ашигладаг чатбот» гэж бичсэн.
@@ -77,6 +116,13 @@ export const FIDELITY_SYSTEM = `Чи баримт шалгагч. Нийтлэл
 
 6. МЭДЭГДЭЛ, СУДАЛГАА, ТААМГИЙГ ТОГТСОН ҮНЭН МЭТ бичсэн — хэн хэлснийг нь орхисон.
 
+7. ТҮР / ХЭСЭГЧИЛСЭНИЙГ БҮРЭН, ЭЦСИЙН БОЛГОСОН — нийтлэлд «түр зогсоосон /
+   хойшлуулсан / зарим хэсгийг / түдгэлзүүлсэн» гэснийг «зогсоолоо / бүрэн зогсоов /
+   хаалаа / цуцаллаа» гэж эцсийн шийдвэр мэт бичсэн.
+   Жишээ: «OpenAI сургалтаа ТҮР зогсоов» → «OpenAI сургалтаа зогсоолоо» нь ЗӨРЧИЛ;
+   «…сургалт болон үнэлгээгээ БҮРЭН зогсоолоо» нь бүр ноцтой ЗӨРЧИЛ.
+   Эсрэгээр «бүрэн хориглов» гэснийг «түр хязгаарлав» гэж зөөлрүүлэх нь бас ЗӨРЧИЛ.
+
 ЗӨРЧИЛ БИШ:
 - Товчилсон, өөр үгээр хэлсэн, сонирхолтой болгосон — УТГА нь хэвээр бол зүгээр.
 - Нийтлэлийн аль ч хэсэгт байгаа баримтыг ашигласан (зөвхөн гарчигт биш).
@@ -87,10 +133,15 @@ issues: зөрчил бүрийг НЭГ богино өгүүлбэрээр —
 
 Зөвхөн JSON.`;
 
+/** Шалгах зүйлийн төрлөөр system prompt-ыг тохируулна */
+export function fidelitySystem(kind: FidelityKind = "гарчиг"): string {
+  return FIDELITY_SYSTEM.replaceAll("{{KIND}}", kind.toUpperCase());
+}
+
 export const FIDELITY_SCHEMA = {
   type: "object",
   properties: {
-    faithful: { type: "boolean", description: "Гарчиг эх нийтлэлдээ үнэнч эсэх" },
+    faithful: { type: "boolean", description: "Шалгаж буй текст эх нийтлэлдээ үнэнч эсэх" },
     issues: {
       type: "array",
       items: { type: "string" },
@@ -102,7 +153,9 @@ export const FIDELITY_SCHEMA = {
 };
 
 export interface FidelityInput {
+  /** Шалгах текст — гарчиг, FB текст эсвэл IG тайлбар */
   hook: string;
+  kind?: FidelityKind;
   titleMn: string | null;
   summaryMn: string | null;
   bodyMn: string | null;
@@ -113,7 +166,7 @@ export const FIDELITY_BODY_CHARS = 2_000;
 
 export function fidelityUser(a: FidelityInput): string {
   return [
-    `ШАЛГАХ ГАРЧИГ: ${a.hook.trim()}`,
+    `ШАЛГАХ ${(a.kind ?? "гарчиг").toUpperCase()}: ${a.hook.trim()}`,
     "",
     "--- ЭХ НИЙТЛЭЛ ---",
     `Гарчиг: ${a.titleMn ?? ""}`,

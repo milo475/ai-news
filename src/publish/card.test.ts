@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import sharp from "sharp";
 import {
   buildPhotoPrompt, CARD_H, CARD_W, checkHook, creditText, CTA_FB, CTA_IG, DEFAULT_IMAGE_DAILY_LIMIT,
+  MAX_CTA_CHARS, safeCta,
   DEFAULT_IMAGE_MODEL, EVERYDAY_ONLY, fitHeadline, FONT_SIZES, hasImpactNumber, hookScore,
   imageDailyLimit, imageModel, isGenericScene, isLabScene, MAX_HOOK_CHARS, MAX_LINES, overlaySvg,
   PAD, PHOTO_PROMPT_NEGATIVE, PHOTO_PROMPT_PREFIX, pickHook, RECENT_SCENES, recentScenesBlock,
@@ -454,4 +455,39 @@ test("checkHook: ишлэлтэй гарчиг press-release гэж хасагд
   const attributed = "Прокурор 40 хуудас нотлох баримт бүрдүүлсэн гэж мэдэгдэв.";
   assert.deepEqual(checkHook(attributed), [], "ишлэл шаарддаг атал хасдаг байв");
   assert.ok(checkHook("OpenAI 40 хувийн хямдралаа зарлав.").some((p) => p.code === "press-release"));
+});
+
+// ---------- Картын хөл (2026-09-27-ны «_дагаарай» алдаа) ----------
+
+test("эвдэрсэн, дуусгаагүй уриалгыг картад ОГТ зурахгүй", () => {
+  // 2026-09-25-аас 09-27 хооронд бүх карт «_дагаарай» гэж зурагдсан
+  for (const bad of ["_дагаарай", "_дэлгэрэнгүй bio-д", "", "   ", "{cta}", "[дагаарай]", "TODO дагах"]) {
+    assert.equal(safeCta(bad), null, JSON.stringify(bad));
+    const svg = overlaySvg({ lines: ["Гарчиг"], fontSize: 64, cta: bad });
+    assert.ok(!svg.includes("дагаарай"), `«${bad}» картад зурагдсан`);
+    assert.ok(!svg.includes("font-size=\"28\""), "хөлийн мөр огт зурагдах ёсгүй");
+  }
+});
+
+test("кирилл үсэггүй, хэт урт уриалгыг хүлээж авахгүй", () => {
+  assert.equal(safeCta("follow us"), null);
+  assert.equal(safeCta("а".repeat(MAX_CTA_CHARS + 1)), null);
+  assert.equal(safeCta("а".repeat(MAX_CTA_CHARS)), "а".repeat(MAX_CTA_CHARS));
+});
+
+test("одоогийн уриалгууд шалгалтыг давна", () => {
+  assert.equal(safeCta(CTA_FB), CTA_FB);
+  assert.equal(safeCta(CTA_IG), CTA_IG);
+  assert.ok(!CTA_FB.startsWith("_"), "тэмдэглэгээ үлдсэн байна");
+  assert.ok(!CTA_IG.startsWith("_"), "тэмдэглэгээ үлдсэн байна");
+  assert.ok(overlaySvg({ lines: ["Гарчиг"], fontSize: 64, cta: CTA_FB }).includes(CTA_FB));
+});
+
+test("хөл алга ч гэсэн гарчиг, wordmark, credit хэвээр", () => {
+  const svg = overlaySvg({
+    lines: ["Гарчгийн мөр"], fontSize: 64, cta: "_эвдэрсэн", credit: creditText("The Verge AI"),
+  });
+  assert.ok(svg.includes("Гарчгийн мөр"));
+  assert.ok(svg.includes("AI News"));
+  assert.ok(svg.includes("Зураг: The Verge AI"));
 });

@@ -1,8 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  assemblePost, bodyOf, checkBody, cleanQuestion, cleanTags, domainOf, ensureLinkInComment,
-  FOLLOW_LINE,
+  assemblePost, bodyOf, checkBody, checkQuestion, cleanQuestion, cleanTags, domainOf,
+  ensureLinkInComment, fallbackVariant, firstSentences, FOLLOW_LINE,
   LINK_IN_COMMENT_LINE, linkComment, MAX_BODY_CHARS, MAX_QUESTION_CHARS, MIN_BODY_CHARS,
   sanitizeVariant, showSource, SOURCE_PREFIX, withoutLinkNotice, type CopyVariant,
 } from "./fbcopy.api";
@@ -146,4 +146,55 @@ test("ensureLinkInComment: шинэ текстийг хөндөхгүй (иде�
 test("ensureLinkInComment: дагах уриалга байхгүй бол төгсгөлд нэмнэ", () => {
   const fixed = ensureLinkInComment(`Биет.\n\nДэлгэрэнгүй: ${LINK}`);
   assert.deepEqual(fixed.split("\n\n"), ["Биет.", LINK_IN_COMMENT_LINE]);
+});
+
+// ---------- Уншигчийн асуулт яагаад гарахгүй байна вэ ----------
+
+test("асуулт хаягдсан шалтгааныг нэрлэнэ", () => {
+  assert.deepEqual(checkQuestion(""), { question: null, reason: "LLM асуулт өгөөгүй" });
+  assert.deepEqual(checkQuestion("   "), { question: null, reason: "LLM асуулт өгөөгүй" });
+  assert.deepEqual(checkQuestion("Танайд ийм систем бий юу"), {
+    question: null, reason: "асуултын тэмдэггүй",
+  });
+  assert.deepEqual(checkQuestion("Та юу гэж бодож байна?"), { question: null, reason: "хэт ерөнхий" });
+  assert.equal(checkQuestion("а".repeat(MAX_QUESTION_CHARS + 1) + "?").reason, "хэт урт");
+});
+
+test("зөв асуулт шалтгаангүй өнгөрнө", () => {
+  const ok = checkQuestion("Танай багт ийм зүйл тохиолдож байсан уу?");
+  assert.equal(ok.reason, null);
+  assert.equal(ok.question, "Танай багт ийм зүйл тохиолдож байсан уу?");
+  // cleanQuestion нь checkQuestion-ийн хураангуй хэвээр
+  assert.equal(cleanQuestion("Танай багт ийм зүйл тохиолдож байсан уу?"), ok.question);
+});
+
+// ---------- Fidelity унасан үеийн нөөц бие ----------
+
+test("нийтлэлийн эхний өгүүлбэрүүдийг цэвэрхэн таслана", () => {
+  assert.equal(firstSentences(null), "");
+  assert.equal(firstSentences("Богино текст."), "Богино текст.");
+
+  const long = "Эхний өгүүлбэр байна. " + "Хоёр дахь өгүүлбэр нэлээд урт байна. ".repeat(20);
+  const cut = firstSentences(long, 120);
+  assert.ok(cut.length <= 121, `урт нь ${cut.length}`);
+  assert.ok(cut.endsWith(".") || cut.endsWith("…"));
+  // Үг дундуур таслаагүй
+  assert.ok(!/\s\S{1,2}…$/u.test(cut));
+});
+
+test("нөөц бие нь нийтлэлээс шууд авагдана — зохиосон зүйлгүй", () => {
+  const v = fallbackVariant({
+    summaryMn: "OpenAI шинэ загварынхаа сургалтыг түр зогсоов. Шалгалт дуусмагц үргэлжлүүлнэ.",
+    bodyMn: null,
+  });
+  assert.ok(v);
+  assert.match(v!.context, /түр зогсоов/);
+  // Асуулт зохиохгүй
+  assert.equal(v!.question, "");
+  assert.equal(v!.why, "");
+});
+
+test("нийтлэл хэт богино бол нөөц бие үүсгэхгүй", () => {
+  assert.equal(fallbackVariant({ summaryMn: "Богино.", bodyMn: null }), null);
+  assert.equal(fallbackVariant({ summaryMn: null, bodyMn: null }), null);
 });

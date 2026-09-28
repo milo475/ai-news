@@ -7,8 +7,9 @@
 import { chatJson } from "../agent/llm";
 import { ubDateLabel } from "../jobs/day";
 import {
-  dropsAttribution, FIDELITY_DAILY_WARN, FIDELITY_SCHEMA, FIDELITY_SYSTEM, fidelityUser,
-  isUsableVerdict, normalizeVerdict, type FidelityInput, type FidelityVerdict,
+  dropsAttribution, dropsHedge, FIDELITY_BODY_CHARS, FIDELITY_DAILY_WARN, FIDELITY_SCHEMA,
+  fidelitySystem, fidelityUser, isUsableVerdict, normalizeVerdict,
+  type FidelityInput, type FidelityVerdict,
 } from "./fidelity.api";
 
 type Chat = typeof chatJson;
@@ -31,7 +32,7 @@ export interface FidelityResult extends FidelityVerdict {
 }
 
 /**
- * Гарчгийг нийтлэлтэй харьцуулна.
+ * Шалгаж буй текстийг (гарчиг, FB текст, IG тайлбар) нийтлэлтэй харьцуулна.
  *
  * Шүүгч унавал `ok: false` — гарчгийг хүлээн авахгүй. Өмнө нь «үнэнч» гэж тооцдог
  * байсан нь шалгагдаагүй гарчиг нийтэд гарах цоорхой байв.
@@ -40,7 +41,7 @@ export async function judgeFidelity(
   a: FidelityInput,
   opts: { chat?: Chat } = {},
 ): Promise<FidelityResult> {
-  // 1. Механик: эх мэдээ буруутгал/мэдэгдэл атал гарчиг нь шууд батлан хэлж байвал
+  // 1. Механик шалгалтууд — LLM дуудахгүйгээр илт зөрчлийг барина
   const sourceText = [a.titleMn, a.summaryMn].filter(Boolean).join(" ");
   if (dropsAttribution(a.hook, sourceText)) {
     return {
@@ -51,12 +52,24 @@ export async function judgeFidelity(
     };
   }
 
+  // «түр зогсоосон» → «зогсоолоо». Биетийг ч хардаг: гарчгаас «түр» хасагдсан ч
+  // нийтлэлийн биед үлдсэн байдаг (2026-09-27-ны OpenAI pauses training тохиолдол).
+  const withBody = [sourceText, (a.bodyMn ?? "").slice(0, FIDELITY_BODY_CHARS)].join(" ");
+  if (dropsHedge(a.hook, withBody)) {
+    return {
+      ok: true,
+      faithful: false,
+      issues: ["Эх мэдээ нь ТҮР/хэсэгчилсэн үйлдлийг хэлж байтал эцсийн, бүрэн зогссон мэт бичсэн — «түр», «зарим», «хойшлуулсан» гэдгийг үлдээ."],
+      costUsd: 0,
+    };
+  }
+
   // 2. LLM шүүгч
   const chat = opts.chat ?? chatJson;
   try {
     const out = await chat<FidelityVerdict>({
       model: fidelityModel(),
-      system: FIDELITY_SYSTEM,
+      system: fidelitySystem(a.kind),
       user: fidelityUser(a),
       schema: FIDELITY_SCHEMA,
       maxTokens: 1_200,

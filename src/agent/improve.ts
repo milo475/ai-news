@@ -20,6 +20,7 @@ import { cardForArticle, saveCard } from "../publish/card";
 import { imagesToday, recentImagePrompts } from "../publish/fbimage";
 import { imageDailyLimit } from "../publish/card.api";
 import { generateFbCopy } from "../publish/fbcopy";
+import { judgeFidelity } from "../publish/fidelity";
 import { chatJson } from "./llm";
 import {
   checkImproved, IMAGE_AHEAD, IMPROVE_SCHEMA, IMPROVE_SYSTEM, readyTarget, trimTitle,
@@ -69,17 +70,43 @@ export async function improveText(
     return { changed: [], costUsd: out.costUsd };
   }
 
+  // Гарчиг өөрчлөгдсөн бол үнэн зөв эсэхийг шалгана.
+  //
+  // 2026-09-27: эх мэдээ «OpenAI ТҮР зогсоов» байсныг improve нь «…зогсоолоо» болгож,
+  // slug хүртэл «-tur-» -гүйгээр үүссэн. Гарчиг бол хамгийн олон хүнд хүрдэг мөр тул
+  // картын гарчгийн адил шүүгчээр дамжина.
+  let titleMn = trimTitle(out.data.titleMn);
+  let costUsd = out.costUsd;
+  const titleChanged = titleMn.trim() !== a.titleMn.trim();
+
+  if (titleChanged) {
+    const verdict = await judgeFidelity(
+      { hook: titleMn, kind: "гарчиг", titleMn: a.titleMn, summaryMn: a.summaryMn, bodyMn: a.bodyMn },
+      { chat },
+    );
+    costUsd += verdict.costUsd;
+    // fail-closed: шүүгч унасан ч гэсэн шалгагдаагүй гарчгийг хүлээн авахгүй
+    if (!verdict.ok || !verdict.faithful) {
+      const why = verdict.ok ? verdict.issues.join("; ") : "шүүгч ажиллсангүй";
+      console.warn(`  ⚠ гарчгийн засварыг хүлээж авсангүй (${why})\n     хуучин: ${a.titleMn}\n     шинэ:   ${titleMn}`);
+      titleMn = a.titleMn;
+    }
+  }
+
   await prisma.article.update({
     where: { id: a.id },
     data: {
-      titleMn: trimTitle(out.data.titleMn),
+      titleMn,
       summaryMn: out.data.summaryMn.trim(),
       bodyMn: out.data.bodyMn.trim(),
       improvedAt: new Date(),
       tokensUsed: { increment: out.tokens },
     },
   });
-  return { changed: out.data.changed, costUsd: out.costUsd };
+  return {
+    changed: titleMn === a.titleMn ? out.data.changed.filter((c) => !/гарчиг/iu.test(c)) : out.data.changed,
+    costUsd,
+  };
 }
 
 /** Бэлэн (readyAt тэмдэглэгдсэн) DRAFT-уудын тоо */

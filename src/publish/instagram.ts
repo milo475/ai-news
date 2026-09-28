@@ -22,9 +22,12 @@ import { prisma } from "../db";
 import { ubDayRange } from "../jobs/day";
 import { jobRunMeta } from "../jobs/meta";
 import { dailyPublishLimit } from "../agent/quota.api";
+import { dropsAttribution, dropsHedge, FIDELITY_BODY_CHARS } from "./fidelity.api";
+import { firstSentences } from "./fbcopy.api";
 import {
-  altTextFor, buildCaption, buildHashtags, checkCaption, checkHashtags, hashtagComment,
-  igUserId, MAX_IG_ATTEMPTS, publicImageUrl,
+  altTextFor, breakdown, buildCaption, buildHashtags, checkCaption, checkHashtags, hashtagComment,
+  igAgeCutoff, IG_MAX_AGE_HOURS, igUserId, MAX_IG_ATTEMPTS, publicImageUrl, queueLabel,
+  type QueueBreakdown,
 } from "./instagram.api";
 
 const GRAPH = "https://graph.facebook.com/v21.0";
@@ -153,14 +156,37 @@ export async function markIgFailed(articleId: string, message: string): Promise<
   });
 }
 
-/** IG дараалалд хүлээж буй нийтлэлийн тоо (зурагтай, постлогдоогүй) */
-export async function igQueueSize(): Promise<number> {
-  return prisma.article.count({
-    where: {
-      status: "PUBLISHED", igPostedAt: null, igMediaId: null,
-      igAttempts: { lt: MAX_IG_ATTEMPTS }, fbImageData: { not: null },
-    },
+/** Постлогдоогүй, оролдлогын хязгаарт хүрээгүй нийтлэлүүд */
+const PENDING_WHERE = {
+  status: "PUBLISHED", igPostedAt: null, igMediaId: null,
+  igAttempts: { lt: MAX_IG_ATTEMPTS },
+} as const;
+
+/**
+ * Дараалалд юу байгаа, яагаад постлогдохгүй байгааг ангилж харуулна.
+ *
+ * Тоолох ба сонгох нөхцөл ӨМНӨ НЬ ЗӨРСӨН байсан: тоолохдоо зөвхөн зурагтай эсэхийг
+ * харж, сонгохдоо `fbText`-ийг бас шаарддаг байв. Тиймээс «0 постлосон, алдаа 0,
+ * дараалалд 6» гэсэн ойлгомжгүй мөр гардаг байлаа. Одоо нэг эх сурвалжаас тоолно.
+ */
+export async function igQueue(now = new Date()): Promise<QueueBreakdown> {
+  const rows = await prisma.article.findMany({
+    where: PENDING_WHERE,
+    select: { fbImageData: true, fbText: true, publishedAt: true },
   });
+  return breakdown(
+    rows.map((a) => ({
+      hasImage: a.fbImageData !== null,
+      hasText: (a.fbText ?? "").trim().length > 0,
+      publishedAt: a.publishedAt,
+    })),
+    now,
+  );
+}
+
+/** IG дараалалд хүлээж буй нийтлэлийн тоо — БЭЛЭН байгаа нь */
+export async function igQueueSize(now = new Date()): Promise<number> {
+  return (await igQueue(now)).eligible;
 }
 
 /** УБ цагаар өнөөдөр IG-д постлосон тоо */
@@ -180,8 +206,8 @@ export async function publishArticleToInstagram(
   const a = await prisma.article.findUniqueOrThrow({
     where: { id: articleId },
     select: {
-      id: true, titleMn: true, fbText: true, fbImageData: true, tags: true, fbTags: true,
-      fbHook: true,
+      id: true, titleMn: true, summaryMn: true, bodyMn: true, fbText: true, fbImageData: true,
+      tags: true, fbTags: true, fbHook: true,
       models: { select: { name: true } }, companies: { select: { name: true } },
     },
   });
@@ -198,7 +224,23 @@ export async function publishArticleToInstagram(
     ...a.companies.map((c) => c.name),
     ...a.tags,
   ];
-  const caption = buildCaption(a.fbText);
+  // `buildCaption` нь fbText-ээс мөр ХАСАХААС өөр юу ч нэмдэггүй тул fbText дээр
+  // хийсэн fidelity шалгалт caption-д шилждэг. Гэхдээ энэ шалгалт орохоос ӨМНӨ
+  // бичигдсэн хуучин fbText-үүд шалгагдаагүй байж болно — тэднийг механикаар
+  // (LLM дуудалгүй, зардалгүй) шалгаж, зөрчилтэй бол нийтлэлээсээ дахин бүрдүүлнэ.
+  let caption = buildCaption(a.fbText);
+  const sourceText = [a.titleMn, a.summaryMn, (a.bodyMn ?? "").slice(0, FIDELITY_BODY_CHARS)]
+    .filter(Boolean)
+    .join(" ");
+  if (dropsHedge(caption, sourceText) || dropsAttribution(caption, [a.titleMn, a.summaryMn].filter(Boolean).join(" "))) {
+    const safe = firstSentences(a.summaryMn ?? a.bodyMn);
+    if (safe.length >= 40) {
+      console.warn(`  ⚠ IG: тайлбар эх мэдээг гуйвуулсан — нийтлэлийн эхний өгүүлбэрээр сольсон`);
+      caption = buildCaption(safe);
+    } else {
+      throw new Error("IG тайлбар эх мэдээг гуйвуулсан, нөөц текст ч гарсангүй");
+    }
+  }
   const hashtags = buildHashtags(topicTags);
 
   const problems = [...checkCaption(caption), ...checkHashtags(hashtags)];
@@ -237,13 +279,22 @@ export async function postPendingInstagram(
   if (today >= limit) {
     const reason = `өдрийн хязгаар ${today}/${limit}`;
     console.log(`IG: ${reason}`);
-    return { posted: 0, failed: 0, skipped: true, queue: await igQueueSize(), reason };
+    return { posted: 0, failed: 0, skipped: true, queue: await igQueueSize(now), reason };
+  }
+
+  const q = await igQueue(now);
+  console.log(`IG дараалал: ${queueLabel(q)}`);
+  if (q.tooOld > 0) {
+    // Дарааллаас ХАСАГДЛАА — алдаа биш, зориуд алгассан
+    console.log(`IG: ${q.tooOld} нийтлэл ${IG_MAX_AGE_HOURS} цагаас хуучин тул дарааллаас хасав`);
   }
 
   const articles = await prisma.article.findMany({
     where: {
-      status: "PUBLISHED", igPostedAt: null, igMediaId: null,
-      igAttempts: { lt: MAX_IG_ATTEMPTS }, fbImageData: { not: null }, fbText: { not: null },
+      ...PENDING_WHERE,
+      fbImageData: { not: null }, fbText: { not: null },
+      // Хуучин мэдээг IG-д хожуу тавихгүй
+      publishedAt: { gte: igAgeCutoff(now) },
     },
     orderBy: [{ publishedAt: "desc" }, { relevance: "desc" }],
     take: limit - today,
@@ -269,7 +320,7 @@ export async function postPendingInstagram(
     }
   }
 
-  const queue = await igQueueSize();
+  const queue = await igQueueSize(now);
   await prisma.jobRun.update({
     where: { id: run.id },
     data: {

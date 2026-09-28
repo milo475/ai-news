@@ -38,7 +38,8 @@
     "bench:reset": "tsx src/bench/reset.ts",
     "insights:sync": "tsx src/publish/insights.ts",
     "cards:fix": "tsx src/gallery/recard.ts",
-    "studio:eval": "tsx src/studio/eval.ts"
+    "studio:eval": "tsx src/studio/eval.ts",
+    "cards:footer": "tsx src/gallery/refooter.ts"
   },
   "keywords": [],
   "author": "",

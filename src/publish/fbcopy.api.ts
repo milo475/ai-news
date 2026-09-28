@@ -166,12 +166,32 @@ export interface CopyVariant {
 const VAGUE_QUESTION =
   /^(та\s+)?(юу\s+гэж\s+бодож\s+байна|ямар\s+санаа|та\s+юу\s+гэж\s+үзэж\s+байна)/iu;
 
-export function cleanQuestion(raw: string): string | null {
+/** Асуулт яагаад хаягдсаныг лог дээр харуулахад */
+export type QuestionReject = "LLM асуулт өгөөгүй" | "хэт урт" | "асуултын тэмдэггүй" | "хэт ерөнхий";
+
+export interface QuestionCheck {
+  question: string | null;
+  reason: QuestionReject | null;
+}
+
+/**
+ * Асуултыг цэвэрлэж, хаясан бол ШАЛТГААНЫГ нь хамт буцаана.
+ *
+ * 2026-09-27-нд FB постод уншигчид хандсан асуулт огт гараагүй ч шалтгаан нь
+ * лог дээр харагдахгүй байв — LLM өгөөгүй юу, эсвэл энэ шүүлт хаясан уу гэдэг нь
+ * ялгагдахгүй бол алдааг олох аргагүй.
+ */
+export function checkQuestion(raw: string): QuestionCheck {
   const q = raw.replace(EMOJI_ALL, "").replace(/["«»“”]/g, "").replace(/\s+/g, " ").trim();
-  if (!q || q.length > MAX_QUESTION_CHARS) return null;
-  if (!q.endsWith("?")) return null;
-  if (VAGUE_QUESTION.test(q)) return null;
-  return q;
+  if (!q) return { question: null, reason: "LLM асуулт өгөөгүй" };
+  if (q.length > MAX_QUESTION_CHARS) return { question: null, reason: "хэт урт" };
+  if (!q.endsWith("?")) return { question: null, reason: "асуултын тэмдэггүй" };
+  if (VAGUE_QUESTION.test(q)) return { question: null, reason: "хэт ерөнхий" };
+  return { question: q, reason: null };
+}
+
+export function cleanQuestion(raw: string): string | null {
+  return checkQuestion(raw).question;
 }
 
 const EMOJI = /[\p{Extended_Pictographic}️]/u;
@@ -200,6 +220,35 @@ export function assemblePost(p: PostParts): string {
   if (p.sourceDomain) blocks.push(`${SOURCE_PREFIX}${p.sourceDomain}`);
   blocks.push(FOLLOW_LINE);
   return blocks.join("\n\n");
+}
+
+/**
+ * Нийтлэлийн эхний 1–2 өгүүлбэр — fidelity шүүгч FB текстийг хүлээж аваагүй үеийн
+ * НӨӨЦ бие. Зохиогүй, нийтлэлээс шууд авсан тул гуйвуулах эрсдэлгүй.
+ */
+export const FALLBACK_BODY_CHARS = 320;
+
+export function firstSentences(text: string | null, max = FALLBACK_BODY_CHARS): string {
+  const clean = (text ?? "").replace(/\s+/g, " ").trim();
+  if (!clean) return "";
+  if (clean.length <= max) return clean;
+
+  // Өгүүлбэрийн төгсгөлөөр таслана; олдохгүй бол үгээр
+  const cut = clean.slice(0, max);
+  const stop = Math.max(cut.lastIndexOf(". "), cut.lastIndexOf("! "), cut.lastIndexOf("? "));
+  if (stop > max * 0.5) return cut.slice(0, stop + 1).trim();
+  const space = cut.lastIndexOf(" ");
+  return `${(space > 0 ? cut.slice(0, space) : cut).trim()}…`;
+}
+
+/**
+ * Шүүгч хувилбаруудыг хүлээж аваагүй үед постын биеийг нийтлэлээс шууд бүрдүүлнэ.
+ * Асуулт нэмэхгүй — зохиосон зүйл огт байхгүй байх нь энэ нөөцийн гол утга.
+ */
+export function fallbackVariant(a: { summaryMn: string | null; bodyMn: string | null }): CopyVariant | null {
+  const context = firstSentences(a.summaryMn ?? a.bodyMn);
+  if (context.length < 40) return null;
+  return { context, why: "", question: "" };
 }
 
 /** «Дэлгэрэнгүй: https://...» хэлбэрийн мөр */

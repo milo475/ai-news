@@ -172,3 +172,69 @@ export function checkHashtags(tags: string[]): CaptionProblem[] {
 export function publicImageUrl(articleId: string, site = siteUrl()): string {
   return `${site.replace(/\/+$/, "")}/api/fb-image/${articleId}`;
 }
+
+// ---------- Дараалал ----------
+
+/**
+ * IG-д хожуу тавихгүй байх хугацаа.
+ *
+ * Мэдээ 36 цагаас хуучирсан бол IG-д тавих нь хэрэглэгчийн хувьд «хуучин мэдээ»
+ * болохоос гадна FB-тэй давхардсан дараалал үүсгэнэ. Ийм нийтлэлийг дарааллаас
+ * хасна — оролдож унаж байгаа юм биш, зориуд алгасаж байгаа.
+ */
+export const IG_MAX_AGE_HOURS = 36;
+
+export function igAgeCutoff(now: Date, hours = IG_MAX_AGE_HOURS): Date {
+  return new Date(now.getTime() - hours * 3_600_000);
+}
+
+/** Нийтлэл IG-д тавихад хэт хуучирсан эсэх */
+export function tooOldForIg(publishedAt: Date | null, now: Date, hours = IG_MAX_AGE_HOURS): boolean {
+  if (!publishedAt) return false;
+  return publishedAt.getTime() < igAgeCutoff(now, hours).getTime();
+}
+
+export interface QueueRow {
+  hasImage: boolean;
+  hasText: boolean;
+  publishedAt: Date | null;
+}
+
+export interface QueueBreakdown {
+  /** Одоо постлож болох */
+  eligible: number;
+  /** FB текст бичигдээгүй — IG тайлбар үүсгэх эх байхгүй */
+  noText: number;
+  /** 36 цагаас хуучин — дарааллаас хасагдана */
+  tooOld: number;
+  /** Зураггүй */
+  noImage: number;
+}
+
+/**
+ * Дараалалд юу байгааг ангилна.
+ *
+ * Өмнө нь `igQueueSize` нь зөвхөн зурагтай эсэхийг шалгадаг байсан ч сонголтын
+ * query нь `fbText` -ийг БАС шаарддаг байв. Тиймээс «0 постлосон, дараалалд 6»
+ * гэсэн зөрүү гарч, юу ч хийгдэхгүй байгаа шалтгаан харагдахгүй байлаа.
+ */
+export function breakdown(rows: QueueRow[], now: Date, hours = IG_MAX_AGE_HOURS): QueueBreakdown {
+  const out: QueueBreakdown = { eligible: 0, noText: 0, tooOld: 0, noImage: 0 };
+  for (const r of rows) {
+    if (!r.hasImage) out.noImage++;
+    else if (tooOldForIg(r.publishedAt, now, hours)) out.tooOld++;
+    else if (!r.hasText) out.noText++;
+    else out.eligible++;
+  }
+  return out;
+}
+
+/** Логт нэг мөрөөр: «дараалалд 6 (бэлэн 0, текстгүй 4, хуучин 2)» */
+export function queueLabel(b: QueueBreakdown): string {
+  const total = b.eligible + b.noText + b.tooOld + b.noImage;
+  const parts = [`бэлэн ${b.eligible}`];
+  if (b.noText) parts.push(`текстгүй ${b.noText}`);
+  if (b.tooOld) parts.push(`36ц-аас хуучин ${b.tooOld}`);
+  if (b.noImage) parts.push(`зураггүй ${b.noImage}`);
+  return `${total} (${parts.join(", ")})`;
+}
