@@ -29,6 +29,12 @@ export interface ToolOutput {
   parts: PromptPart[];
   /** 3–5 алхам, монголоор */
   steps: string[];
+  /**
+   * БИЧВЭР ба СЛАЙД-д: шууд ашиглаж болох бэлэн эх бичвэр (албан бичиг, пост,
+   * имэйл, слайдын текст). Промпт нь үүнийг ЗАСАХ, өөр хувилбар гаргуулахад
+   * хэрэглэгдэнэ — хэрэглэгч хоосон гараар үлдэхгүй.
+   */
+  draft?: string;
 }
 
 export interface Shot {
@@ -279,7 +285,8 @@ export type OutputIssue =
   | "shots-too-many"
   | "no-tools"
   | "explanation-not-mn"
-  | "placeholder";
+  | "placeholder"
+  | "draft-missing";
 
 /**
  * Гаргалтыг шалгана. Алдаа олдвол дахин нэг удаа бичүүлнэ (feedback болгож өгнө).
@@ -306,6 +313,8 @@ export function checkOutput(
     if (bad) issues.push(bad);
     if (t.steps.some((s) => s.trim() && !hasCyrillic(s))) issues.push("explanation-not-mn");
     if (t.steps.some(hasPlaceholder)) issues.push("placeholder");
+    // Бичвэр, слайдад хэрэглэгч промпт биш, БЭЛЭН бичвэр хүсдэг
+    if (wantMn && (t.draft ?? "").trim().length < 80) issues.push("draft-missing");
   }
   // Кадарын промпт нь үргэлж дүрс үүсгэгчид явдаг тул англиар
   for (const s of out.storyboard) if (hasCyrillic(s.prompt)) issues.push("prompt-cyrillic");
@@ -325,6 +334,7 @@ export const ISSUE_FEEDBACK: Record<OutputIssue, string> = {
   "shots-too-many": `Кадар ${MAX_SHOTS}-аас олон байж болохгүй.`,
   "no-tools": "Дор хаяж нэг хэрэгсэлд гаргалт өг.",
   "explanation-not-mn": "Алхам, тайлбарыг МОНГОЛООР бич.",
+  "draft-missing": "Бичвэр/слайдад ШУУД ашиглаж болох бэлэн эх бичвэрийг («draft») бүтнээр бич.",
   placeholder: "Алхамд «[...]» гэх мэт дуусгаагүй тэмдэглэгээ үлдээж болохгүй — бүтнээр бич.",
 };
 

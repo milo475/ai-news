@@ -166,3 +166,12 @@ export async function anonSessions(anonId: string, take = 10) {
 export function asJson<T>(v: T): Prisma.InputJsonValue {
   return v as unknown as Prisma.InputJsonValue;
 }
+
+/** Мэдлэгийн сангаас баталгаажаагүй тул хасагдсан тооны тоог нэмнэ */
+export async function bumpStripped(id: string, n: number): Promise<void> {
+  if (n <= 0) return;
+  await prisma.studioSession.update({
+    where: { id },
+    data: { strippedNumbers: { increment: n } },
+  });
+}

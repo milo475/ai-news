@@ -926,6 +926,15 @@ model StudioSession {
   /// Модераци татгалзсан бол шалтгаан
   rejected  String?
 
+  /// Алхам бүрийн хугацаа, мс: { questions, brief, directions, output, total }
+  timings   Json?
+  /// Засах давталтууд: [{ at, note, hadImage, issues[], costUsd }]
+  revisions Json?
+  /// Хэдэн удаа засварласан (дээд тал нь 3)
+  revisionCount Int @default(0)
+  /// Мэдлэгийн сангаас баталгаажаагүй тул хасагдсан тооны тоо
+  strippedNumbers Int @default(0)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

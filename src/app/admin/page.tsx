@@ -486,7 +486,33 @@ function StudioPanel({ s }: { s: Awaited<ReturnType<typeof studioStats>> }) {
       <div className="rounded-lg border border-line p-3">
         <p className="text-xs text-muted">Татгалзсан (7 хоног)</p>
         <p className="text-2xl font-semibold tabular-nums">{s.rejected}</p>
-        <p className="text-xs text-muted">модерацаар</p>
+        <p className="text-xs text-muted">{s.revisions} засвар</p>
+      </div>
+
+      <div className={`rounded-lg border p-3 ${s.p90 > 45 ? "border-warn/60" : "border-line"}`}>
+        <p className="text-xs text-muted">Гаргалтын хугацаа</p>
+        <p className="text-2xl font-semibold tabular-nums">
+          {s.p50}с <span className="text-base text-muted">p50</span>
+        </p>
+        <p className="text-xs text-muted">
+          p90 {s.p90}с (зорилт 45с){s.overTarget ? ` · ${s.overTarget} удаа 30с давсан` : ""}
+        </p>
+      </div>
+
+      <div className={`rounded-lg border p-3 ${s.staleDocs > 0 ? "border-warn/60" : "border-line"}`}>
+        <p className="text-xs text-muted">Мэдлэгийн сан</p>
+        <p className="text-2xl font-semibold tabular-nums">
+          {s.staleDocs === 0 ? "шинэ" : `⚠ ${s.staleDocs}`}
+        </p>
+        <p className="text-xs text-muted">
+          {s.staleDocs === 0 ? "60 хоногийн дотор шалгасан" : "файл хуучирсан — npm run studio:kb-check"}
+        </p>
+      </div>
+
+      <div className={`rounded-lg border p-3 ${s.stripped > 0 ? "border-warn/60" : "border-line"}`}>
+        <p className="text-xs text-muted">Зохиомол тоо (7 хоног)</p>
+        <p className="text-2xl font-semibold tabular-nums">{s.stripped}</p>
+        <p className="text-xs text-muted">лавлахад байхгүй тул хасагдсан</p>
       </div>
     </section>
   );

@@ -4,11 +4,17 @@ import { test } from "node:test";
 const hasDb = Boolean(process.env.DATABASE_URL);
 
 /** Бодит өгөгдөлтэй хутгалдахгүй сар */
-const MONTH = "1999-01";
+/**
+ * Тест бүр ӨӨРИЙН сартай — `BenchRun.month` нь unique тул ижил түлхүүр хуваасан
+ * тестүүд зэрэг ажиллахад хааяа мөргөлддөг байсан (npm test нь файлуудыг зэрэг
+ * ажиллуулдаг).
+ */
+let monthSeq = 0;
+const nextMonth = () => `1999-${String((monthSeq++ % 12) + 1).padStart(2, "0")}`;
 
-async function cleanup() {
+async function cleanup(month: string) {
   const { prisma } = await import("../db");
-  const run = await prisma.benchRun.findUnique({ where: { month: MONTH }, select: { id: true } });
+  const run = await prisma.benchRun.findUnique({ where: { month }, select: { id: true } });
   if (run) await prisma.benchRun.delete({ where: { id: run.id } });
   await prisma.jobRun.deleteMany({ where: { job: "bench", itemsIn: 0, itemsOut: 0, ok: false } });
 }
@@ -17,6 +23,7 @@ test(
   "бүх модель хариу өгөхгүй бол run FAILED, дүгнэлт ч нийтлэл ч үүсэхгүй",
   { skip: !hasDb && "DATABASE_URL алга" },
   async () => {
+    const MONTH = nextMonth();
     const { prisma } = await import("../db");
     const { runBenchmark } = await import("./run");
     const { planReset, resetMonth } = await import("./reset");
@@ -24,7 +31,7 @@ test(
     const tasks = await prisma.benchTask.count({ where: { isActive: true } });
     if (tasks === 0) return; // seed:bench ажиллаагүй орчинд шалгах зүйл алга
 
-    await cleanup();
+    await cleanup(MONTH);
     try {
       const r = await runBenchmark({
         month: MONTH,
@@ -77,7 +84,7 @@ test(
       assert.equal(again.plan, null);
       await assert.rejects(() => resetMonth("хаа нэгтээ", { yes: true }), /Сар буруу/);
     } finally {
-      await cleanup();
+      await cleanup(MONTH);
       await prisma.$disconnect();
     }
   },
@@ -87,6 +94,7 @@ test(
   "хариу өгөөгүй модель дүгнэлтэд орохгүй, бусад нь хэвийн",
   { skip: !hasDb && "DATABASE_URL алга" },
   async () => {
+    const MONTH = nextMonth();
     const { prisma } = await import("../db");
     const { runBenchmark } = await import("./run");
     const { resetMonth } = await import("./reset");
@@ -95,7 +103,7 @@ test(
     const tasks = await prisma.benchTask.count({ where: { isActive: true } });
     if (tasks === 0) return;
 
-    await cleanup();
+    await cleanup(MONTH);
     try {
       const text = (async (o: Parameters<typeof chatText>[0]) => {
         if (o.model === "test/beta") throw new Error("тестийн алдаа");
@@ -147,7 +155,7 @@ test(
       assert.equal(beta, 2);
     } finally {
       await resetMonth(MONTH, { yes: true }).catch(() => {});
-      await cleanup();
+      await cleanup(MONTH);
       await prisma.$disconnect();
     }
   },
@@ -157,6 +165,7 @@ test(
   "түлхүүрийн алдаа — эхний даалгавар дээр зогсож, run FAILED болно",
   { skip: !hasDb && "DATABASE_URL алга" },
   async () => {
+    const MONTH = nextMonth();
     const { prisma } = await import("../db");
     const { runBenchmark } = await import("./run");
     const { LlmAuthError, isAuthError } = await import("../agent/llm");
@@ -165,7 +174,7 @@ test(
     const tasks = await prisma.benchTask.count({ where: { isActive: true } });
     if (tasks === 0) return;
 
-    await cleanup();
+    await cleanup(MONTH);
     try {
       let calls = 0;
       const text = (async () => {
@@ -197,7 +206,7 @@ test(
       assert.match(run.note ?? "", /401/);
     } finally {
       await resetMonth(MONTH, { yes: true }).catch(() => {});
-      await cleanup();
+      await cleanup(MONTH);
       await prisma.$disconnect();
     }
   },
@@ -207,13 +216,14 @@ test(
   "хугацаа дуусахад хийсэн хэсгээ хадгалж, дараагийн run үргэлжлүүлнэ",
   { skip: !hasDb && "DATABASE_URL алга" },
   async () => {
+    const MONTH = nextMonth();
     const { prisma } = await import("../db");
     const { runBenchmark } = await import("./run");
     const { resetMonth } = await import("./reset");
     const { chatJson, chatText } = await import("../agent/llm");
 
     if ((await prisma.benchTask.count({ where: { isActive: true } })) < 3) return;
-    await cleanup();
+    await cleanup(MONTH);
 
     /** Дуудлага бүр 1 «секунд» зарцуулдаг мэт — тестийн цаг хурдан */
     const text = (async () => ({
@@ -261,7 +271,7 @@ test(
       assert.equal(end._count.summaries, 1);
     } finally {
       await resetMonth(MONTH, { yes: true }).catch(() => {});
-      await cleanup();
+      await cleanup(MONTH);
       await prisma.$disconnect();
     }
   },
@@ -271,6 +281,7 @@ test(
   "НИЙТЛЭХ цонхны өмнө шинэ хэсэг эхлүүлэхгүй",
   { skip: !hasDb && "DATABASE_URL алга" },
   async () => {
+    const MONTH = nextMonth();
     const { prisma } = await import("../db");
     const { runBenchmark } = await import("./run");
     const { resetMonth } = await import("./reset");
@@ -278,7 +289,7 @@ test(
     const { publishTimes, nextPublishAt } = await import("../jobs/mode.api");
 
     if ((await prisma.benchTask.count({ where: { isActive: true } })) < 2) return;
-    await cleanup();
+    await cleanup(MONTH);
 
     // НИЙТЛЭХ цагаас 10 минутын өмнөх агшин
     const slot = nextPublishAt(new Date(), publishTimes()).at;
@@ -296,7 +307,7 @@ test(
       assert.equal(await prisma.benchRun.findUnique({ where: { month: MONTH } }), null);
     } finally {
       await resetMonth(MONTH, { yes: true }).catch(() => {});
-      await cleanup();
+      await cleanup(MONTH);
       await prisma.$disconnect();
     }
   },
@@ -306,13 +317,14 @@ test(
   "3 хоногт дуусаагүй run FAILED болно",
   { skip: !hasDb && "DATABASE_URL алга" },
   async () => {
+    const MONTH = nextMonth();
     const { prisma } = await import("../db");
     const { runBenchmark } = await import("./run");
     const { resetMonth } = await import("./reset");
     const { chatText } = await import("../agent/llm");
 
     if ((await prisma.benchTask.count({ where: { isActive: true } })) < 2) return;
-    await cleanup();
+    await cleanup(MONTH);
 
     try {
       await prisma.benchRun.create({
@@ -339,7 +351,7 @@ test(
       assert.ok(run.finishedAt, "үүрд RUNNING үлдэх ёсгүй");
     } finally {
       await resetMonth(MONTH, { yes: true }).catch(() => {});
-      await cleanup();
+      await cleanup(MONTH);
       await prisma.$disconnect();
     }
   },

@@ -20,7 +20,8 @@ import type { StudioFormat } from "./studio.api";
 import { defaultTools } from "./studio.api";
 import {
   autoAnswer, CRITERIA, CRITERION_LABEL, JUDGE_SCHEMA, JUDGE_SYSTEM, normalizeVerdict, average,
-  spread, summarize, type EvalRequest, type EvalRow, type EvalVerdict,
+  spread, summarize, TARGET_AVG, TARGET_P90_SECONDS, TARGET_SECONDS,
+  type EvalRequest, type EvalRow, type EvalVerdict,
 } from "./eval.api";
 import type { StudioOutput } from "./output.api";
 
@@ -86,9 +87,17 @@ export async function runOne(
   const started = Date.now();
   const format = r.format as StudioFormat;
   let costUsd = 0;
+  const lap = () => {
+    const now = Date.now();
+    const ms = now - mark;
+    mark = now;
+    return Math.round(ms / 100) / 10;
+  };
+  let mark = started;
 
   const q = await askQuestions({ request: r.request, format, known: [], round: 0 }, opts);
   costUsd += q.costUsd;
+  const tQuestions = lap();
 
   const answers = Object.fromEntries(
     q.questions.map((x) => [x.field, autoAnswer(x.options, DECIDE_OPTION)]),
@@ -96,20 +105,24 @@ export async function runOne(
 
   const b = await buildBrief({ request: r.request, format, answers }, opts);
   costUsd += b.costUsd;
+  const tBrief = lap();
 
   const d = await buildDirections({ brief: b.brief, format }, opts);
   costUsd += d.costUsd;
+  const tDirections = lap();
   const direction = d.directions[0];
   if (!direction) throw new Error("чиглэл гарсангүй");
 
   const o = await buildOutput(
-    { brief: b.brief, format, direction, toolIds: defaultTools(format) },
+    { brief: b.brief, format, direction, toolIds: defaultTools(format), request: r.request },
     opts,
   );
   costUsd += o.costUsd;
+  const tOutput = lap();
 
   const j = await judge(r, o.output, opts);
   costUsd += j.costUsd;
+  const tJudge = lap();
 
   // Тайланд бүтэн жишээ хэрэгтэй үед — бүх шатыг хадгална
   if (opts.dump) {
@@ -128,6 +141,11 @@ export async function runOne(
   return {
     ...r,
     scores,
+    stripped: o.stripped.length,
+    stepSeconds: {
+      questions: tQuestions, brief: tBrief, directions: tDirections,
+      output: tOutput, judge: tJudge,
+    },
     avg: average(scores),
     weakness,
     costUsd,
@@ -172,7 +190,8 @@ if (isEntry("eval.ts")) {
         rows.push(row);
         console.log(
           `  ${row.avg.toFixed(1).padStart(4)} · ${row.id.padEnd(28)} ` +
-            `$${row.costUsd.toFixed(4)} · ${row.seconds}с` +
+            `$${row.costUsd.toFixed(4)} · ${row.seconds}с (гаргалт ${row.stepSeconds.output}с)` +
+            (row.stripped ? ` · ${row.stripped} зохиомол тоо хасав` : "") +
             (row.issues.length ? ` · ⚠ ${row.issues.length} алдаа` : ""),
         );
       } catch (e) {
@@ -189,9 +208,13 @@ if (isEntry("eval.ts")) {
     }
     console.log(`  ${"ДУНДАЖ".padEnd(24)} ${s.avg.toFixed(1)}`);
     console.log(
-      `\nЗардал: $${s.costUsd.toFixed(4)} нийт · $${s.avgCost.toFixed(4)}/бүтээл · ` +
-        `${s.avgSeconds.toFixed(1)}с/бүтээл`,
+      `\nЗардал: $${s.costUsd.toFixed(4)} нийт · $${s.avgCost.toFixed(4)}/бүтээл\n` +
+        `Хугацаа: ${s.avgSeconds.toFixed(1)}с дундаж · p90 ${s.p90Seconds}с ` +
+        `(зорилт ${TARGET_SECONDS}с / ${TARGET_P90_SECONDS}с)\n` +
+        `Зохиомол тоо: ${s.stripped} (зорилт 0)`,
     );
+    const pass = s.avg >= TARGET_AVG && s.stripped === 0 && s.outputP90 <= TARGET_P90_SECONDS;
+    console.log(pass ? "\n✓ бүх зорилт хангагдлаа" : `\n⚠ зорилт хангагдаагүй (дундаж ${s.avg}/${TARGET_AVG})`);
 
     console.log("\n=== ХАМГИЙН МУУ 3 ===");
     for (const w of s.worst) {

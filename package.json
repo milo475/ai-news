@@ -40,7 +40,8 @@
     "cards:fix": "tsx src/gallery/recard.ts",
     "studio:eval": "tsx src/studio/eval.ts",
     "cards:footer": "tsx src/gallery/refooter.ts",
-    "publish:check": "tsx src/publish/precheck.ts"
+    "publish:check": "tsx src/publish/precheck.ts",
+    "studio:kb-check": "tsx src/studio/kb-check.ts"
   },
   "keywords": [],
   "author": "",

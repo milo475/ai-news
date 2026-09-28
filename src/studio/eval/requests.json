@@ -1,56 +1,182 @@
 [
-  { "id": "office-newyear-video", "persona": "албан хаагч", "format": "VIDEO",
-    "request": "Албаны шинэ жилийн мэндчилгээ видео хийе, 30 секунд, ажилчиддаа үзүүлнэ" },
-  { "id": "office-report-text", "persona": "албан хаагч", "format": "TEXT",
-    "request": "Улирлын тайлангаа дарга нартаа илгээх албан захидал бичих хэрэгтэй" },
-  { "id": "office-meeting-slides", "persona": "албан хаагч", "format": "SLIDES",
-    "request": "Багийнхаа сарын үр дүнг 8 слайдаар танилцуулна" },
-  { "id": "office-email-apology", "persona": "албан хаагч", "format": "TEXT",
-    "request": "Захиалга хоцорсонд харилцагчаасаа уучлалт гуйх и-мэйл" },
-  { "id": "office-badge-image", "persona": "албан хаагч", "format": "IMAGE",
-    "request": "Байгууллагын дотоод сургалтын зарын зураг хэрэгтэй" },
-
-  { "id": "teacher-lesson-slides", "persona": "багш", "format": "SLIDES",
-    "request": "8-р ангид фотосинтезийн хичээл заах слайд бэлдье" },
-  { "id": "teacher-poster-image", "persona": "багш", "format": "IMAGE",
-    "request": "Ангийн ханын сонины зураг, сурагчдыг унших дуртай болгох сэдэвтэй" },
-  { "id": "teacher-explainer-video", "persona": "багш", "format": "VIDEO",
-    "request": "Бутархай тоог тайлбарласан 1 минутын хөдөлгөөнт видео хийе" },
-  { "id": "teacher-parent-letter", "persona": "багш", "format": "TEXT",
-    "request": "Эцэг эхийн хуралд урих мэдэгдэл бичих" },
-  { "id": "teacher-quiz-text", "persona": "багш", "format": "TEXT",
-    "request": "Монголын түүхийн сэдвээр 10 сонголттой тест зохиох" },
-
-  { "id": "shop-product-ad", "persona": "жижиг бизнес", "format": "IMAGE",
-    "request": "Дэлгүүрийнхээ шинэ гутлыг танилцуулах Facebook зарын зураг" },
-  { "id": "shop-reels", "persona": "жижиг бизнес", "format": "VIDEO",
-    "request": "Кофе шопынхоо өглөөний уур амьсгалыг харуулсан Reels бичлэг" },
-  { "id": "shop-logo-idea", "persona": "жижиг бизнес", "format": "IMAGE",
-    "request": "Гэрийн хийцийн бялууны брэндэд логоны санаа хэрэгтэй" },
-  { "id": "shop-discount-poster", "persona": "жижиг бизнес", "format": "IMAGE",
-    "request": "Цагаан сарын хямдралын постер хэвлэхээр хийе" },
-  { "id": "shop-jingle", "persona": "жижиг бизнес", "format": "AUDIO",
-    "request": "Дэлгүүрийн радио зард тавих 15 секундын хөгжим" },
-  { "id": "shop-delivery-notice", "persona": "жижиг бизнес", "format": "TEXT",
-    "request": "Хүргэлтийн нөхцөлөө хэрэглэгчиддээ тайлбарлах богино бичвэр" },
-
-  { "id": "marketer-campaign-video", "persona": "маркетер", "format": "VIDEO",
-    "request": "Шинэ апп-аа танилцуулах 20 секундын сурталчилгааны бичлэг" },
-  { "id": "marketer-ab-images", "persona": "маркетер", "format": "IMAGE",
-    "request": "Нэг зарыг хоёр өөр хэв маягаар туршиж үзэх зураг хэрэгтэй" },
-  { "id": "marketer-brandbook-slides", "persona": "маркетер", "format": "SLIDES",
-    "request": "Брэндийн танилцуулгыг харилцагчид үзүүлэх слайд" },
-  { "id": "marketer-ugc-video", "persona": "маркетер", "format": "VIDEO",
-    "request": "Хэрэглэгч өөрөө ярьж байгаа мэт санагдах богино видео" },
-  { "id": "marketer-copy", "persona": "маркетер", "format": "TEXT",
-    "request": "Онлайн дэлгүүрийн нүүр хуудсанд тавих борлуулалтын текст" },
-
-  { "id": "student-thesis-slides", "persona": "оюутан", "format": "SLIDES",
-    "request": "Дипломын ажлаа хамгаалах слайд бэлдэх" },
-  { "id": "student-cv-text", "persona": "оюутан", "format": "TEXT",
-    "request": "Дадлагад орохоор CV-нийхээ товч танилцуулгыг бичих" },
-  { "id": "student-club-poster", "persona": "оюутан", "format": "IMAGE",
-    "request": "Оюутны клубын арга хэмжээний зар зураг" },
-  { "id": "student-song", "persona": "оюутан", "format": "AUDIO",
-    "request": "Найздаа төрсөн өдрийн зориулалттай хөгжөөнтэй дуу хийж өгье" }
+  {
+    "id": "office-newyear-video",
+    "persona": "албан хаагч",
+    "format": "VIDEO",
+    "request": "Албаны шинэ жилийн мэндчилгээ видео хийе, 30 секунд, ажилчиддаа үзүүлнэ"
+  },
+  {
+    "id": "office-report-text",
+    "persona": "албан хаагч",
+    "format": "TEXT",
+    "request": "Улирлын тайлангаа дарга нартаа илгээх албан захидал бичих хэрэгтэй"
+  },
+  {
+    "id": "office-meeting-slides",
+    "persona": "албан хаагч",
+    "format": "SLIDES",
+    "request": "Багийнхаа сарын үр дүнг 8 слайдаар танилцуулна"
+  },
+  {
+    "id": "office-email-apology",
+    "persona": "албан хаагч",
+    "format": "TEXT",
+    "request": "Захиалга хоцорсонд харилцагчаасаа уучлалт гуйх и-мэйл"
+  },
+  {
+    "id": "office-badge-image",
+    "persona": "албан хаагч",
+    "format": "IMAGE",
+    "request": "Байгууллагын дотоод сургалтын зарын зураг хэрэгтэй"
+  },
+  {
+    "id": "teacher-lesson-slides",
+    "persona": "багш",
+    "format": "SLIDES",
+    "request": "8-р ангид фотосинтезийн хичээл заах слайд бэлдье"
+  },
+  {
+    "id": "teacher-poster-image",
+    "persona": "багш",
+    "format": "IMAGE",
+    "request": "Ангийн ханын сонины зураг, сурагчдыг унших дуртай болгох сэдэвтэй"
+  },
+  {
+    "id": "teacher-explainer-video",
+    "persona": "багш",
+    "format": "VIDEO",
+    "request": "Бутархай тоог тайлбарласан 1 минутын хөдөлгөөнт видео хийе"
+  },
+  {
+    "id": "teacher-parent-letter",
+    "persona": "багш",
+    "format": "TEXT",
+    "request": "Эцэг эхийн хуралд урих мэдэгдэл бичих"
+  },
+  {
+    "id": "teacher-quiz-text",
+    "persona": "багш",
+    "format": "TEXT",
+    "request": "Монголын түүхийн сэдвээр 10 сонголттой тест зохиох"
+  },
+  {
+    "id": "shop-product-ad",
+    "persona": "жижиг бизнес",
+    "format": "IMAGE",
+    "request": "Дэлгүүрийнхээ шинэ гутлыг танилцуулах Facebook зарын зураг"
+  },
+  {
+    "id": "shop-reels",
+    "persona": "жижиг бизнес",
+    "format": "VIDEO",
+    "request": "Кофе шопынхоо өглөөний уур амьсгалыг харуулсан Reels бичлэг"
+  },
+  {
+    "id": "shop-logo-idea",
+    "persona": "жижиг бизнес",
+    "format": "IMAGE",
+    "request": "Гэрийн хийцийн бялууны брэндэд логоны санаа хэрэгтэй"
+  },
+  {
+    "id": "shop-discount-poster",
+    "persona": "жижиг бизнес",
+    "format": "IMAGE",
+    "request": "Цагаан сарын хямдралын постер хэвлэхээр хийе"
+  },
+  {
+    "id": "shop-jingle",
+    "persona": "жижиг бизнес",
+    "format": "AUDIO",
+    "request": "Дэлгүүрийн радио зард тавих 15 секундын хөгжим"
+  },
+  {
+    "id": "shop-delivery-notice",
+    "persona": "жижиг бизнес",
+    "format": "TEXT",
+    "request": "Хүргэлтийн нөхцөлөө хэрэглэгчиддээ тайлбарлах богино бичвэр"
+  },
+  {
+    "id": "marketer-campaign-video",
+    "persona": "маркетер",
+    "format": "VIDEO",
+    "request": "Шинэ апп-аа танилцуулах 20 секундын сурталчилгааны бичлэг"
+  },
+  {
+    "id": "marketer-ab-images",
+    "persona": "маркетер",
+    "format": "IMAGE",
+    "request": "Нэг зарыг хоёр өөр хэв маягаар туршиж үзэх зураг хэрэгтэй"
+  },
+  {
+    "id": "marketer-brandbook-slides",
+    "persona": "маркетер",
+    "format": "SLIDES",
+    "request": "Брэндийн танилцуулгыг харилцагчид үзүүлэх слайд"
+  },
+  {
+    "id": "marketer-ugc-video",
+    "persona": "маркетер",
+    "format": "VIDEO",
+    "request": "Хэрэглэгч өөрөө ярьж байгаа мэт санагдах богино видео"
+  },
+  {
+    "id": "marketer-copy",
+    "persona": "маркетер",
+    "format": "TEXT",
+    "request": "Онлайн дэлгүүрийн нүүр хуудсанд тавих борлуулалтын текст"
+  },
+  {
+    "id": "student-thesis-slides",
+    "persona": "оюутан",
+    "format": "SLIDES",
+    "request": "Дипломын ажлаа хамгаалах слайд бэлдэх"
+  },
+  {
+    "id": "student-cv-text",
+    "persona": "оюутан",
+    "format": "TEXT",
+    "request": "Дадлагад орохоор CV-нийхээ товч танилцуулгыг бичих"
+  },
+  {
+    "id": "student-club-poster",
+    "persona": "оюутан",
+    "format": "IMAGE",
+    "request": "Оюутны клубын арга хэмжээний зар зураг"
+  },
+  {
+    "id": "student-song",
+    "persona": "оюутан",
+    "format": "AUDIO",
+    "request": "Найздаа төрсөн өдрийн зориулалттай хөгжөөнтэй дуу хийж өгье"
+  },
+  {
+    "id": "revise-dark-product",
+    "persona": "жижиг бизнес",
+    "format": "IMAGE",
+    "request": "Гутлын зураг гаргасан ч хэт харанхуй, бүтээгдэхүүн нь харагдахгүй байна — засмаар байна"
+  },
+  {
+    "id": "revise-wrong-mood",
+    "persona": "маркетер",
+    "format": "VIDEO",
+    "request": "Гаргасан бичлэг маань хэт албан ёсны болчихлоо, илүү дулаан болгомоор байна"
+  },
+  {
+    "id": "marketing-insight-ad",
+    "persona": "маркетер",
+    "format": "IMAGE",
+    "request": "Гэрийн хийцийн зайрмагаа сурталчлах зар — бусдаас ялгарах санаа хэрэгтэй"
+  },
+  {
+    "id": "marketing-campaign-video",
+    "persona": "маркетер",
+    "format": "VIDEO",
+    "request": "Цагаан сарын кампанит ажлын бичлэг, хүмүүсийн сэтгэлд хүрэхээр"
+  },
+  {
+    "id": "office-contract-text",
+    "persona": "албан хаагч",
+    "format": "TEXT",
+    "request": "Гэрээний хугацаа сунгах хүсэлтийн албан бичиг бэлдэх хэрэгтэй"
+  }
 ]

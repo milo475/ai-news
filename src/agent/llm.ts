@@ -173,6 +173,12 @@ export interface ChatJsonOptions {
   model: string;
   system: string;
   user: string;
+  /**
+   * `data:image/...;base64,...` — vision дуудлага.
+   *
+   * Зургийг ЗӨВХӨН энэ дуудлагад ашиглана: DB-д ч, дискэнд ч хадгалахгүй.
+   */
+  imageDataUrl?: string;
   /** JSON Schema — response_format.json_schema.schema */
   schema: object;
   maxTokens: number;
@@ -228,7 +234,16 @@ async function callOnce<T>(
       model: opts.model,
       messages: [
         { role: "system", content: opts.system },
-        { role: "user", content: opts.user },
+        // Зураг өгөгдсөн бол vision хэлбэрээр — OpenRouter-ийн олон модель дэмждэг
+        opts.imageDataUrl
+          ? {
+              role: "user",
+              content: [
+                { type: "text", text: opts.user },
+                { type: "image_url", image_url: { url: opts.imageDataUrl } },
+              ],
+            }
+          : { role: "user", content: opts.user },
       ],
       temperature: opts.temperature ?? 0.3,
       max_tokens: opts.maxTokens,

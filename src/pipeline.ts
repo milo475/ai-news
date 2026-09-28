@@ -324,8 +324,31 @@ async function main() {
 
   const forced = arg("--mode").toLowerCase();
   const now = new Date();
-  const mode: Mode =
+  let mode: Mode =
     forced === "publish" || forced === "prepare" ? forced : modeFor(now, publishTimes());
+
+  // Slot алдагдсан бол нөхнө: deploy эсвэл cron алгасалтаас болж 30 минутын
+  // цонхонд ажиллаагүй өнгөрвөл slot бүрмөсөн алдагддаг байсан.
+  let recovered: string | null = null;
+  if (!forced && mode === "prepare") {
+    const { ubDayRange } = await import("./jobs/day");
+    const { missedSlot } = await import("./publish/recovery.api");
+    const { start, end } = ubDayRange(now);
+    const todays = await prisma.article.findMany({
+      where: { kind: "NEWS", status: "PUBLISHED", publishedAt: { gte: start, lt: end } },
+      select: { publishedAt: true },
+    });
+    const missed = missedSlot({
+      now,
+      times: publishTimes(),
+      publishedAt: todays.flatMap((a) => (a.publishedAt ? [a.publishedAt] : [])),
+    });
+    if (missed) {
+      mode = "publish";
+      recovered = `${missed.key} (${missed.lateMin} мин хоцорсон)`;
+      console.log(`↻ Алдагдсан slot нөхөж байна: ${recovered}`);
+    }
+  }
   // Алхмаа нэрлэсэн бол горимыг нь өөрөөс нь авна
   const stepMode = selected ? STEPS.find((s) => selected.has(s.name))?.mode : null;
   const activeMode = stepMode ?? mode;
@@ -335,7 +358,7 @@ async function main() {
 
   console.log(
     `Горим: ${activeMode.toUpperCase()} (УБ ${String(ubHour(now)).padStart(2, "0")}:00` +
-      `${forced ? ", албадсан" : ""})`,
+      `${forced ? ", албадсан" : ""}${recovered ? ", нөхөлт" : ""})`,
   );
 
   // LLM шаардлагатай алхам ажиллах гэж байвал түлхүүрийг эхлэхэд нь шалгана

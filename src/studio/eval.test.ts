@@ -1,15 +1,16 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  autoAnswer, average, clampScore, CRITERIA, normalizeVerdict, spread, summarize, type EvalRow,
+  autoAnswer, average, clampScore, CRITERIA, JUDGE_SYSTEM, normalizeVerdict, spread, summarize,
+  TARGET_P90_SECONDS, type EvalRow,
 } from "./eval.api";
 import { judgeInput, loadRequests } from "./eval";
 import type { StudioOutput } from "./output.api";
 
 test("25 бодит хүсэлт бүрэн бүтэн", () => {
   const rows = loadRequests();
-  assert.equal(rows.length, 25);
-  assert.equal(new Set(rows.map((r) => r.id)).size, 25);
+  assert.equal(rows.length, 30);
+  assert.equal(new Set(rows.map((r) => r.id)).size, 30);
   for (const r of rows) {
     assert.ok(r.request.length > 15, r.id);
     assert.ok(["IMAGE", "VIDEO", "TEXT", "AUDIO", "SLIDES"].includes(r.format), r.id);
@@ -43,7 +44,8 @@ function row(id: string, avg: number): EvalRow {
   const scores = Object.fromEntries(CRITERIA.map((c) => [c, avg])) as EvalRow["scores"];
   return {
     id, persona: "багш", format: "IMAGE", request: "зар",
-    scores, avg, weakness: "сул", costUsd: 0.01, seconds: 10, issues: [],
+    scores, avg, weakness: "сул", costUsd: 0.01, seconds: 10, issues: [], stripped: 0,
+    stepSeconds: { questions: 2, brief: 2, directions: 2, output: 3, judge: 1 },
   };
 }
 
@@ -89,4 +91,29 @@ test("--spread нь хэлбэр тус бүрээс нэгийг авна", () 
   const picked = spread(loadRequests());
   assert.deepEqual(new Set(picked.map((r) => r.format)).size, 5);
   assert.equal(picked.length, 5);
+});
+
+test("эцсийн гаргалтын хугацааг тусад нь дүгнэнэ", () => {
+  // `seconds` нь бүх урсгал; зорилт нь ЗӨВХӨН гаргалтад хамаарна
+  const rows = [row("a", 8), row("b", 8), row("c", 8)];
+  rows[0]!.stepSeconds.output = 20;
+  rows[1]!.stepSeconds.output = 28;
+  rows[2]!.stepSeconds.output = 44;
+  const s = summarize(rows);
+  assert.equal(s.outputAvg, 30.7);
+  assert.equal(s.outputP90, 44);
+  assert.ok(s.outputP90 <= TARGET_P90_SECONDS, "p90 зорилтод багтана");
+});
+
+test("зохиомол тоог дүнд нэгтгэнэ", () => {
+  const rows = [row("a", 9), row("b", 9)];
+  rows[0]!.stripped = 2;
+  assert.equal(summarize(rows).stripped, 2);
+});
+
+test("шүүгч баталгаатай тоог торгохгүй байхыг заасан", () => {
+  assert.match(JUDGE_SYSTEM, /МЕХАНИКААР тулгагддаг/);
+  assert.match(JUDGE_SYSTEM, /ЭНЭ НЬ ДАВУУ ТАЛ/);
+  // Зөрчилдсөн тоог торгоно
+  assert.match(JUDGE_SYSTEM, /ӨӨРТЭЙГӨӨ ЗӨРЧИЛДСӨН/);
 });

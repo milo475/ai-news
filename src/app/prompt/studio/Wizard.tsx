@@ -1,13 +1,19 @@
 "use client";
 
 import { useState } from "react";
-import { answerStudio, createStudio, startStudio } from "@/studio/actions";
+import { answerStudio, createPlan, createStudio, createTool, finishStudio, startStudio } from "@/studio/actions";
 import { FORMAT_LABEL, FORMATS, type StudioFormat } from "@/studio/studio.api";
 import {
   BRIEF_FIELDS, BRIEF_LABEL, DIRECTION_HINT, DIRECTION_LABEL,
   FREE_OPTION, type StudioDirection, type StudioQuestion,
 } from "@/studio/prompts.api";
 import { StudioResult, type ResultData } from "./Result";
+import type { StudioOutput, ToolOutput } from "@/studio/output.api";
+
+/** Төлөвлөгөө ирэхээс өмнөх хоосон араг */
+const EMPTY_OUTPUT: StudioOutput = {
+  tools: [], storyboard: [], consistency: "", music: null, assembly: [], ideas: [],
+};
 
 const EXAMPLES = [
   "Албаны шинэ жилийн мэндчилгээ видео хийе",
@@ -79,6 +85,9 @@ export function StudioWizard() {
   const [placement, setPlacement] = useState("");
 
   const [result, setResult] = useState<ResultData | null>(null);
+  /** Хүлээгдэж буй хэрэгслийн нэрс — «Kling-ийн промпт бэлдэж байна…» */
+  const [pending, setPending] = useState<string[]>([]);
+  const [seconds, setSeconds] = useState<number | null>(null);
 
   async function onStart() {
     setError("");
@@ -115,27 +124,71 @@ export function StudioWizard() {
     setStep("brief");
   }
 
+  /**
+   * Гаргалтыг ХЭРЭГСЭЛ ТУС БҮРЭЭР зэрэг дууддаг — бэлэн болсон карт шууд гарна.
+   * Нийт хугацаа = хамгийн удаан хэрэгслийн хугацаа.
+   */
   async function onCreate() {
     setError("");
-    setBusy("Промптоо бичиж байна… (15–40 секунд)");
-    const r = await createStudio({
-      sessionId,
-      brief,
-      direction,
-      toolIds: tools.filter((t) => t.selected).map((t) => t.id),
-      placement: placement || undefined,
-    });
-    setBusy("");
-    if (!r.ok || !r.output) return setError(r.message ?? "Алдаа гарлаа.");
-    setResult({
-      output: r.output,
-      tools: r.tools ?? [],
-      warnings: r.warnings ?? [],
-      links: r.links ?? { tools: [], guides: [] },
-      aspect: r.aspect,
-      shareUrl: r.shareUrl,
-    });
+    setPending([]);
     setStep("result");
+    setResult(null);
+
+    const started = Date.now();
+    const chosen = tools.filter((t) => t.selected).map((t) => t.id);
+    const prep = await createStudio({
+      sessionId, brief, direction, toolIds: chosen, placement: placement || undefined,
+    });
+    if (!prep.ok || !prep.tools?.length) {
+      setStep("brief");
+      return setError(prep.message ?? "Алдаа гарлаа.");
+    }
+
+    const list = prep.tools;
+    setPending(list.map((t) => t.name));
+    const done: ToolOutput[] = [];
+    const checked: Record<string, string | null> = {};
+
+    const toolJobs = list.map(async (t) => {
+      const r = await createTool(sessionId, t.id);
+      setPending((p) => p.filter((n) => n !== t.name));
+      if (!r.ok || !r.output) return null;
+      checked[t.id] = r.checked ?? null;
+      done.push(r.output);
+      // Бэлэн болсон картыг шууд харуулна
+      setResult((prev) => ({
+        output: { ...(prev?.output ?? EMPTY_OUTPUT), tools: [...done] },
+        tools: list,
+        warnings: prev?.warnings ?? [],
+        links: prev?.links ?? { tools: [], guides: [] },
+        aspect: prep.aspect,
+        checked: { ...checked },
+      }));
+      return r.output;
+    });
+
+    const [, planRes] = await Promise.all([Promise.all(toolJobs), createPlan(sessionId)]);
+
+    if (done.length === 0) {
+      setStep("brief");
+      return setError("Гаргалт бэлдэж чадсангүй. Дахин оролдоорой.");
+    }
+
+    const output: StudioOutput = { ...(planRes.plan ?? EMPTY_OUTPUT), tools: done };
+    const ms = Date.now() - started;
+    const fin = await finishStudio({ sessionId, output, timings: { output: ms, total: ms } });
+
+    setResult({
+      output,
+      tools: list,
+      warnings: fin.warnings ?? [],
+      links: fin.links ?? { tools: [], guides: [] },
+      aspect: prep.aspect,
+      shareUrl: fin.shareUrl,
+      checked,
+      revisionsLeft: fin.revisionsLeft,
+    });
+    setSeconds(Math.round(ms / 100) / 10);
   }
 
   function restart() {
@@ -362,16 +415,21 @@ export function StudioWizard() {
             Промпт бэлдэх
           </button>
         </section>
-      ) : result ? (
+      ) : step === "result" ? (
         <>
-          <StudioResult data={result} />
+          {pending.length > 0 && (
+            <p className="rounded border border-line bg-card p-3 text-sm text-muted" role="status" aria-live="polite">
+              {pending.map((n) => `${n}-ийн промпт`).join(", ")} бэлдэж байна…
+            </p>
+          )}
+          {!result && pending.length === 0 && <Skeleton label="Бэлдэж байна…" />}
+          {result && <StudioResult data={result} />}
           <div className="flex flex-wrap items-center gap-3 border-t border-line pt-4 text-sm">
             <button type="button" onClick={restart} className="rounded border border-line px-3 py-1.5">
               Шинээр эхлэх
             </button>
-            {left !== null && (
-              <span className="text-muted">Өнөөдөр {left} бүтээл үлдлээ</span>
-            )}
+            {left !== null && <span className="text-muted">Өнөөдөр {left} бүтээл үлдлээ</span>}
+            {seconds !== null && <span className="text-muted">{seconds}с зарцуулав</span>}
           </div>
         </>
       ) : null}

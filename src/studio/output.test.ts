@@ -96,10 +96,18 @@ test("prompt-д ЗӨВХӨН сонгосон хэрэгслийн лавлах 
 
 test("бичвэр/слайдын промпт МОНГОЛООР — гаралт нь монгол байх ёстой", () => {
   const eng = out({ tools: [{ tool: "chatgpt", prompt: "Write a formal letter", params: [], parts: [], steps: ["Нээ"] }] });
-  assert.deepEqual(checkOutput(eng, { format: "TEXT", toolIds: ["chatgpt"] }), ["prompt-not-mn"]);
+  // Англи промпт БА бэлэн бичвэр дутуу — хоёулаа барина
+  assert.deepEqual(
+    checkOutput(eng, { format: "TEXT", toolIds: ["chatgpt"] }),
+    ["prompt-not-mn", "draft-missing"],
+  );
 
   const mn = out({
-    tools: [{ tool: "chatgpt", prompt: "Чи албан бичгийн мэргэжилтэн. Монгол хэлээр захидал бич.", params: [], parts: [], steps: ["Нээ"] }],
+    tools: [{
+      tool: "chatgpt", prompt: "Чи албан бичгийн мэргэжилтэн. Монгол хэлээр захидал бич.",
+      params: [], parts: [], steps: ["Нээ"],
+      draft: "Эрхэм хүндэт дарга аа,\n\nГэрээний хугацаа сунгах хүсэлтээ албан ёсоор илгээж байна.",
+    }],
   });
   assert.deepEqual(checkOutput(mn, { format: "TEXT", toolIds: ["chatgpt"] }), []);
   assert.deepEqual(checkOutput(mn, { format: "SLIDES", toolIds: ["chatgpt"] }), []);
@@ -140,4 +148,23 @@ test("алхамд дуусгаагүй «[...]» үлдээвэл алдаа", 
   assert.equal(hasPlaceholder("Gemini нээ"), false);
   // Хэрэгтэй хаалт — доторх утгатай текстийг барихгүй
   assert.equal(hasPlaceholder("Style талбарт [Verse] гэж бич"), false);
+});
+
+test("бичвэр/слайдад бэлэн эх бичвэр заавал", () => {
+  const noDraft = out({
+    tools: [{ tool: "chatgpt", prompt: "Монголоор захидал бич", params: [], parts: [], steps: ["Нээ"] }],
+  });
+  assert.ok(checkOutput(noDraft, { format: "TEXT", toolIds: ["chatgpt"] }).includes("draft-missing"));
+
+  const withDraft = out({
+    tools: [{
+      tool: "chatgpt", prompt: "Монголоор захидал бич", params: [], parts: [], steps: ["Нээ"],
+      draft: "Эрхэм хүндэт дарга аа,\n\nГэрээний хугацаа сунгах хүсэлтээ албан ёсоор илгээж байна. Хариуг тань хүлээж байна.",
+    }],
+  });
+  assert.deepEqual(checkOutput(withDraft, { format: "TEXT", toolIds: ["chatgpt"] }), []);
+});
+
+test("зураг/видеонд бэлэн бичвэр шаардахгүй", () => {
+  assert.deepEqual(checkOutput(out(), { format: "IMAGE", toolIds: ["gemini"] }), []);
 });

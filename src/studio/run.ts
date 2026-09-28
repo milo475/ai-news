@@ -6,7 +6,7 @@
  * (WRITE_MODEL) — гаргалт нь бүтээгдэхүүний чанарыг тодорхойлно.
  */
 import { chatJson } from "../agent/llm";
-import { craftDoc, mongolDoc, toolDocs } from "./knowledge";
+import { craftDoc, ideasDoc, isMarketing, mongolDoc, toolDocs } from "./knowledge";
 import {
   aspectFor, toolById, TOOLS, type StudioFormat, type StudioTool,
 } from "./studio.api";
@@ -15,10 +15,14 @@ import {
   orderDirections, QUESTION_SCHEMA, QUESTION_SYSTEM, questionUser, withExtras, briefText,
   type StudioBrief, type StudioDirection, type StudioQuestion,
 } from "./prompts.api";
+import { checkOutput, ISSUE_FEEDBACK, type StudioOutput, type ToolOutput } from "./output.api";
 import {
-  checkOutput, ISSUE_FEEDBACK, OUTPUT_SCHEMA, outputSystem, outputUser,
-  type StudioOutput,
-} from "./output.api";
+  PLAN_SCHEMA, PLAN_SYSTEM, planUser, toolSchema, toolSystem, toolUser, type StepTimings,
+} from "./parallel.api";
+import { stripUnverified, type NumberClaim } from "./numbers.api";
+import {
+  applyRevision, REVISE_SCHEMA, REVISE_SYSTEM, reviseUser, type RevisionOut,
+} from "./revise.api";
 
 type Chat = typeof chatJson;
 
@@ -92,68 +96,149 @@ export async function buildDirections(
   return { directions: orderDirections(out.data.directions ?? []), costUsd: out.costUsd };
 }
 
-/**
- * 4. Эцсийн гаргалт.
- *
- * Шалгалт (checkOutput) унавал НЭГ удаа засуулна — хамгийн түгээмэл алдаа нь
- * промптыг монголоор, тайлбарыг англиар бичих.
- */
-export async function buildOutput(
-  a: {
-    brief: StudioBrief;
-    format: StudioFormat;
-    placement?: string | null;
-    direction: StudioDirection;
-    toolIds: string[];
-  },
-  opts: { chat?: Chat } = {},
-): Promise<{ output: StudioOutput; tools: StudioTool[]; issues: string[] } & Cost> {
-  const chat = opts.chat ?? chatJson;
+export interface BuildContext {
+  brief: StudioBrief;
+  format: StudioFormat;
+  placement?: string | null;
+  direction: StudioDirection;
+  toolIds: string[];
+  request?: string;
+}
+
+/** Дуудлага бүрт ижил хэрэгтэй лавлахууд — нэг удаа бэлдээд дахин ашиглана */
+function context(a: BuildContext) {
   const tools = a.toolIds
     .map((id) => toolById(id, TOOLS))
     .filter((t): t is StudioTool => Boolean(t) && !t!.retired);
-  if (tools.length === 0) throw new Error("Хэрэгсэл сонгогдоогүй байна");
-
-  const user = outputUser({
-    brief: a.brief,
-    format: a.format,
-    aspect: aspectFor(a.format, a.placement),
-    direction: a.direction,
+  const marketing = isMarketing(`${a.request ?? ""} ${a.brief.goal} ${a.brief.message}`);
+  return {
     tools,
-    docs: Object.fromEntries(tools.map((t) => [t.id, toolDocs([t.doc])[t.doc] ?? ""])),
+    aspect: aspectFor(a.format, a.placement),
     craft: craftDoc(),
     mongol: mongolDoc(),
+    // Бүтээлч зарчмыг ЗӨВХӨН маркетингийн хүсэлтэд — бусад үед токен дэмий
+    ideas: marketing ? ideasDoc() : undefined,
+  };
+}
+
+/**
+ * НЭГ хэрэгслийн гаргалт.
+ *
+ * П.1-д бүх хэрэгслийг нэг 12 000-токент дуудлагаар бичүүлдэг байсан (дунджаар
+ * 100с, хамгийн муу нь 187с). Одоо хэрэгсэл бүр өөрийн жижиг дуудлагатай ба
+ * зөвхөн ӨӨРИЙН лавлах ордог тул 3–4 дахин бага токен, зэрэг ажиллана.
+ *
+ * Тоон мэдэгдэл бүрийг тухайн хэрэгслийн лавлахтай тулгана: лавлахад байхгүй
+ * тоог хасаж, «албан ёсны сайтаас шалгана уу» болгоно.
+ */
+export async function buildOneTool(
+  a: BuildContext,
+  toolId: string,
+  opts: { chat?: Chat } = {},
+): Promise<{ output: ToolOutput; stripped: NumberClaim[] } & Cost> {
+  const chat = opts.chat ?? chatJson;
+  const { aspect, craft, mongol, ideas } = context(a);
+  const tool = toolById(toolId, TOOLS);
+  if (!tool || tool.retired) throw new Error(`«${toolId}» хэрэгсэл олдсонгүй`);
+
+  const doc = toolDocs([tool.doc])[tool.doc] ?? "";
+  const out = await chat<Omit<ToolOutput, "tool">>({
+    model: writeModel(),
+    system: toolSystem(a.format, tool),
+    user: toolUser({ brief: a.brief, format: a.format, aspect, direction: a.direction, tool, doc, craft, mongol, ideas }),
+    schema: toolSchema(a.format),
+    // 8000: 4000 дээр таслагдаад 2 дахин өргөтгөх retry ажиллаж, хугацаа
+    // ХОЁР ДАХИН нэмэгдэж байсан (2026-09-28-ны eval). Бодох модель дотоод
+    // бодолтдоо ~1200 токен иддэг, дээр нь бэлэн эх бичвэр орно.
+    maxTokens: 8_000,
+    temperature: 0.6,
+    reasoning: false,
   });
 
-  let costUsd = 0;
-  let last: StudioOutput | null = null;
-  let issues: string[] = [];
+  const fixed = fixNumbers({ ...out.data, tool: tool.id }, doc);
+  return { output: fixed.output, stripped: fixed.removed, costUsd: out.costUsd };
+}
 
-  for (let attempt = 0; attempt < 2; attempt++) {
-    const feedback = issues.length
-      ? `\n\n=== ӨМНӨХ ОРОЛДЛОГЫН АЛДАА (заавал засаарай) ===\n${issues.join("\n")}`
-      : "";
-    const out = await chat<StudioOutput>({
-      model: writeModel(),
-      system: outputSystem(a.format),
-      user: user + feedback,
-      schema: OUTPUT_SCHEMA,
-      // Видеоны 8 кадар + 3 хэрэгслийн тайлбар нь урт: монгол кирилл токен идэмхий
-      maxTokens: 12_000,
-      temperature: 0.6,
-      reasoning: false,
-    });
-    costUsd += out.costUsd;
-    last = normalize(out.data);
-    const found = checkOutput(last, { format: a.format, toolIds: tools.map((t) => t.id) });
-    if (found.length === 0) return { output: last, tools, issues: [], costUsd };
-    issues = found.map((i) => ISSUE_FEEDBACK[i]);
-  }
+/** Ерөнхий төлөвлөгөө — кадар, дүрийн тогтвортой байдал, хөгжим, угсралт, санаа */
+export async function buildPlan(
+  a: BuildContext,
+  opts: { chat?: Chat } = {},
+): Promise<{ plan: Omit<StudioOutput, "tools"> } & Cost> {
+  const chat = opts.chat ?? chatJson;
+  const { tools, aspect, craft, mongol, ideas } = context(a);
+  const out = await chat<Omit<StudioOutput, "tools">>({
+    model: writeModel(),
+    system: PLAN_SYSTEM,
+    user: planUser({ brief: a.brief, format: a.format, aspect, direction: a.direction, tools, craft, mongol, ideas }),
+    schema: PLAN_SCHEMA,
+    maxTokens: 6_000,
+    temperature: 0.6,
+    reasoning: false,
+  });
+  return { plan: out.data, costUsd: out.costUsd };
+}
 
-  // Хоёр дахь оролдлого ч төгс биш — гаргалт байгаа тул хэрэглэгчид өгнө,
-  // үлдсэн алдааг нь тэмдэглэнэ (шинжилгээнд хэрэгтэй)
-  if (!last) throw new Error("Студи гаргалт өгсөнгүй");
-  return { output: last, tools, issues, costUsd };
+/**
+ * Бүх хэрэгсэл + төлөвлөгөөг ЗЭРЭГ үүсгэнэ.
+ *
+ * Нийт хугацаа = хамгийн удаан дуудлагын хугацаа. Вэб дээр нь хэрэгсэл тус бүрийг
+ * тусдаа action-оор дууддаг тул карт бэлэн болмогц нь гарна; энэ функц нь eval,
+ * CLI зэрэг нэг дор бүгдийг хүсдэг дуудагчдад.
+ */
+export async function buildOutput(
+  a: BuildContext,
+  opts: { chat?: Chat; onTool?: (toolId: string) => void } = {},
+): Promise<{
+  output: StudioOutput;
+  tools: StudioTool[];
+  issues: string[];
+  stripped: NumberClaim[];
+} & Cost> {
+  const { tools } = context(a);
+  if (tools.length === 0) throw new Error("Хэрэгсэл сонгогдоогүй байна");
+
+  const [toolResults, planResult] = await Promise.all([
+    Promise.all(
+      tools.map(async (t) => {
+        const r = await buildOneTool(a, t.id, opts);
+        opts.onTool?.(t.id);
+        return r;
+      }),
+    ),
+    buildPlan(a, opts),
+  ]);
+
+  const output = normalize({ ...planResult.plan, tools: toolResults.map((r) => r.output) });
+  const issues = checkOutput(output, { format: a.format, toolIds: tools.map((t) => t.id) })
+    .map((i) => ISSUE_FEEDBACK[i]);
+
+  return {
+    output,
+    tools,
+    issues,
+    stripped: toolResults.flatMap((r) => r.stripped),
+    costUsd: toolResults.reduce((n, r) => n + r.costUsd, 0) + planResult.costUsd,
+  };
+}
+
+/** Хэрэгслийн гаргалтын БҮХ текстээс баталгаажаагүй тоог хасна */
+function fixNumbers(t: ToolOutput, doc: string): { output: ToolOutput; removed: NumberClaim[] } {
+  const removed: NumberClaim[] = [];
+  const clean = (text: string): string => {
+    const r = stripUnverified(text, doc);
+    removed.push(...r.removed);
+    return r.text;
+  };
+  return {
+    output: {
+      ...t,
+      steps: (t.steps ?? []).map(clean),
+      params: (t.params ?? []).map((p) => ({ ...p, why: clean(p.why) })),
+      parts: (t.parts ?? []).map((p) => ({ ...p, why: clean(p.why) })),
+      ...(t.draft ? { draft: t.draft } : {}),
+    },
+    removed,
+  };
 }
 
 /** LLM-ийн буцаасныг ашиглахад бэлэн болгоно — дутуу массивыг хоосноор нөхнө */
@@ -172,4 +257,59 @@ function normalize(raw: StudioOutput): StudioOutput {
     assembly: raw.assembly ?? [],
     ideas: raw.ideas ?? [],
   };
+}
+
+// ---------- Засах давталт ----------
+
+/**
+ * Vision чадвартай хямд модель — гарсан зургийг брифтэй харьцуулна.
+ * Тусад нь тохируулаагүй бол WRITE_MODEL (Gemini Flash нь зураг уншина).
+ */
+export function visionModel(env: NodeJS.ProcessEnv = process.env): string {
+  return env.STUDIO_VISION_MODEL ?? env.WRITE_MODEL ?? "google/gemini-3.8-flash";
+}
+
+/**
+ * Нэг хэрэгслийн промптыг засварлана.
+ *
+ * `imageDataUrl` нь санах ойд байгаа зураг — энэ дуудлагад л ашиглагдаад алга
+ * болно. Дискэнд ч, DB-д ч бичигдэхгүй.
+ */
+export async function reviseTool(
+  a: {
+    brief: StudioBrief;
+    tool: StudioTool;
+    previous: ToolOutput;
+    note: string;
+    imageDataUrl?: string;
+  },
+  opts: { chat?: Chat } = {},
+): Promise<{ revision: RevisionOut; output: ToolOutput } & Cost> {
+  const chat = opts.chat ?? chatJson;
+  const out = await chat<RevisionOut>({
+    model: visionModel(),
+    system: REVISE_SYSTEM,
+    user: reviseUser({
+      brief: a.brief,
+      tool: a.tool.name,
+      previousPrompt: a.previous.prompt,
+      note: a.note,
+      hasImage: Boolean(a.imageDataUrl),
+    }),
+    ...(a.imageDataUrl ? { imageDataUrl: a.imageDataUrl } : {}),
+    schema: REVISE_SCHEMA,
+    maxTokens: 2_500,
+    temperature: 0.4,
+    reasoning: false,
+  });
+
+  // Засварласан промптод ч тоог шалгана
+  const doc = toolDocs([a.tool.doc])[a.tool.doc] ?? "";
+  const revision: RevisionOut = {
+    ...out.data,
+    diagnosis: stripUnverified(out.data.diagnosis, doc).text,
+    changes: (out.data.changes ?? []).map((c) => stripUnverified(c, doc).text),
+    tip: stripUnverified(out.data.tip, doc).text,
+  };
+  return { revision, output: applyRevision(a.previous, revision), costUsd: out.costUsd };
 }

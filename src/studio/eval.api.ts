@@ -10,6 +10,11 @@ export interface EvalRequest {
 }
 
 export const CRITERIA = ["clarity", "toolFit", "completeness", "mongolian", "beyond"] as const;
+
+/** Зорилтууд — П.2 */
+export const TARGET_AVG = 8.5;
+export const TARGET_SECONDS = 30;
+export const TARGET_P90_SECONDS = 45;
 export type Criterion = (typeof CRITERIA)[number];
 
 export const CRITERION_LABEL: Record<Criterion, string> = {
@@ -39,6 +44,18 @@ export const JUDGE_SYSTEM = `Чи монгол хэрэглэгчийн турш
   бол оноо бууруул.
 - beyond: Хэрэглэгчийн хүссэнээс ИЛҮҮ зүйл өгсөн үү (нэмэлт санаа, анхааруулга,
   бодоогүй алхам)? Зүгээр л асуултыг давтсан бол 3-аас доош.
+
+ТООН МЭДЭЭЛЭЛ:
+Тоо (кредит, хязгаар, урт, үнэ) нь манай мэдлэгийн сантай МЕХАНИКААР тулгагддаг —
+чи түүнийг шалгах шаардлагагүй бөгөөд шалгах ч боломжгүй. Тиймээс ЗӨВХӨН тоо
+байгаа гэдэг шалтгаанаар оноо бүү бууруул.
+
+Торгуул: тоо нь ӨӨРТЭЙГӨӨ ЗӨРЧИЛДСӨН үед (нэг газар «5 секунд», нөгөө газар
+«2 минут»), эсвэл илт боломжгүй үед («өдөрт 100 000 үнэгүй видео»).
+
+«(одоогийн хязгаарыг албан ёсны сайтаас шалгана уу)» гэсэн хэллэг нь тоог
+зохиохын оронд үнэнээ хэлж байгаа хэрэг — ЭНЭ НЬ ДАВУУ ТАЛ, дутагдал биш.
+Үүнийг «мэдээлэл дутуу» гэж бүү торго.
 
 Хатуу үнэл. 10 бол төгс, 7 бол сайн, 5 бол дунд, 3-аас доош бол ашиглах боломжгүй.
 weakness талбарт хамгийн том сул талыг МОНГОЛООР нэг өгүүлбэрээр бич.`;
@@ -74,6 +91,15 @@ export function average(s: Scores): number {
 
 export interface EvalRow extends EvalRequest {
   scores: Scores;
+  /** Мэдлэгийн сангаас баталгаажаагүй тул хасагдсан тооны тоо */
+  stripped: number;
+  /**
+   * Алхам бүрийн хугацаа, секундээр.
+   *
+   * `seconds` нь БҮХ урсгалын хугацаа (асуулт + бриф + чиглэл + гаргалт +
+   * шүүгч). Зорилт «эцсийн гаргалт ≤ 30с» нь зөвхөн `output`-д хамаарна.
+   */
+  stepSeconds: { questions: number; brief: number; directions: number; output: number; judge: number };
   avg: number;
   weakness: string;
   costUsd: number;
@@ -84,6 +110,13 @@ export interface EvalRow extends EvalRequest {
 
 export interface EvalSummary {
   rows: number;
+  /** p90 хугацаа, секундээр (бүх урсгал) */
+  p90Seconds: number;
+  /** ЗӨВХӨН эцсийн гаргалтын хугацаа — зорилт нь үүнд хамаарна */
+  outputAvg: number;
+  outputP90: number;
+  /** Нийт зохиомол тоо — зорилт 0 */
+  stripped: number;
   /** Шалгуур тус бүрийн дундаж */
   byCriterion: Record<Criterion, number>;
   avg: number;
@@ -93,6 +126,12 @@ export interface EvalSummary {
   avgSeconds: number;
   /** Хамгийн муу 3 */
   worst: EvalRow[];
+}
+
+function pct(nums: number[], p: number): number {
+  if (nums.length === 0) return 0;
+  const sorted = [...nums].sort((a, b) => a - b);
+  return sorted[Math.min(sorted.length - 1, Math.floor((p / 100) * sorted.length))]!;
 }
 
 function mean(nums: number[]): number {
@@ -106,8 +145,14 @@ export function summarize(rows: EvalRow[], worstCount = 3): EvalSummary {
   ) as Record<Criterion, number>;
 
   const cost = rows.reduce((n, r) => n + r.costUsd, 0);
+  const secs = [...rows.map((r) => r.seconds)].sort((a, b) => a - b);
+  const p90 = secs.length ? secs[Math.min(secs.length - 1, Math.floor(0.9 * secs.length))]! : 0;
   return {
     rows: rows.length,
+    p90Seconds: p90,
+    outputAvg: mean(rows.map((r) => r.stepSeconds.output)),
+    outputP90: pct(rows.map((r) => r.stepSeconds.output), 90),
+    stripped: rows.reduce((n, r) => n + r.stripped, 0),
     byCriterion,
     avg: mean(rows.map((r) => r.avg)),
     costUsd: cost,
