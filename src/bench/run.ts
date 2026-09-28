@@ -9,6 +9,8 @@
  */
 import "dotenv/config";
 import { chatJson, chatText, isAuthError } from "../agent/llm";
+import { balanceMessage, openRouterBalance } from "../lib/balance";
+import { classifyError, completeness, completenessLabel, INFRA_RETRIES } from "./failure.api";
 import { isEntry, runCli } from "../lib/cli";
 import { prisma } from "../db";
 import { jobRunMeta } from "../jobs/meta";
@@ -20,8 +22,23 @@ import { parseChecker, parseRubric, runChecker, wordCount } from "./task.api";
 import { currentMonth, summarize, type ScoredResult } from "./summary.api";
 import { needsSecondJudge } from "./judge.api";
 
-/** Даалгавар бүрд ижил нөхцөл — temperature 0, 1200 токен, 60с */
-const TASK_MAX_TOKENS = 1_200;
+/**
+ * Эхлэхийн өмнөх үлдэгдлийн нөөцийн коэффициент.
+ *
+ * Тооцоо нь дундажаар гардаг тул яг таарч эхлээд дундуур дуусах эрсдэлтэй.
+ * 1.5 дахин нөөцтэй байж байж эхэлнэ.
+ */
+export const BALANCE_HEADROOM = 1.5;
+
+/**
+ * Даалгавар бүрд ижил нөхцөл — temperature 0, 60с.
+ *
+ * max_tokens 1200 байсныг 2500 болгов: бодох (reasoning) моделиуд дотоод бодолтдоо
+ * 700–800 токен зарцуулдаг тул хариулахад 400 орчим л үлдэж, хариу хоосон гардаг
+ * байсан (2026-09-27: deepseek-v4.1-flash 13, space-bunny-alpha 11 удаа хоосон).
+ * Хязгаар нь БҮХ модельд ижил тул харьцуулалтын шударга байдал алдагдахгүй.
+ */
+const TASK_MAX_TOKENS = 2_500;
 const TASK_TIMEOUT_MS = 60_000;
 
 /** Модель бүрд өгөх ерөнхий заавар — даалгавраас гадна юу ч нэмэхгүй */
@@ -38,6 +55,8 @@ export interface RunOptions {
   budgetUsd?: number;
   /** Нийтлэл автоматаар үүсгэх эсэх */
   writeArticle?: boolean;
+  /** Үлдэгдлийн урьдчилсан шалгалтыг алгасах (зөвхөн тест) */
+  skipBalanceCheck?: boolean;
   chat?: typeof chatJson;
   text?: typeof chatText;
 }
@@ -100,6 +119,24 @@ async function execute(opts: RunOptions, jobId: string): Promise<RunSummary> {
     `  ойролцоо ${estimate.calls} дуудлага ≈ $${estimate.usd.toFixed(2)} · төсөв $${budget.toFixed(2)}`,
   );
 
+  // Эхлэхийн ӨМНӨ үлдэгдлийг шалгана. Run дундуур кредит дуусвал хагас дүн
+  // үлддэг — 2026-09-27-нд яг ингэж хуурамч оноо нийтэд гарсан.
+  const needUsd = Math.round(estimate.usd * BALANCE_HEADROOM * 100) / 100;
+  const balance = opts.skipBalanceCheck ? null : await openRouterBalance();
+  if (balance !== null && balance < needUsd) {
+    throw new Error(
+      `OpenRouter үлдэгдэл $${balance.toFixed(2)} — энэ run-д дор хаяж $${needUsd.toFixed(2)} ` +
+        `хэрэгтэй (тооцоо $${estimate.usd.toFixed(2)} × ${BALANCE_HEADROOM}).\n` +
+        `  Цэнэглэх: openrouter.ai/settings/credits\n` +
+        `  Эсвэл багасгах: npm run bench -- --models <нэг хоёр> --tasks 5`,
+    );
+  }
+  console.log(
+    balance === null
+      ? "  үлдэгдэл: мэдэгдэхгүй (шалгалт алгасав)"
+      : `  үлдэгдэл: $${balance.toFixed(2)} (шаардлага $${needUsd.toFixed(2)})`,
+  );
+
   // Сар бүр нэг run — дахин ажиллуулбал хуучныг нь солино
   await prisma.benchRun.deleteMany({ where: { month } });
   const run = await prisma.benchRun.create({
@@ -131,27 +168,44 @@ async function execute(opts: RunOptions, jobId: string): Promise<RunSummary> {
         let tokensOut = 0;
         let costUsd = 0;
         let error: string | null = null;
+        let errorKind: string | null = null;
+        let finishReason: string | null = null;
+        let reasoningTokens = 0;
 
-        try {
-          const r = await text({
-            model: modelSlug,
-            system: TASK_SYSTEM,
-            user: task.prompt,
-            maxTokens: TASK_MAX_TOKENS,
-            temperature: 0,
-            timeoutMs: TASK_TIMEOUT_MS,
-          });
-          output = r.text;
-          latencyMs = r.latencyMs;
-          tokensIn = r.tokensIn;
-          tokensOut = r.tokensOut;
-          costUsd = r.costUsd;
-          spent += r.costUsd;
-        } catch (e) {
-          // Түлхүүр буруу бол 30 даалгавар × 17 модель бүгд ижил унана — шууд зогсоно
-          if (isAuthError(e)) throw e;
-          error = (e as Error).message.slice(0, 200);
-          console.warn(`   ✗ ${task.slug}: ${error}`);
+        // Дэд бүтцийн алдааг нэг удаа дахин оролдоно; моделийн алдааг оролдохгүй
+        for (let tryNo = 0; tryNo <= INFRA_RETRIES; tryNo++) {
+          try {
+            const r = await text({
+              model: modelSlug,
+              system: TASK_SYSTEM,
+              user: task.prompt,
+              maxTokens: TASK_MAX_TOKENS,
+              temperature: 0,
+              timeoutMs: TASK_TIMEOUT_MS,
+            });
+            output = r.text;
+            latencyMs = r.latencyMs;
+            tokensIn = r.tokensIn;
+            tokensOut = r.tokensOut;
+            costUsd = r.costUsd;
+            finishReason = r.finishReason;
+            reasoningTokens = r.reasoningTokens;
+            spent += r.costUsd;
+            error = null;
+            errorKind = null;
+            break;
+          } catch (e) {
+            // Түлхүүр буруу / кредит дууссан — бүх модель ижил унана, run бүхэлдээ FAILED
+            if (isAuthError(e)) throw e;
+            error = (e as Error).message.slice(0, 200);
+            errorKind = classifyError(error);
+            if (errorKind === "infra" && tryNo < INFRA_RETRIES) {
+              console.warn(`   ↻ ${task.slug}: дэд бүтцийн алдаа — дахин оролдоно`);
+              continue;
+            }
+            console.warn(`   ${errorKind === "infra" ? "⚠" : "✗"} ${task.slug}: ${error}`);
+            break;
+          }
         }
 
         const check = error ? null : runChecker(checker, output);
@@ -174,6 +228,9 @@ async function execute(opts: RunOptions, jobId: string): Promise<RunSummary> {
           } catch (e) {
             if (isAuthError(e)) throw e;
             judgeNotes = `шүүгч ажиллсангүй: ${(e as Error).message.slice(0, 120)}`;
+            // Оноогүй үлдэнэ (judgeScore = null) — 0 гэж тоолохгүй.
+            // Шүүгчийн дэд бүтцийн алдаа бол даалгаврыг дундажаас бүрэн хасна.
+            if (classifyError((e as Error).message) === "infra") errorKind = "infra";
             console.warn(`   ⚠ ${task.slug}: ${judgeNotes}`);
           }
         } else if (check?.pass === false) {
@@ -187,25 +244,31 @@ async function execute(opts: RunOptions, jobId: string): Promise<RunSummary> {
             latencyMs, tokensIn, tokensOut, costUsd, outputWords,
             judgeScore, judgeScore2, judgeNotes,
             checkerPass: check ? check.pass : null,
-            error,
+            error, errorKind, finishReason, reasoningTokens,
           },
         });
 
         scored.push({
           modelSlug, category: task.category, weight: task.weight,
-          latencyMs, costUsd, outputWords, judgeScore, checkerPass: check?.pass ?? null, error,
+          latencyMs, costUsd, outputWords, judgeScore, checkerPass: check?.pass ?? null,
+          error, errorKind,
         });
       }
 
       const mine = scored.filter((s) => s.modelSlug === modelSlug);
-      const done = mine.filter((r) => !r.error).length;
-      if (done === 0) {
-        // Нэг ч даалгавар хариу өгөөгүй — дундаж «0.00/10» гэж бичих нь худал мэдээлэл
-        console.warn(`   ✗ ${modelSlug}: 0/${mine.length} даалгавар хариу өгсөнгүй — дүн гаргахгүй`);
+      const avg = summarize(mine)[0];
+      const c = completeness(
+        mine.map((r) => ({ error: r.error, errorKind: r.errorKind, score: r.judgeScore ?? null })),
+      );
+      if (!avg || avg.incomplete) {
+        console.warn(
+          `   ⚠ ${modelSlug}: дутуу (${completenessLabel(c)}) — нийтэд харуулахгүй`,
+        );
         continue;
       }
-      const avg = summarize(mine)[0];
-      console.log(`   дүн ${avg?.avgScore.toFixed(2)}/10 · ${done}/${mine.length} · $${spent.toFixed(3)} нийт`);
+      console.log(
+        `   дүн ${avg.avgScore.toFixed(2)}/10 · ${completenessLabel(c)} · $${spent.toFixed(3)} нийт`,
+      );
     }
   }
 
@@ -223,31 +286,48 @@ async function execute(opts: RunOptions, jobId: string): Promise<RunSummary> {
     throw e;
   }
 
-  // Нэг ч даалгавар хариу өгөөгүй моделийг дүгнэхгүй — 0.00/10 гэсэн «үр дүн»
-  // жагсаалтад гарч, худал мэдээлэл болдог (401 үед яг ингэж болсон)
-  const answered = new Set(scored.filter((s) => !s.error).map((s) => s.modelSlug));
-  const scoredOk = scored.filter((s) => answered.has(s.modelSlug));
-  const emptyModels = [...new Set(scored.map((s) => s.modelSlug))].filter((m) => !answered.has(m));
-  const summaries = summarize(scoredOk);
+  // Дүгнэлт нь даалгаврын ≥90%-д оноо гарсан модельд л бичигдэнэ. Дутуу нь
+  // «incomplete» гэж тэмдэглэгдэж, /admin дээр харагдах ч НИЙТЭД гарахгүй.
+  const all = summarize(scored);
+  const summaries = all.filter((s) => !s.incomplete);
+  const partial = all.filter((s) => s.incomplete);
 
-  // Бүх модель бүтэлгүйтсэн — run нь амжилтгүй. Дүгнэлт, нийтлэл үүсгэхгүй.
+  // Нэг ч бүтэн дүн гарсангүй — run амжилтгүй. Дүгнэлт, нийтлэл үүсгэхгүй.
   const allFailed = summaries.length === 0 && scored.length > 0;
   const failNote = allFailed
-    ? `Бүх модель (${emptyModels.length}) нэг ч даалгаварт хариу өгсөнгүй — түлхүүр, тариф, сүлжээгээ шалгана уу`
+    ? `Нэг ч модель даалгаврын 90%-д оноо авсангүй (${partial.length} дутуу) — ` +
+      `түлхүүр, үлдэгдэл, сүлжээгээ шалгана уу`
     : null;
 
   if (!allFailed) {
+    // Эрэмбийг бүтэн дүнгүүдийн дотор дахин тооцно — дутуу нь байр эзлэхгүй
     await prisma.benchModelSummary.createMany({
-      data: summaries.map((s) => ({
+      data: summaries.map((s, i) => ({
         runId: run.id, modelSlug: s.modelSlug, avgScore: s.avgScore,
         scoreByCategory: s.scoreByCategory, avgLatency: s.avgLatency,
-        costPer1kMn: s.costPer1kMn, completed: s.completed, rank: s.rank,
+        costPer1kMn: s.costPer1kMn, completed: s.completed,
+        scored: s.scored, infra: s.infra, incomplete: false, rank: i + 1,
+      })),
+    });
+  }
+  // Дутуу дүнг ч хадгална — /admin дээр яагаад дутсаныг харна.
+  // Run бүхэлдээ унасан бол юу ч бичихгүй: хагас өгөгдөл нь BenchResult-д хэвээр.
+  if (!allFailed && partial.length > 0) {
+    await prisma.benchModelSummary.createMany({
+      data: partial.map((s, i) => ({
+        runId: run.id, modelSlug: s.modelSlug, avgScore: s.avgScore,
+        scoreByCategory: s.scoreByCategory, avgLatency: s.avgLatency,
+        costPer1kMn: s.costPer1kMn, completed: s.completed,
+        scored: s.scored, infra: s.infra, incomplete: true, rank: summaries.length + i + 1,
       })),
     });
   }
 
   const status = allFailed ? "FAILED" : stopped ? "BUDGET" : "DONE";
-  const notes = [stopped, emptyModels.length > 0 ? `хариу өгөөгүй: ${emptyModels.join(", ")}` : null]
+  const notes = [
+    stopped,
+    partial.length > 0 ? `дутуу (нийтлэгдээгүй): ${partial.map((s) => s.modelSlug).join(", ")}` : null,
+  ]
     .filter(Boolean)
     .join(" · ");
   const note = failNote ?? (notes || null);

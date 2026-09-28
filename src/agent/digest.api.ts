@@ -366,6 +366,7 @@ export function dedupeItems(items: DigestSource[]): { kept: DigestSource[]; drop
 // ---------- Нийтлэхийн өмнөх механик шалгалт ----------
 
 export type DigestProblem =
+  | "үнэн зөв биш"
   | "өгүүлбэрт бүтэн гарчиг"
   | "өгүүлбэрт холбоос"
   | "давхардсан мэдээ"
@@ -428,4 +429,19 @@ export function checkDigest(out: DigestOut, items: DigestSource[]): DigestIssue[
     }
   }
   return issues;
+}
+
+
+/**
+ * Шүүгчид өгөх эх сурвалж: тухайн хэсэгт хамаарах мэдээнүүдийн гарчиг ба
+ * хураангуйн эхний өгүүлбэрүүд. Бүтэн биетийг өгвөл токен үрнэ, ач холбогдол бага.
+ */
+export const SECTION_SOURCE_CHARS = 1_600;
+
+export function sectionSource(s: DigestSection, bySlug: Map<string, DigestSource>): string {
+  const lines = s.slugs
+    .map((slug) => bySlug.get(slug))
+    .filter((a): a is DigestSource => Boolean(a))
+    .map((a) => `${a.titleMn}. ${a.summaryMn}`);
+  return lines.join("\n").slice(0, SECTION_SOURCE_CHARS);
 }

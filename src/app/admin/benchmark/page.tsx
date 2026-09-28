@@ -51,6 +51,7 @@ export default async function AdminBenchmark({
         select: {
           id: true, output: true, judgeScore: true, judgeScore2: true, judgeNotes: true,
           checkerPass: true, humanScore: true, humanNote: true, error: true, latencyMs: true,
+          errorKind: true, finishReason: true, reasoningTokens: true,
           task: { select: { slug: true, title: true, category: true } },
         },
       })
@@ -186,13 +187,20 @@ export default async function AdminBenchmark({
                   <span className="font-medium text-sm">{r.task.title}</span>
                   <span className="text-muted">{BENCH_CATEGORY_LABEL[r.task.category]}</span>
                   <span className="tabular-nums">
-                    эцсийн {finalScore(r).toFixed(1)}
+                    эцсийн {finalScore(r)?.toFixed(1) ?? "—"}
                     {r.judgeScore !== null && <span className="text-muted"> (шүүгч {r.judgeScore.toFixed(1)}</span>}
                     {r.judgeScore2 !== null && <span className="text-muted">, 2-р {r.judgeScore2.toFixed(1)}</span>}
                     {r.judgeScore !== null && <span className="text-muted">)</span>}
                   </span>
                   {r.checkerPass === false && <span className="text-down">шалгалт унасан</span>}
-                  {r.error && <span className="text-down">алдаа: {r.error.slice(0, 80)}</span>}
+                  {finalScore(r) === null && !r.error && (
+                    <span className="text-warn">оноогүй (шүүгч ажиллаагүй)</span>
+                  )}
+                  {r.error && (
+                    <span className={r.errorKind === "infra" ? "text-warn" : "text-down"}>
+                      {r.errorKind === "infra" ? "дэд бүтэц" : "алдаа"}: {r.error.slice(0, 80)}
+                    </span>
+                  )}
                   <span className="ml-auto text-muted tabular-nums">{(r.latencyMs / 1000).toFixed(1)}с</span>
                 </div>
                 {r.judgeNotes && <p className="text-xs text-muted">{r.judgeNotes}</p>}

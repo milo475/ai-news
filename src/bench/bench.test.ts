@@ -122,10 +122,28 @@ test("finalScore: гараар → checker → шүүгч дараалал", () 
   assert.equal(finalScore({ judgeScore: 8, humanScore: 5 }), 5, "гараар өгсөн нь дарна");
   assert.equal(finalScore({ judgeScore: 9, checkerPass: false }), 0, "checker унавал 0");
   assert.equal(finalScore({ judgeScore: 9, checkerPass: false, humanScore: 7 }), 7, "гараар засвал сэргэнэ");
-  assert.equal(finalScore({ judgeScore: 9, error: "timeout" }), 0, "хариу өгөөгүй нь 0");
-  assert.equal(finalScore({}), 0, "оноогүй нь 0");
   assert.equal(finalScore({ judgeScore: 0, humanScore: 0 }), 0);
   assert.equal(finalScore({ checkerPass: true, judgeScore: 7 }), 7);
+});
+
+test("моделийн бодит алдаа нь жинхэнэ 0", () => {
+  // Буруу формат, refusal — моделийн буруу
+  assert.equal(finalScore({ judgeScore: 9, error: "JSON биш хариу" }), 0);
+});
+
+test("шүүгч ажиллаагүй бол ОНООГҮЙ (null), 0 БИШ", () => {
+  // 2026-09-27: «шүүгч ажиллсангүй»-г 0 гэж тоолсноос /benchmark дээр 0.2х
+  // хуурамч оноо гарсан
+  assert.equal(finalScore({}), null);
+  assert.equal(finalScore({ judgeScore: null }), null);
+  assert.equal(finalScore({ checkerPass: true, judgeScore: null }), null);
+});
+
+test("дэд бүтцийн алдаа нь оноогүй — моделийг буруутгахгүй", () => {
+  assert.equal(finalScore({ error: "OpenRouter chat 402: Insufficient credits", errorKind: "infra" }), null);
+  assert.equal(finalScore({ error: "timeout", errorKind: "infra" }), null);
+  // Гараар оноо өгсөн бол тэр нь дарна
+  assert.equal(finalScore({ error: "timeout", errorKind: "infra", humanScore: 6 }), 6);
 });
 
 // ——— Дүн, эрэмбэ ———
@@ -390,4 +408,47 @@ test("describePlan: юу устахыг тодорхой хэлнэ", () => {
 
   const none = describePlan({ ...base, articleSlug: null, keptArticleSlug: null });
   assert.ok(none.some((l) => l.includes("нийтлэл үүсээгүй")));
+});
+
+// ---------- Дутуу дүнг нийтэд харуулахгүй (2026-09-27) ----------
+
+test("оноогүй даалгавар дундажийг бууруулахгүй", () => {
+  // 3 даалгавар: 8, 8, шүүгч ажиллаагүй. Дундаж нь 8 байх ёстой, 5.33 БИШ.
+  const rows: ScoredResult[] = [
+    mk("a", 8), mk("a", 8),
+    { ...mk("a", 0), judgeScore: null },
+  ];
+  const [s] = summarize(rows);
+  assert.equal(s?.avgScore, 8, "оноогүйг 0 гэж тоолсон байна");
+  assert.equal(s?.scored, 2);
+});
+
+test("дэд бүтцийн алдаа дундажаас хасагдана", () => {
+  const rows: ScoredResult[] = [
+    mk("a", 9), mk("a", 9), mk("a", 9), mk("a", 9), mk("a", 9),
+    mk("a", 9), mk("a", 9), mk("a", 9), mk("a", 9),
+    { ...mk("a", 0), judgeScore: null, error: "402 Insufficient credits", errorKind: "infra" },
+  ];
+  const [s] = summarize(rows);
+  assert.equal(s?.avgScore, 9, "402-ыг 0 гэж тоолсон байна");
+  assert.equal(s?.infra, 1);
+  assert.equal(s?.incomplete, false, "9/9 бүрэн");
+});
+
+test("даалгаврын 90%-д оноо гараагүй бол incomplete", () => {
+  const rows: ScoredResult[] = [
+    mk("a", 8), mk("a", 8),
+    { ...mk("a", 0), judgeScore: null },
+    { ...mk("a", 0), judgeScore: null },
+  ];
+  const [s] = summarize(rows);
+  assert.equal(s?.incomplete, true, "2/4 оноотой байхад нийтлэгдэх гэж байна");
+});
+
+test("бүх даалгавартаа унасан модель дүн гаргахгүй", () => {
+  const rows: ScoredResult[] = Array.from({ length: 4 }, () => ({
+    ...mk("a", 0), judgeScore: null, error: "тестийн алдаа", errorKind: "model" as const,
+  }));
+  const [s] = summarize(rows);
+  assert.equal(s?.incomplete, true, "«0.00/10» гэж нийтэд гарах ёсгүй");
 });

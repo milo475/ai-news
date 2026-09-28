@@ -45,8 +45,43 @@ export class LlmAuthError extends Error {
   }
 }
 
+/**
+ * Кредит дууссаны алдаа — 402-ийн БҮХ хэлбэр.
+ *
+ * OpenRouter 402-ыг гурван өөр бичвэрээр буцаадаг бөгөөд гурвуулаа «одоо мөнгө
+ * хүрэхгүй» гэсэн НЭГ утгатай (2026-09-27-ны production):
+ *   1. «would exceed your available credits given your current in-flight requests»
+ *   2. «requires more credits, or fewer max_tokens … can only afford N»
+ *   3. «Insufficient credits»
+ *
+ * Гурвыг нь үхлийн алдаа гэж үзнэ. Өмнө нь (1) нь «түр хязгаар» гэж дахин оролдож,
+ * (2) нь max_tokens-ыг бууруулж ажилласаар байсан тул бенчмарк дуусах хүртлээ
+ * хагас хариу, хоосон хариу цуглуулж, /benchmark дээр хуурамч оноо гарсан.
+ */
+export class LlmCreditError extends LlmAuthError {
+  constructor(detail: string) {
+    super(402, detail, "credits");
+    this.name = "LlmCreditError";
+  }
+}
+
 export function isAuthError(e: unknown): e is LlmAuthError {
   return e instanceof LlmAuthError;
+}
+
+export function isCreditError(e: unknown): e is LlmCreditError {
+  return e instanceof LlmCreditError;
+}
+
+/** 402-ийн бичвэрээс ойлгомжтой монгол тайлбар */
+export function creditDetail(body: string): string {
+  if (/in-?flight/i.test(body)) return "зэрэг явж буй дуудлагууд үлдэгдлээс хэтэрлээ";
+  if (/can only afford/i.test(body)) {
+    const n = /can only afford (\d+)/.exec(body)?.[1];
+    return n ? `дээд тал нь ${n} токен л хүрэлцэнэ` : "хүссэн токенд хүрэлцэхгүй";
+  }
+  if (/insufficient credits/i.test(body)) return "үлдэгдэл хүрэлцэхгүй";
+  return body.slice(0, 120);
 }
 
 /**
@@ -82,17 +117,17 @@ function apiKeyOrThrow(): string {
  * Дахин оролдох утгагүй алдаа бол түгжээг тавиад буцаана, үгүй бол null.
  *
  *   401/403 — түлхүүр буруу
- *   402 «Insufficient credits» — данс дууссан. Бүх дараагийн дуудлага мөн л унах тул
- *     эндээс зогсоох нь чухал: эс тэгвээс алхам бүр дахин оролдож лог, цаг үрнэ.
- *     (402-ийн «in_flight» хувилбар нь түр хязгаар тул үүнд хамаарахгүй.)
+ *   402 (БҮХ хэлбэр) — данс дууссан. Бүх дараагийн дуудлага мөн л унах тул
+ *     эндээс зогсоох нь чухал: эс тэгвээс алхам бүр дахин оролдож лог, цаг, мөнгө үрнэ.
  */
 function authErrorFor(status: number, body: string): LlmAuthError | null {
   if (status === 401 || status === 403) {
     authFailure = new LlmAuthError(status, body.slice(0, 200));
     return authFailure;
   }
-  if (status === 402 && /insufficient credits/i.test(body) && !/in_flight/i.test(body)) {
-    authFailure = new LlmAuthError(status, "үлдэгдэл хүрэлцэхгүй", "credits");
+  // 402-ийн БҮХ хэлбэр — дахин оролдох, max_tokens бууруулах нь утгагүй
+  if (status === 402) {
+    authFailure = new LlmCreditError(creditDetail(body));
     return authFailure;
   }
   return null;
@@ -101,6 +136,37 @@ function authErrorFor(status: number, body: string): LlmAuthError | null {
 /** Тестэд түгжээг сэргээнэ */
 export function resetAuthFailure(): void {
   authFailure = null;
+}
+
+/**
+ * Хоосон хариуны алдаа.
+ *
+ * Бодох (reasoning) моделиуд `finish_reason: "stop"` буцаасан ч агуулга нь хоосон
+ * байдаг: бүх max_tokens-ыг дотоод бодолт идсэн байна. Ийм хариуг **таслагдсантай
+ * адил** гэж үзэж, нэг удаа max_tokens-ыг хоёр дахин нэмж, reasoning-ийг унтраан
+ * дахин оролдоно (2026-09-27-ны бенчмаркт space-bunny-alpha 11, deepseek 13 удаа
+ * хоосон хариу өгсөн).
+ */
+function emptyError(maxTokens: number, json: ChatResponse): Error & {
+  truncated?: boolean;
+  reasoningTokens?: number;
+  emptyReply?: boolean;
+} {
+  const reasoning = json.usage?.completion_tokens_details?.reasoning_tokens ?? 0;
+  const err = new Error(
+    `OpenRouter chat: хоосон хариу (max_tokens=${maxTokens}${reasoningNote(json)})`,
+  ) as Error & { truncated?: boolean; reasoningTokens?: number; emptyReply?: boolean };
+  // Бодолт токен идсэн бол өргөтгөх нь тусална; идээгүй бол загвар үнэхээр юу ч
+  // хэлээгүй — тэр тохиолдолд дахин оролдоод ч ялгаагүй, гэхдээ нэг удаа туршина.
+  err.truncated = true;
+  err.reasoningTokens = reasoning;
+  err.emptyReply = true;
+  return err;
+}
+
+/** Хариу хоосон ирсэн эсэх (таслагдсанаас ялгах) */
+export function isEmptyReply(e: unknown): boolean {
+  return (e as { emptyReply?: boolean })?.emptyReply === true;
 }
 
 export interface ChatJsonOptions {
@@ -181,13 +247,12 @@ async function callOnce<T>(
     const err = new Error(`OpenRouter chat ${res.status}: ${body}`) as Error & {
       retryable?: boolean;
       reasoningRejected?: boolean;
-      affordableTokens?: number;
+      status?: number;
     };
-    // "You requested up to 4000 tokens, but can only afford 3608" — кредитийн үлдэгдлийн таг
-    err.affordableTokens = Number(/can only afford (\d+)/.exec(body)?.[1] ?? 0);
-    // Түр алдаа: лимит, сервер, мөн OpenRouter-ийн "in-flight budget" түр хязгаар
-    err.retryable =
-      res.status === 429 || res.status >= 500 || (res.status === 402 && /in_flight/i.test(body));
+    err.status = res.status;
+    // Түр алдаа: зөвхөн лимит ба серверийн алдаа. 402 нь энд хүрэхгүй — дээр
+    // LlmCreditError болж шидэгдсэн байна.
+    err.retryable = res.status === 429 || res.status >= 500;
     // Зарим provider reasoning-ийг унтраахыг зөвшөөрдөггүй ("Reasoning is mandatory for this endpoint")
     err.reasoningRejected = res.status === 400 && /reasoning/i.test(body);
     throw err;
@@ -207,7 +272,7 @@ async function callOnce<T>(
     throw err;
   }
   const content = choice?.message?.content;
-  if (!content) throw new Error("OpenRouter chat: хоосон хариу");
+  if (!content) throw emptyError(opts.maxTokens, json);
 
   let data: T;
   try {
@@ -232,7 +297,6 @@ export async function chatJson<T>(
 
   let call = opts;
   let noReasoning = opts.reasoning === false;
-  let lowered = false;
   let widened = false;
   let attempt = 0;
   for (;;) {
@@ -256,14 +320,6 @@ export async function chatJson<T>(
         );
         call = { ...call, maxTokens: wider };
         noReasoning = true;
-        continue;
-      }
-      // Кредит хүрэлцэхгүй бол OpenRouter-ийн зөвшөөрсөн хэмжээгээр нэг удаа дахин
-      const afford = (e as { affordableTokens?: number }).affordableTokens ?? 0;
-      if (!lowered && afford > 200 && afford < call.maxTokens) {
-        lowered = true;
-        console.warn(`  ↓ ${call.model}: кредит хүрэлцэхгүй — max_tokens ${call.maxTokens} → ${afford}`);
-        call = { ...call, maxTokens: afford };
         continue;
       }
       const retryable = (e as { retryable?: boolean }).retryable ?? false;
@@ -295,6 +351,10 @@ export interface ChatTextResult {
   tokensOut: number;
   costUsd: number;
   latencyMs: number;
+  /** "stop" | "length" | … — бенчмаркт хадгалж, хоосон хариуг шинжилнэ */
+  finishReason: string | null;
+  /** Бодох моделийн дотоод бодолт идсэн токен */
+  reasoningTokens: number;
 }
 
 /**
@@ -359,7 +419,7 @@ export async function chatText(opts: ChatTextOptions): Promise<ChatTextResult> {
       }
 
       const text = choice?.message?.content ?? "";
-      if (!text.trim()) throw new Error("OpenRouter chat: хоосон хариу");
+      if (!text.trim()) throw emptyError(call.maxTokens, json);
 
       return {
         text,
@@ -367,6 +427,8 @@ export async function chatText(opts: ChatTextOptions): Promise<ChatTextResult> {
         tokensOut: json.usage?.completion_tokens ?? 0,
         costUsd: json.usage?.cost ?? 0,
         latencyMs: Date.now() - started,
+        finishReason: choice?.finish_reason ?? null,
+        reasoningTokens: json.usage?.completion_tokens_details?.reasoning_tokens ?? 0,
       };
     } catch (e) {
       // Хариу багтсангүй — chatJson-той ижил дүрэм: нэг удаа 2 дахин өргөн, reasoning унтраана

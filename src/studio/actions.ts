@@ -17,7 +17,7 @@ import {
   spentToday, usedToday,
 } from "./db";
 import { askQuestions, buildBrief, buildDirections, buildOutput, writeModel } from "./run";
-import { openRouterBalance } from "./balance";
+import { openRouterBalance } from "../lib/balance";
 import { studioLinks } from "./links";
 import {
   aspectFor, defaultTools, detectFormat, FORMATS, limitLeft, OFF_MESSAGE, PLACEMENTS,

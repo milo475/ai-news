@@ -28,6 +28,7 @@ test(
     try {
       const r = await runBenchmark({
         month: MONTH,
+        skipBalanceCheck: true,
         models: ["test/alpha", "test/beta"],
         taskLimit: 2,
         // 401 биш энгийн алдаа — цикл дуустал үргэлжилж, эцэст нь FAILED болох ёстой
@@ -38,7 +39,7 @@ test(
       assert.equal(r.status, "FAILED");
       assert.equal(r.models, 0, "нэг ч дүгнэлт гарах ёсгүй");
       assert.equal(r.articleSlug, undefined, "нийтлэл үүсэх ёсгүй");
-      assert.match(r.note ?? "", /хариу өгсөнгүй/);
+      assert.match(r.note ?? "", /90%-д оноо авсангүй/);
 
       const run = await prisma.benchRun.findUniqueOrThrow({
         where: { month: MONTH },
@@ -98,7 +99,10 @@ test(
     try {
       const text = (async (o: Parameters<typeof chatText>[0]) => {
         if (o.model === "test/beta") throw new Error("тестийн алдаа");
-        return { text: "Монгол хэл дээрх хариулт.", tokensIn: 10, tokensOut: 20, costUsd: 0, latencyMs: 5 };
+        return {
+          text: "Монгол хэл дээрх хариулт.", tokensIn: 10, tokensOut: 20, costUsd: 0,
+          latencyMs: 5, finishReason: "stop", reasoningTokens: 0,
+        };
       }) as typeof chatText;
 
       const chat = (async () => ({
@@ -107,6 +111,7 @@ test(
 
       const r = await runBenchmark({
         month: MONTH,
+        skipBalanceCheck: true,
         models: ["test/alpha", "test/beta"],
         taskLimit: 2,
         text,
@@ -117,14 +122,23 @@ test(
       assert.equal(r.status, "DONE");
       assert.equal(r.models, 1, "зөвхөн хариу өгсөн модель дүгнэгдэнэ");
       assert.equal(r.top[0]?.modelSlug, "test/alpha");
-      assert.match(r.note ?? "", /хариу өгөөгүй: test\/beta/);
+      assert.match(r.note ?? "", /дутуу \(нийтлэгдээгүй\): test\/beta/);
 
+      // Нийтэд гарах дүн — зөвхөн бүрэн хэмжигдсэн модель
       const summaries = await prisma.benchModelSummary.findMany({
-        where: { run: { month: MONTH } },
-        select: { modelSlug: true, completed: true },
+        where: { run: { month: MONTH }, incomplete: false },
+        select: { modelSlug: true, completed: true, scored: true },
       });
       assert.deepEqual(summaries.map((s) => s.modelSlug), ["test/alpha"]);
       assert.equal(summaries[0]?.completed, 2);
+      assert.equal(summaries[0]?.scored, 2);
+
+      // Дутуу дүн нь /admin-д харагдахаар хадгалагдана, гэхдээ incomplete тэмдэгтэй
+      const hidden = await prisma.benchModelSummary.findMany({
+        where: { run: { month: MONTH }, incomplete: true },
+        select: { modelSlug: true },
+      });
+      assert.deepEqual(hidden.map((s) => s.modelSlug), ["test/beta"]);
 
       // Унасан моделийн үр дүн нь бүртгэлд үлдэнэ (яагаад унасныг харах)
       const beta = await prisma.benchResult.count({
@@ -163,6 +177,7 @@ test(
         () =>
           runBenchmark({
             month: MONTH,
+            skipBalanceCheck: true,
             models: ["test/alpha", "test/beta"],
             taskLimit: 3,
             text,

@@ -26,6 +26,7 @@ import { prisma } from "./db";
 import { openRouterKey } from "./env";
 import { ubDayRange } from "./jobs/day";
 import { logError } from "./lib/errors";
+import { balanceMessage, llmAllowed, openRouterBalance } from "./lib/balance";
 import { isCoreStep, shouldGiveUpToday } from "./jobs/steps.api";
 import { dailyHour, modeFor, publishTimes, type Mode } from "./jobs/mode.api";
 import { runArena } from "./fetchers/arena";
@@ -52,6 +53,11 @@ interface Step {
   mode: Mode;
   /** УБ цагаар өдөрт нэг л удаа — өмнө нь амжилттай ажилласан бол алгасна */
   oncePerDay?: boolean;
+  /**
+   * LLM дуудлага шаардана. Кредит дууссан үед эдгээр нь алгасагдана —
+   * `publish` нь бэлэн контент, бэлэн картаар үргэлжилнэ.
+   */
+  needsLlm?: boolean;
   run: () => Promise<string>;
 }
 
@@ -120,6 +126,7 @@ const STEPS: Step[] = [
   },
   {
     name: "agent",
+    needsLlm: true,
     mode: "prepare",
     run: async () => {
       const r = await runAgent();
@@ -132,6 +139,7 @@ const STEPS: Step[] = [
   },
   {
     name: "improve",
+    needsLlm: true,
     mode: "prepare",
     run: async () => {
       const r = await runImprove();
@@ -142,6 +150,7 @@ const STEPS: Step[] = [
   },
   {
     name: "digest",
+    needsLlm: true,
     mode: "prepare",
     oncePerDay: true,
     run: async () => {
@@ -165,6 +174,7 @@ const STEPS: Step[] = [
     // Дотоодын мэдээ — ерөнхий 3-ын ДЭЭР тусдаа квот (DAILY_LOCAL_LIMIT).
     // FB slot-д орохгүй, зөвхөн /mongol ба нүүрэнд гарна.
     name: "local",
+    needsLlm: true,
     mode: "prepare",
     oncePerDay: true,
     run: async () => {
@@ -196,6 +206,7 @@ const STEPS: Step[] = [
   {
     // Сарын эхний өдөр — монгол хэлний бенчмарк. Нэг run хэдэн арван минут явна.
     name: "bench",
+    needsLlm: true,
     mode: "prepare",
     oncePerDay: true,
     run: async () => {
@@ -314,8 +325,21 @@ async function main() {
   );
 
   // LLM шаардлагатай алхам ажиллах гэж байвал түлхүүрийг эхлэхэд нь шалгана
-  const needsLlm = STEPS.filter((s) => ["openrouter", "agent", "improve"].includes(s.name)).some(willRun);
-  if (needsLlm) openRouterKey();
+  const llmPlanned = STEPS.filter((s) => s.needsLlm).some(willRun);
+  if (llmPlanned) openRouterKey();
+
+  // Үлдэгдлийг run бүрийн эхэнд НЭГ удаа шалгана (10 минут кэшлэгддэг).
+  // < $3  → /admin/aldaa-д ⚠ ба /admin дээр улаан баннер
+  // < $0.5 → LLM алхмууд алгасагдана; publish нь бэлэн контентоор үргэлжилнэ
+  const balance = llmPlanned ? await openRouterBalance() : null;
+  const balanceMsg = balanceMessage(balance);
+  if (balanceMsg) {
+    console.warn(`⚠ ${balanceMsg}`);
+    await logError({ source: "cron", path: "balance", error: new Error(balanceMsg) }).catch(() => {});
+  } else if (balance !== null) {
+    console.log(`OpenRouter үлдэгдэл: $${balance.toFixed(2)}`);
+  }
+  const llmHalted = !llmAllowed(balance);
 
   const lock = selected ? null : await acquireLock(activeMode);
   if (!lock && !selected) {
@@ -333,6 +357,15 @@ async function main() {
 
   for (const step of STEPS) {
     if (!willRun(step)) continue;
+
+    // Кредит дууссан — LLM шаардсан алхмыг алгасна. Нийтлэх нь үргэлжилнэ.
+    if (llmHalted && step.needsLlm) {
+      rows.push({
+        Алхам: step.name, Төлөв: "алгасав",
+        "Үр дүн": `OpenRouter кредит $${(balance ?? 0).toFixed(2)}`, Хугацаа: "—",
+      });
+      continue;
+    }
 
     // Өдөрт нэг удаагийн алхам: заасан цагаас хойш, өнөөдөр ажиллаагүй бол
     if (step.oncePerDay && !selected) {

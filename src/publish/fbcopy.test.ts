@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   assemblePost, bodyOf, checkBody, checkQuestion, cleanQuestion, cleanTags, domainOf,
-  ensureLinkInComment, fallbackVariant, firstSentences, FOLLOW_LINE,
+  ensureLinkInComment, fallbackVariant, firstSentences, fixQuestionMark, FOLLOW_LINE,
   LINK_IN_COMMENT_LINE, linkComment, MAX_BODY_CHARS, MAX_QUESTION_CHARS, MIN_BODY_CHARS,
   sanitizeVariant, showSource, SOURCE_PREFIX, withoutLinkNotice, type CopyVariant,
 } from "./fbcopy.api";
@@ -153,7 +153,7 @@ test("ensureLinkInComment: дагах уриалга байхгүй бол тө�
 test("асуулт хаягдсан шалтгааныг нэрлэнэ", () => {
   assert.deepEqual(checkQuestion(""), { question: null, reason: "LLM асуулт өгөөгүй" });
   assert.deepEqual(checkQuestion("   "), { question: null, reason: "LLM асуулт өгөөгүй" });
-  assert.deepEqual(checkQuestion("Танайд ийм систем бий юу"), {
+  assert.deepEqual(checkQuestion("Энэ бол сайн шийдэл"), {
     question: null, reason: "асуултын тэмдэггүй",
   });
   assert.deepEqual(checkQuestion("Та юу гэж бодож байна?"), { question: null, reason: "хэт ерөнхий" });
@@ -197,4 +197,27 @@ test("нөөц бие нь нийтлэлээс шууд авагдана — з
 test("нийтлэл хэт богино бол нөөц бие үүсгэхгүй", () => {
   assert.equal(fallbackVariant({ summaryMn: "Богино.", bodyMn: null }), null);
   assert.equal(fallbackVariant({ summaryMn: null, bodyMn: null }), null);
+});
+
+
+test("монгол асуултын сул үгээр төгссөн бол «?» нэмж засна, хаяхгүй", () => {
+  // 2026-09-27: «Танайд ийм систем бий юу» гэх зөв асуултуудыг хаядаг байсан
+  for (const [raw, fixed] of [
+    ["Танайд ийм систем бий юу", "Танайд ийм систем бий юу?"],
+    ["Та үүнийг туршиж үзсэн үү", "Та үүнийг туршиж үзсэн үү?"],
+    ["Энэ танд хэрэгтэй юу.", "Энэ танд хэрэгтэй юу?"],
+    ["Яагаад ийм болов вэ", "Яагаад ийм болов вэ?"],
+  ] as const) {
+    const r = checkQuestion(raw);
+    assert.equal(r.reason, null, raw);
+    assert.equal(r.question, fixed);
+  }
+});
+
+test("сул үггүй тунхаг өгүүлбэрт «?» нэмэхгүй", () => {
+  assert.equal(fixQuestionMark("Энэ бол сайн шийдэл"), null);
+  assert.equal(checkQuestion("Энэ бол сайн шийдэл").reason, "асуултын тэмдэггүй");
+  // «юу» нь үгийн дунд байвал тоохгүй
+  assert.equal(fixQuestionMark("Тэр юунд хэрэгтэй вэ"), "Тэр юунд хэрэгтэй вэ?");
+  assert.equal(fixQuestionMark("Энэ бол юмуухай"), null);
 });

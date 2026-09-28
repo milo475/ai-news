@@ -35,7 +35,7 @@ export async function writeBenchArticle(
     select: { month: true, articleId: true },
   });
   const summaries = await prisma.benchModelSummary.findMany({
-    where: { runId },
+    where: { runId, incomplete: false },
     orderBy: { rank: "asc" },
     take: 10,
   });

@@ -162,7 +162,7 @@ export interface FidelityVerdict {
 }
 
 /** Юуг шалгаж байна вэ — нэг шүүгч гурван газар ажиллана */
-export type FidelityKind = "гарчиг" | "FB текст" | "IG тайлбар";
+export type FidelityKind = "гарчиг" | "FB текст" | "IG тайлбар" | "тоймын хэсэг";
 
 export const FIDELITY_SYSTEM = `Чи баримт шалгагч. Нийтлэлээс гаргасан {{KIND}} нь эх нийтлэлдээ үнэнч эсэхийг шалгана.
 

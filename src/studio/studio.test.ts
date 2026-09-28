@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  aspectFor, dailyBudget, dailyLimit, defaultTools, detectFormat, limitLeft, MIN_BALANCE_USD,
+  aspectFor, dailyBudget, dailyLimit, defaultTools, detectFormat, limitLeft, STUDIO_MIN_USD,
   placementById, studioOff, subjectsOf, toolById, toolsFor, usedOf, withinBudget,
 } from "./studio.api";
 
@@ -82,7 +82,7 @@ test("төсөв — STUDIO_DAILY_USD, анхдагч 0.5", () => {
 
 test("үлдэгдэл бага бол студи түрүүлж унтарна", () => {
   const env = {} as unknown as NodeJS.ProcessEnv;
-  assert.equal(studioOff({ env, spentUsd: 0, balanceUsd: MIN_BALANCE_USD - 0.01 }), "balance");
+  assert.equal(studioOff({ env, spentUsd: 0, balanceUsd: STUDIO_MIN_USD - 0.01 }), "balance");
   assert.equal(studioOff({ env, spentUsd: 0, balanceUsd: 10 }), null);
   // Үлдэгдэл мэдэгдэхгүй (null) бол студи хаагдахгүй — «мэдэхгүй» ≠ «дууссан»
   assert.equal(studioOff({ env, spentUsd: 0, balanceUsd: null }), null);

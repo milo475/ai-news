@@ -2,6 +2,7 @@
  * Моделийн дүн — жигнэсэн дундаж, ангиллын оноо, эрэмбэ, өмнөх сартай харьцуулалт.
  */
 import { finalScore } from "./judge.api";
+import { completeness } from "./failure.api";
 import type { BenchCategory } from "../generated/prisma/enums";
 
 export interface ScoredResult {
@@ -16,6 +17,8 @@ export interface ScoredResult {
   checkerPass?: boolean | null;
   judgeScore?: number | null;
   error?: string | null;
+  /** "infra" = дэд бүтэц унасан — дундажаас хасагдана */
+  errorKind?: string | null;
 }
 
 export interface ModelSummary {
@@ -27,6 +30,12 @@ export interface ModelSummary {
   costPer1kMn: number;
   completed: number;
   rank: number;
+  /** Оноо гарсан даалгаврын тоо — дундажийн суурь */
+  scored: number;
+  /** Дэд бүтцийн алдаанаас болж хасагдсан даалгавар */
+  infra: number;
+  /** Даалгаврын 90%-д оноо гараагүй — нийтэд харуулахгүй */
+  incomplete: boolean;
 }
 
 function round(n: number, digits = 2): number {
@@ -55,7 +64,13 @@ export function summarize(results: ScoredResult[]): ModelSummary[] {
   }
 
   const summaries = [...byModel].map(([modelSlug, rows]) => {
-    const scored = rows.map((r) => ({ score: finalScore(r), weight: r.weight, row: r }));
+    // Оноогүй (null) даалгаврыг дундажаас БҮРЭН хасна — 0 гэж тоолохгүй
+    const scored = rows
+      .map((r) => ({ score: finalScore(r), weight: r.weight, row: r }))
+      .filter((s): s is { score: number; weight: number; row: ScoredResult } => s.score !== null);
+    const check = completeness(
+      rows.map((r) => ({ error: r.error, errorKind: r.errorKind, score: finalScore(r) })),
+    );
 
     const byCategory: Record<string, number> = {};
     const categories = new Set(rows.map((r) => r.category));
@@ -76,6 +91,9 @@ export function summarize(results: ScoredResult[]): ModelSummary[] {
       costPer1kMn: words > 0 ? round((cost / words) * 1_000, 4) : 0,
       completed: done.length,
       rank: 0,
+      scored: scored.length,
+      infra: check.infra,
+      incomplete: !check.ok,
     };
   });
 

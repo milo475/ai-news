@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { studioStats } from "@/studio/stats";
+import { balanceMessage, levelOf, openRouterBalance } from "@/lib/balance";
 import { prisma } from "@/db";
 import { CATEGORY_LABEL } from "@/agent/category";
 import { humanDelay, nextPublishAt, publishTimes, timeLabel } from "@/jobs/mode.api";
@@ -54,7 +55,7 @@ export default async function Admin({
 
   const umamiUrl = process.env.NEXT_PUBLIC_UMAMI_URL?.trim().replace(/\/+$/, "") || null;
 
-  const [board, counts, jobs, articles, searches, empties, todayCount, fbQueue, readyCount, studio] = await Promise.all([
+  const [board, counts, jobs, articles, searches, empties, todayCount, fbQueue, readyCount, studio, balance] = await Promise.all([
     dashboard(),
     prisma.article.groupBy({ by: ["status"], _count: true }),
     Promise.all(
@@ -85,6 +86,7 @@ export default async function Admin({
     }),
     prisma.article.count({ where: { status: "DRAFT", readyAt: { not: null } } }),
     studioStats(),
+    openRouterBalance(),
   ]);
   const next = nextPublishAt(new Date(), publishTimes());
   const countOf = (s: string) => counts.find((c) => c.status === s)?._count ?? 0;
@@ -122,6 +124,8 @@ export default async function Admin({
           )}
         </span>
       </div>
+
+      <BalanceBanner balance={balance} />
 
       <Dashboard d={board} dailyLimit={dailyLimit} igOn={igOn} />
 
@@ -485,5 +489,24 @@ function StudioPanel({ s }: { s: Awaited<ReturnType<typeof studioStats>> }) {
         <p className="text-xs text-muted">модерацаар</p>
       </div>
     </section>
+  );
+}
+
+/** OpenRouter-ийн үлдэгдэл бага үед улаан баннер — цэнэглэхгүй бол pipeline зогсоно */
+function BalanceBanner({ balance }: { balance: number | null }) {
+  const message = balanceMessage(balance);
+  if (!message) return null;
+  const halted = levelOf(balance) === "halt";
+  return (
+    <a
+      href="https://openrouter.ai/settings/credits"
+      target="_blank"
+      rel="noopener noreferrer"
+      className={`block rounded-lg border p-3 text-sm ${
+        halted ? "border-down bg-down/10 text-down" : "border-warn bg-warn/10 text-warn"
+      }`}
+    >
+      ⚠ {message} <span className="underline">Цэнэглэх →</span>
+    </a>
   );
 }

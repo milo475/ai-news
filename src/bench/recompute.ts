@@ -9,7 +9,7 @@ export async function recomputeSummaries(runId: string): Promise<number> {
     where: { runId },
     select: {
       modelSlug: true, latencyMs: true, costUsd: true, outputWords: true,
-      judgeScore: true, checkerPass: true, humanScore: true, error: true,
+      judgeScore: true, checkerPass: true, humanScore: true, error: true, errorKind: true,
       task: { select: { category: true, weight: true } },
     },
   });
@@ -25,6 +25,7 @@ export async function recomputeSummaries(runId: string): Promise<number> {
     checkerPass: r.checkerPass,
     humanScore: r.humanScore,
     error: r.error,
+    errorKind: r.errorKind,
   }));
 
   const summaries = summarize(scored);
@@ -33,7 +34,8 @@ export async function recomputeSummaries(runId: string): Promise<number> {
     data: summaries.map((s) => ({
       runId, modelSlug: s.modelSlug, avgScore: s.avgScore,
       scoreByCategory: s.scoreByCategory, avgLatency: s.avgLatency,
-      costPer1kMn: s.costPer1kMn, completed: s.completed, rank: s.rank,
+      costPer1kMn: s.costPer1kMn, completed: s.completed,
+      scored: s.scored, infra: s.infra, incomplete: s.incomplete, rank: s.rank,
     })),
   });
   return summaries.length;

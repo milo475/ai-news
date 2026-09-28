@@ -108,14 +108,27 @@ export function combineScores(first: number | null, second: number | null): numb
  * Дараалал: гараар өгсөн оноо → тодорхой шалгалт унасан бол 0 → шүүгчийн оноо.
  * Модель хариу өгөөгүй бол 0 (алгасвал унасан модель давуу байдал олно).
  */
+/**
+ * Даалгаврын эцсийн оноо. **null = оноогүй**, дундажид ОРОХГҮЙ.
+ *
+ * 2026-09-27: шүүгч ажиллаагүй болон дэд бүтцийн алдаатай даалгавруудыг 0 гэж
+ * тоолсноос /benchmark дээр 0.2х-ийн хуурамч оноонууд гарсан. Оноогүйг 0 гэж
+ * тоолох нь «модель муу» гэсэн ХУДАЛ мэдэгдэл болно.
+ */
 export function finalScore(r: {
   humanScore?: number | null;
   checkerPass?: boolean | null;
   judgeScore?: number | null;
   error?: string | null;
-}): number {
+  /** "infra" = дэд бүтэц унасан, моделийн буруу биш. DB-д String тул өргөн төрөл. */
+  errorKind?: string | null;
+}): number | null {
   if (typeof r.humanScore === "number") return r.humanScore;
+  // Дэд бүтцийн алдаа — моделийг огт шалгаж чадаагүй
+  if (r.errorKind === "infra") return null;
+  // Моделийн бодит алдаа (буруу формат, refusal, тасарсан) — жинхэнэ 0
   if (r.error) return 0;
   if (r.checkerPass === false) return 0;
-  return r.judgeScore ?? 0;
+  // Шүүгч ажиллаагүй — оноогүй, 0 БИШ
+  return typeof r.judgeScore === "number" ? r.judgeScore : null;
 }

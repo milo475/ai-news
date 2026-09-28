@@ -48,8 +48,10 @@ async function latestBoardUncached(month?: string): Promise<Board | null> {
   });
   if (!run) return null;
 
+  // Дутуу дүн НИЙТЭД гарахгүй — 2026-09-27-нд кредит дуусахад хагас хэмжигдсэн
+  // моделиуд 0.2х оноотой жагсаалтад гарсан
   const summaries = await prisma.benchModelSummary.findMany({
-    where: { runId: run.id },
+    where: { runId: run.id, incomplete: false },
     orderBy: { rank: "asc" },
   });
   if (summaries.length === 0) return null;
@@ -62,7 +64,7 @@ async function latestBoardUncached(month?: string): Promise<Board | null> {
   });
   const previous = prevRun
     ? await prisma.benchModelSummary.findMany({
-        where: { runId: prevRun.id },
+        where: { runId: prevRun.id, incomplete: false },
         select: { modelSlug: true, rank: true, avgScore: true },
       })
     : [];
@@ -172,8 +174,8 @@ async function benchScoreForUncached(modelSlug: string): Promise<{ score: number
   });
   if (!run) return null;
 
-  const s = await prisma.benchModelSummary.findUnique({
-    where: { runId_modelSlug: { runId: run.id, modelSlug } },
+  const s = await prisma.benchModelSummary.findFirst({
+    where: { runId: run.id, modelSlug, incomplete: false },
     select: { avgScore: true, rank: true },
   });
   return s ? { score: s.avgScore, rank: s.rank, month: run.month, label: monthLabel(run.month) } : null;
@@ -190,7 +192,7 @@ async function benchScoresUncached(modelSlugs: string[]): Promise<Map<string, nu
   if (!run) return new Map();
 
   const rows = await prisma.benchModelSummary.findMany({
-    where: { runId: run.id, modelSlug: { in: modelSlugs } },
+    where: { runId: run.id, modelSlug: { in: modelSlugs }, incomplete: false },
     select: { modelSlug: true, avgScore: true },
   });
   return new Map(rows.map((r) => [r.modelSlug, r.avgScore]));

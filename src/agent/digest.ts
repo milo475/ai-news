@@ -14,13 +14,14 @@ import { join } from "node:path";
 import { prisma } from "../db";
 import { jobRunMeta } from "../jobs/meta";
 import {
-  assembleBody, checkDigest, dedupeItems, DIGEST_MAX_TOKENS, DIGEST_OUTLINE_SCHEMA, DIGEST_SCHEMA,
+  assembleBody, checkDigest, dedupeItems, sectionSource, DIGEST_MAX_TOKENS, DIGEST_OUTLINE_SCHEMA, DIGEST_SCHEMA,
   DIGEST_SECTION_SCHEMA, MIN_ARTICLES, OUTLINE_MAX_TOKENS, resolveOutline, SECTION_MAX_TOKENS,
   weekLabel,
   type DigestIssue, type DigestOut, type DigestOutline, type DigestSource, type RankingChange,
 } from "./digest.api";
 import { chatJson, isTruncated } from "./llm";
 import { slugify } from "./slug";
+import { judgeFidelity } from "../publish/fidelity";
 import { isEntry, runCli } from "../lib/cli";
 
 const WRITE_MODEL = process.env.WRITE_MODEL ?? "google/gemini-3.8-flash";
@@ -234,6 +235,41 @@ async function reportIssues(issues: DigestIssue[]): Promise<void> {
   }
 }
 
+/**
+ * Хэсэг бүрийн текстийг тухайн хэсгийн мэдээнүүдтэй тулгана.
+ *
+ * Тойм нь 15 мэдээг нэг өгүүлбэр болгон шахдаг тул хамгийн их гуйвуулалт гардаг
+ * газар. Зөрчил ЭСВЭЛ шүүгчийн алдаа гарвал тоймыг DRAFT болгоно (fail-closed):
+ * долоо хоногт нэг гардаг нийтлэл шалгагдаагүйгээр гарах ёсгүй.
+ */
+export async function judgeSections(
+  data: DigestOut,
+  items: DigestSource[],
+  chat: Chat,
+): Promise<{ issues: DigestIssue[]; costUsd: number }> {
+  const bySlug = new Map(items.map((a) => [a.slug, a]));
+  const issues: DigestIssue[] = [];
+  let costUsd = 0;
+
+  for (const s of data.sections) {
+    const source = sectionSource(s, bySlug);
+    if (!source) continue;
+
+    const v = await judgeFidelity(
+      { hook: s.body, kind: "тоймын хэсэг", titleMn: s.heading, summaryMn: source, bodyMn: source },
+      { chat },
+    );
+    costUsd += v.costUsd;
+    if (v.ok && v.faithful) continue;
+
+    issues.push({
+      problem: "үнэн зөв биш",
+      detail: v.ok ? `«${s.heading}» — ${v.issues.join("; ")}` : `«${s.heading}» — шүүгч ажиллсангүй`,
+    });
+  }
+  return { issues, costUsd };
+}
+
 export async function runDigest(
   publish = false,
   opts: { chat?: Chat } = {},
@@ -301,8 +337,9 @@ export async function runDigest(
       relevance: a.relevance,
       sourceName: a.source.name,
     }));
-    // Нийтлэхийн ӨМНӨХ механик шалгалт — эвдэрсэн тойм автоматаар гарахгүй
-    const issues = checkDigest(data, items);
+    // Нийтлэхийн ӨМНӨХ шалгалт: механик + үнэн зөв байдлын шүүгч
+    const judged = await judgeSections(data, items, opts.chat ?? chatJson);
+    const issues = [...checkDigest(data, items), ...judged.issues];
     const clean = issues.length === 0;
     if (!clean) {
       console.warn(`  ⚠ тоймын шалгалт ${issues.length} алдаа олов — DRAFT болгоно:`);
@@ -351,7 +388,10 @@ export async function runDigest(
     }
     await prisma.jobRun.update({
       where: { id: run.id },
-      data: { finishedAt: new Date(), ok: true, itemsIn: items.length, itemsOut: 1, costUsd },
+      data: {
+        finishedAt: new Date(), ok: true, itemsIn: items.length, itemsOut: 1,
+        costUsd: costUsd + judged.costUsd,
+      },
     });
     return {
       created: true, slug: digest.slug, title: digest.titleMn ?? "",

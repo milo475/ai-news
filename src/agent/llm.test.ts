@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, test } from "node:test";
 import {
-  chatJson, chatText, isAuthError, isTruncated, LlmAuthError, resetAuthFailure,
+  chatJson, chatText, creditDetail, isAuthError, isCreditError, isTruncated, LlmAuthError,
+  resetAuthFailure,
 } from "./llm";
 
 const KEY = "OPENROUTER_API_KEY";
@@ -179,9 +180,43 @@ test("402 «Insufficient credits» — түгжигдэж, дахин оролд
   assert.equal(calls, 1);
 });
 
-test("402 «in_flight» — түр хязгаар тул дахин оролдоно", async () => {
-  mockFetch(402, '{"error":{"message":"in_flight budget exceeded"}}');
-  await assert.rejects(() => chatJson(JSON_OPTS), (e) => !isAuthError(e));
-  // Түр алдаа тул backoff-той дахин оролдоно
-  assert.ok(calls > 1, `${calls} дуудлага`);
+test("402-ийн ГУРВАН хэлбэр бүгд үхлийн алдаа — дахин оролдохгүй", async () => {
+  // 2026-09-27: «in_flight» нь түр хязгаар гэж дахин оролдож, «can only afford» нь
+  // max_tokens бууруулж ажилласаар байснаас бенчмарк хагас хариу цуглуулсан
+  const bodies = [
+    '{"error":{"message":"would exceed your available credits given your current in-flight requests"}}',
+    '{"error":{"message":"This request requires more credits, or fewer max_tokens. You requested up to 4000 tokens, but can only afford 308"}}',
+    '{"error":{"message":"Insufficient credits"}}',
+  ];
+  for (const body of bodies) {
+    resetAuthFailure();
+    mockFetch(402, body);
+    const before = calls;
+    await assert.rejects(
+      () => chatJson(JSON_OPTS),
+      (e) => isCreditError(e) && isAuthError(e),
+      body.slice(0, 40),
+    );
+    // Үхлийн алдаа — нэг л дуудлага, backoff-гүй
+    assert.equal(calls - before, 1, `${body.slice(0, 40)}: ${calls - before} дуудлага`);
+  }
+});
+
+test("кредитийн түгжээ тавигдсаны дараа дуудлага огт гарахгүй", async () => {
+  resetAuthFailure();
+  mockFetch(402, '{"error":{"message":"Insufficient credits"}}');
+  await assert.rejects(() => chatJson(JSON_OPTS), isCreditError);
+  const before = calls;
+  await assert.rejects(() => chatJson(JSON_OPTS), isCreditError);
+  assert.equal(calls, before, "түгжээний дараа сүлжээнд хүрэх ёсгүй");
+  resetAuthFailure();
+});
+
+test("402-ийн гурван хэлбэр бүрд ойлгомжтой монгол тайлбар", () => {
+  assert.match(
+    creditDetail("would exceed your available credits given your current in-flight requests"),
+    /зэрэг явж буй/,
+  );
+  assert.match(creditDetail("can only afford 308"), /308 токен/);
+  assert.match(creditDetail("Insufficient credits"), /үлдэгдэл хүрэлцэхгүй/);
 });

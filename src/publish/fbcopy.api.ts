@@ -181,9 +181,26 @@ export interface QuestionCheck {
  * лог дээр харагдахгүй байв — LLM өгөөгүй юу, эсвэл энэ шүүлт хаясан уу гэдэг нь
  * ялгагдахгүй бол алдааг олох аргагүй.
  */
+/**
+ * Монгол асуултын сул үгс. Ийм үгээр төгссөн өгүүлбэр нь АСУУЛТ мөн —
+ * «?» дутуу байгаа нь цэг таслалын алдаа болохоос асуулт биш гэсэн үг биш.
+ * «Танайд ийм систем бий юу» гэх мэт зөв асуултуудыг хаядаг байсныг зассан.
+ */
+const QUESTION_PARTICLE = /(?<!\p{L})(уу|үү|юу|юү|вэ|бэ|бол уу|билээ)[.!]?$/iu;
+
+/** Сул үгээр төгссөн бол «?» нэмж засна */
+export function fixQuestionMark(q: string): string | null {
+  const trimmed = q.replace(/[.!\s]+$/u, "").trim();
+  return QUESTION_PARTICLE.test(q) ? `${trimmed}?` : null;
+}
+
 export function checkQuestion(raw: string): QuestionCheck {
-  const q = raw.replace(EMOJI_ALL, "").replace(/["«»“”]/g, "").replace(/\s+/g, " ").trim();
-  if (!q) return { question: null, reason: "LLM асуулт өгөөгүй" };
+  const clean = raw.replace(EMOJI_ALL, "").replace(/["«»“”]/g, "").replace(/\s+/g, " ").trim();
+  if (!clean) return { question: null, reason: "LLM асуулт өгөөгүй" };
+
+  // «?» дутуу ч монгол сул үгээр төгссөн бол хаяхгүй, засна
+  const q = clean.endsWith("?") ? clean : (fixQuestionMark(clean) ?? clean);
+
   if (q.length > MAX_QUESTION_CHARS) return { question: null, reason: "хэт урт" };
   if (!q.endsWith("?")) return { question: null, reason: "асуултын тэмдэггүй" };
   if (VAGUE_QUESTION.test(q)) return { question: null, reason: "хэт ерөнхий" };

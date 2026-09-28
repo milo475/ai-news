@@ -6,6 +6,7 @@
  */
 import { NextResponse } from "next/server";
 import { prisma } from "@/db";
+import { levelOf, openRouterBalance } from "@/lib/balance";
 
 export const dynamic = "force-dynamic";
 
@@ -60,9 +61,16 @@ export async function GET() {
       _count: { _all: true },
     });
 
+    // Кредит дуусах нь cron-ийг чимээгүйхэн зогсоодог тул health-д харагдах ёстой.
+    // 10 минут кэшлэгддэг — health check олон дуудагддаг ч OpenRouter-д ачаалал өгөхгүй.
+    const balance = await openRouterBalance();
+
     return NextResponse.json({
       ok: true,
       db: { ok: true, ms: dbMs },
+      openrouterBalance: balance === null
+        ? { usd: null, level: "unknown" }
+        : { usd: Math.round(balance * 100) / 100, level: levelOf(balance) },
       queue: { raw: rawCount, readyDrafts: draftReady },
       errors: errorCount,
       failedJobs: Object.fromEntries(failed.map((f) => [f.job, f._count._all])),

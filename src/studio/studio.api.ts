@@ -7,6 +7,10 @@
  * болгоно, 4) сонгосон хэрэгсэл бүрд бэлэн промпт + параметр + монгол тайлбар өгнө.
  */
 
+import { STUDIO_MIN_USD } from "../lib/balance";
+
+export { STUDIO_MIN_USD };
+
 export type StudioFormat = "IMAGE" | "VIDEO" | "TEXT" | "AUDIO" | "SLIDES";
 
 export const FORMATS: StudioFormat[] = ["IMAGE", "VIDEO", "TEXT", "AUDIO", "SLIDES"];
@@ -245,11 +249,7 @@ export function withinBudget(spentUsd: number, budget: number): boolean {
   return spentUsd < budget;
 }
 
-/**
- * OpenRouter-ийн үлдэгдэл бага үед студи ХАМГИЙН ТҮРҮҮНД унтарна — мэдээний
- * pipeline давуу эрхтэй. Энэ хязгаараас доош орвол шинэ бүтээл эхлүүлэхгүй.
- */
-export const MIN_BALANCE_USD = 1;
+
 
 export type OffReason = "flag" | "budget" | "balance" | null;
 
@@ -261,7 +261,7 @@ export function studioOff(a: {
 }): OffReason {
   const env = a.env ?? process.env;
   if (env.STUDIO_OFF === "true") return "flag";
-  if (a.balanceUsd !== null && a.balanceUsd !== undefined && a.balanceUsd < MIN_BALANCE_USD) return "balance";
+  if (a.balanceUsd !== null && a.balanceUsd !== undefined && a.balanceUsd < STUDIO_MIN_USD) return "balance";
   if (!withinBudget(a.spentUsd, dailyBudget(env))) return "budget";
   return null;
 }

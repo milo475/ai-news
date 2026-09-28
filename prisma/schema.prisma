@@ -820,6 +820,13 @@ model BenchResult {
   humanNote   String?
   /// Модель хариу өгөөгүй (timeout, алдаа)
   error       String?
+  /// "infra" = 402/401/429/5xx/timeout — моделийн буруу БИШ, дундажаас хасагдана.
+  /// "model" = моделийн бодит алдаа (refusal, буруу формат) — жинхэнэ 0 оноо.
+  errorKind   String?
+  /// "stop" | "length" | … — хоосон хариуг шинжлэхэд
+  finishReason    String?
+  /// Бодох моделийн дотоод бодолт идсэн токен
+  reasoningTokens Int    @default(0)
   createdAt   DateTime @default(now())
 
   @@unique([runId, modelSlug, taskId])
@@ -841,6 +848,12 @@ model BenchModelSummary {
   costPer1kMn     Float    @default(0)
   /// Хэдэн даалгавар амжилттай дууссан
   completed       Int      @default(0)
+  /// Оноо гарсан даалгаврын тоо — дундажийн суурь
+  scored          Int      @default(0)
+  /// Дэд бүтцийн алдаанаас болж хасагдсан даалгавар
+  infra           Int      @default(0)
+  /// Даалгаврын 90%-д оноо гараагүй — НИЙТЭД ХАРУУЛАХГҮЙ, зөвхөн /admin дээр
+  incomplete      Boolean  @default(false)
   rank            Int
 
   @@unique([runId, modelSlug])
