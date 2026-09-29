@@ -125,6 +125,14 @@ export default async function NewsPage({ params }: { params: Promise<Params> }) 
         <Markdown>{n.bodyMn}</Markdown>
       </div>
 
+      {n.correctionNote && (
+        // Нийтлэгдсэний дараа эх сурвалжтай тулгаж хийсэн засвар. Уншигч хуучин
+        // хувилбарыг уншсан байж болзошгүй тул юу өөрчлөгдсөнийг ил хэлнэ.
+        <p className="rounded-lg border border-warn/40 px-4 py-3 text-sm text-muted">
+          {n.correctionNote}
+        </p>
+      )}
+
       <Tags tags={n.tags} />
 
       {(mentionedModels.length > 0 || mentionedCompanies.length > 0) && (

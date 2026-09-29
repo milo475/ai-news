@@ -244,6 +244,10 @@ model Article {
   igComments    Int       @default(0)
   igStatsAt     DateTime?
 
+  /// Нийтлэгдсэний дараа эх сурвалжтай тулгаж хийсэн засвар — уншигчид ил харагдана
+  correctionNote String?
+  correctedAt    DateTime?
+
   /// Текстийг нэг удаа сайжруулсан огноо (БЭЛТГЭХ горим) — дахин засахгүйн тулд
   improvedAt DateTime?
   /// Нийтлэхэд бүрэн бэлэн болсон огноо: текст сайжирсан + fbText бичигдсэн

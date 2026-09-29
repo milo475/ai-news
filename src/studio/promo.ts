@@ -20,8 +20,8 @@ import { personas } from "./personas";
 import { pickExample } from "./personas.api";
 import { promoOverlaySvg } from "./promo-card.api";
 import {
-  CARD_FOOTER, exampleIndex, hasFakeProof, hasUrl, nextSlots, promoBody, promoLink, promoSlots,
-  slotLabel, snippetWords, type Network,
+  CARD_FOOTER, exampleIndex, hasFakeProof, hasUrl, machineWritten, nextSlots, promoBody, promoLink,
+  promoSlots, slotLabel, snippetWords, type Network,
 } from "./promo.api";
 import { defaultTools, toolById, type StudioFormat } from "./studio.api";
 import { unverifiedClaims } from "./numbers.api";
@@ -103,8 +103,11 @@ export async function buildPromo(index: number): Promise<PromoPost> {
   // IG-д URL байж БОЛОХГҮЙ — коммент дарагддаг тул bio руу чиглүүлнэ
   if (hasUrl(bodyFor("instagram"))) throw new Error("IG текстэд URL орсон байна");
 
+  // Тооны баталгаажуулалт ЗӨВХӨН загварын бичсэн хэсэгт — hook, хүсэлт, CTA нь
+  // гараар бичигдсэн, хянасан текст (machineWritten-ийн тайлбарыг үз)
   const doc = toolDocs([toolById(toolIds[0]!)?.doc ?? ""])[toolById(toolIds[0]!)?.doc ?? ""] ?? "";
-  const unverified = unverifiedClaims(bodyFor("facebook"), doc).length + first.stripped.length;
+  const unverified =
+    unverifiedClaims(machineWritten({ promptSnippet: snippet }), doc).length + first.stripped.length;
 
   const outcome = `${toolNames[0]}-д тавих бэлэн промпт + параметр + алхам бүрийн тайлбар`;
   return {
@@ -148,6 +151,28 @@ if (isEntry("promo.ts")) {
         const picked = pickExample(personas(), exampleIndex(at, slotsNow));
         console.log(`  ${slotLabel(at)}  →  ${picked?.persona.name ?? "?"}: «${picked?.example.request ?? "?"}»`);
       }
+      return;
+    }
+
+    // --hooks: 24 hook-ийг тооны шалгалтаар гүйлгэнэ (LLM дуудлагагүй)
+    if (process.argv.includes("--hooks")) {
+      const all = personas().flatMap((p) => p.examples.map((e) => ({ persona: p.name, e })));
+      let flagged = 0;
+      console.log(`Hook: ${all.length}\n`);
+      for (const { persona, e } of all) {
+        // Мэдлэгийн сангүйгээр: hook дотор ХАТУУ нэгжтэй тоо байвал хуучин
+        // дүрмээр шалгалт унаж, сурталчилгаа гарахгүй байсан
+        const bad = unverifiedClaims(e.hook, "");
+        if (bad.length === 0) continue;
+        flagged++;
+        console.log(`  ⚠ ${persona}: ${e.hook}`);
+        console.log(`     баталгаагүй гэж тоологдох байсан: ${bad.map((b) => b.text).join(", ")}`);
+      }
+      console.log(
+        flagged === 0
+          ? "\n✓ hook бүгд цэвэр"
+          : `\n${flagged} hook хуучин дүрмээр сурталчилгааг зогсоох байсан — одоо hook шалгалтаас чөлөөлөгдсөн`,
+      );
       return;
     }
 

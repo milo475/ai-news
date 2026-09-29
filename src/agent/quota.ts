@@ -16,6 +16,8 @@ import {
   selectForPublish,
   type PublishCandidate,
 } from "./quota.api";
+import { newsMaxAgeHours, TIMELESS_CATEGORIES } from "../publish/prepublish.api";
+import type { ArticleCategory as Category } from "../generated/prisma/enums";
 
 /** DRAFT-аас квотод нэр дэвших дээд тоо — оноогоор эрэмбэлж таслана */
 const CANDIDATE_POOL = 50;
@@ -61,6 +63,27 @@ function toCandidate(a: ArticleRow): PublishCandidate {
 /** Ангилал бүрийн доод оноог хангасан нийтлэлүүд (PROJECT/HOWTO нь нэгээр доогуур) */
 function scoreWhere() {
   return { OR: minScoreGroups().map((g) => ({ category: { in: g.categories }, relevance: { gte: g.score } })) };
+}
+
+/**
+ * Хуучирсан мэдээг LLM зарцуулахаас ӨМНӨ шүүнэ.
+ *
+ * Өмнө нь хуучирсан эсэхийг зөвхөн НИЙТЛЭХ момент (gateBeforePublish) шалгадаг
+ * байсан — тэр үед нийтлэл аль хэдийн засварлагдаж, FB текст бичигдэж, карт
+ * үүсчихсэн байдаг. Буферт байгаа 5 хоногийн настай ноорогт $0.05 зарцуулаад
+ * дараа нь хаях нь зүгээр л алдагдал.
+ */
+function freshWhere(now: Date) {
+  const cutoff = new Date(now.getTime() - newsMaxAgeHours() * 3_600_000);
+  return {
+    OR: [
+      // Хугацаа хамаарахгүй ангиллууд
+      { category: { in: [...TIMELESS_CATEGORIES] as Category[] } },
+      // Огноо мэдэгдэхгүй бол хаахгүй — «мэдэхгүй» нь «хуучин» гэсэн үг биш
+      { publishedAtSource: null },
+      { publishedAtSource: { gte: cutoff } },
+    ],
+  };
 }
 
 /**
@@ -144,7 +167,7 @@ export async function pickForSlot(
     isLocal: false,
     sourceText: { not: null },
     ...(exclude.length ? { id: { notIn: exclude } } : {}),
-    ...scoreWhere(),
+    AND: [scoreWhere(), freshWhere(now)],
   };
   const order = [
     { relevance: "desc" as const },
@@ -159,7 +182,7 @@ export async function pickForSlot(
     })) as ArticleRow[];
     if (drafts.length === 0) continue;
 
-    const picked = selectForPublish(drafts.map(toCandidate), 1, todayRows.map(toCandidate), prefer);
+    const picked = selectForPublish(drafts.map(toCandidate), 1, todayRows.map(toCandidate), prefer, { now });
     if (picked[0]) return { id: picked[0].id, category: picked[0].category };
   }
   return null;
@@ -190,7 +213,7 @@ export async function pickForPrepare(need: number, now = new Date()): Promise<st
     prisma.article.findMany({
       where: {
         kind: "NEWS", status: "DRAFT", isLocal: false, readyAt: null,
-        sourceText: { not: null }, ...scoreWhere(),
+        sourceText: { not: null }, AND: [scoreWhere(), freshWhere(now)],
       },
       orderBy: [{ relevance: "desc" }, { publishedAtSource: "desc" }, { createdAt: "desc" }],
       take: CANDIDATE_POOL,
@@ -208,13 +231,38 @@ export async function pickForPrepare(need: number, now = new Date()): Promise<st
   // Дараагийн slot-уудын ангиллаар нэг нэгээр нь сонгоно — оройн slot (PROJECT/HOWTO/BUSINESS)
   // хоосон үлдэхгүйн тулд. Тухайн ангилалд нэр дэвшигч байхгүй бол хамгийн сайныг нь авна.
   for (const slot of upcomingSlots(now, need)) {
-    const picked = selectForPublish(left, 1, taken, slot.categories, { avoidTopics })[0];
+    const picked = selectForPublish(left, 1, taken, slot.categories, { avoidTopics, now })[0];
     if (!picked) break;
     ids.push(picked.id);
     taken.push(picked);
     left = left.filter((c) => c.id !== picked.id);
   }
   return ids;
+}
+
+/**
+ * Хугацаа хамаарахгүй ноорог — slot-ыг хуучирсан мэдээгээр дүүргэхийн ОРОНД.
+ *
+ * Дараалал: шинэ мэдээ → (энэ) хугацаа хамаарахгүй контент → slot алгасах.
+ * Хуучирсан мэдээ гаргахаас slot хоосон үлдэх нь дээр.
+ */
+export async function pickTimeless(
+  now = new Date(),
+  exclude: string[] = [],
+): Promise<{ id: string; category: ArticleCategory } | null> {
+  const row = await prisma.article.findFirst({
+    where: {
+      kind: "NEWS", status: "DRAFT", isLocal: false,
+      category: { in: [...TIMELESS_CATEGORIES] as Category[] },
+      sourceText: { not: null },
+      titleMn: { not: null },
+      ...(exclude.length ? { id: { notIn: exclude } } : {}),
+      ...scoreWhere(),
+    },
+    orderBy: [{ readyAt: { sort: "desc", nulls: "last" } }, { relevance: "desc" }, { createdAt: "desc" }],
+    select: { id: true, category: true },
+  });
+  return row;
 }
 
 /** Өдрийн квотын үлдэгдэл */

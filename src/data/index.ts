@@ -53,6 +53,8 @@ export interface NewsDetail extends NewsCard {
   heroUrl: string | null;
   models: { slug: string; name: string; nameMn: string | null }[];
   companies: { name: string }[];
+  /** Нийтлэгдсэний дараа хийсэн засварын тэмдэглэл — нийтлэлийн доор ил гарна */
+  correctionNote: string | null;
 }
 
 /** PUBLISHED нийтлэлийн нийтлэг select — картны талбарууд */
@@ -168,7 +170,7 @@ export async function getNewsItem(slug: string): Promise<NewsDetail | null> {
     where: { slug },
     select: {
       ...cardSelect, status: true, bodyMn: true, sourceUrl: true, sourceTitle: true,
-      heroImageData: true,
+      heroImageData: true, correctionNote: true,
       models: { select: { slug: true, name: true, nameMn: true } },
       companies: { select: { name: true } },
     },
@@ -182,6 +184,7 @@ export async function getNewsItem(slug: string): Promise<NewsDetail | null> {
     heroUrl: a.heroImageData ? `/api/hero-image/${a.id}` : null,
     models: a.models,
     companies: a.companies,
+    correctionNote: a.correctionNote,
   };
 }
 

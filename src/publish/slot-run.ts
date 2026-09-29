@@ -12,7 +12,7 @@
  *   4. Нийтлэх юм байхгүй бол дараалалд хүлээж буй постоор slot-оо дүүргэнэ.
  */
 import "dotenv/config";
-import { publishedToday, pickForSlot } from "../agent/quota";
+import { publishedToday, pickForSlot, pickTimeless } from "../agent/quota";
 import { prisma } from "../db";
 import { jobRunMeta } from "../jobs/meta";
 import { dailyPublishLimit } from "../agent/quota.api";
@@ -121,6 +121,26 @@ export async function runPublishSlot(now = new Date()): Promise<SlotResult> {
     console.warn(`⊘ алгасав: ${gate.reason}`);
   }
 
+  // 2б. Шинэ мэдээ олдоогүй бол ХУГАЦАА ХАМААРАХГҮЙ контент (HOWTO/FACT).
+  //     Хуучирсан мэдээ гаргахаас заавар, тайлбар гаргах нь үргэлж дээр.
+  if (!pick) {
+    for (let tryNo = 0; tryNo < MAX_GATE_TRIES && !pick; tryNo++) {
+      const candidate = await pickTimeless(now, skipped);
+      if (!candidate) break;
+      gate = await gateBeforePublish(candidate.id, { now });
+      costUsd += gate.costUsd;
+      if (gate.ok) {
+        pick = candidate;
+        console.log("↻ шинэ мэдээ алга — хугацаа хамаарахгүй контентоор дүүргэв");
+        break;
+      }
+      skipped.push(candidate.id);
+      console.warn(`⊘ алгасав: ${gate.reason}`);
+    }
+  }
+
+  // 2в. Тэр ч байхгүй бол slot-ыг АЛГАСНА — хуучирсан мэдээ гаргахгүй.
+  //     FB-ийн дараалалд хүлээж буй пост байвал түүгээр л дүүргэнэ.
   if (!pick) {
     const why = skipped.length ? `${skipped.length} нийтлэл шалгалтад унав` : "нэр дэвшигч алга";
     console.log(`Нийтлэх нийтлэл олдсонгүй (${why}) — дараалалаас постлоно`);

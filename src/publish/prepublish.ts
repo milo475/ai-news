@@ -8,7 +8,7 @@
  */
 import { prisma } from "../db";
 import {
-  canRepair, checkAge, checkBeforePublish, checkDuplicate, newsMaxAgeHours, RECENT_HOURS,
+  blocking, canRepair, checkAge, checkBeforePublish, checkDuplicate, newsMaxAgeHours, RECENT_HOURS,
   UPDATE_PREFIX, withUpdatePrefix,
   type DuplicateVerdict, type FieldIssue, type RecentArticle,
 } from "./prepublish.api";
@@ -16,6 +16,9 @@ import {
 const SELECT = {
   id: true, slug: true, titleMn: true, summaryMn: true, bodyMn: true, category: true,
   fbHook: true, fbText: true, fbImageData: true, publishedAtSource: true,
+  // Эх текст нь шалгалтын үнэний эх үүсвэр — үүнгүйгээр зөвхөн дотоод зөрчил олдоно
+  sourceText: true,
+  source: { select: { name: true } },
   companies: { select: { name: true } },
 } as const;
 
@@ -39,7 +42,7 @@ export interface GateResult {
   ok: boolean;
   /** Яагаад алгасах болсон (ok=false үед) */
   reason?: string;
-  /** Илэрсэн fidelity зөрчлүүд */
+  /** Илэрсэн fidelity зөрчлүүд (ноцтой ба анхаарах хоёулаа) */
   issues: FieldIssue[];
   /** Карт/текст дахин үүсгэсэн эсэх */
   repaired: boolean;
@@ -91,17 +94,24 @@ export async function gateBeforePublish(
   }
 
   // ——— 1. Механик fidelity ———
-  let issues = checkBeforePublish(a);
+  const checkInput = { ...a, sourceName: a.source?.name ?? null };
+  let issues = checkBeforePublish(checkInput);
   let repaired = false;
   let costUsd = 0;
 
-  if (issues.length > 0) {
-    console.warn(`  ⚠ нийтлэхийн өмнөх шалгалт: ${issues.map((i) => i.detail).join("; ")}`);
+  // «анхаарах» нь нийтлэхийг зогсоохгүй — тайланд л тэмдэглэгдэнэ
+  for (const i of issues.filter((x) => x.severity === "анхаарах")) {
+    console.warn(`  · ${i.detail}`);
+  }
+
+  if (blocking(issues).length > 0) {
+    console.warn(`  ⚠ нийтлэхийн өмнөх шалгалт: ${blocking(issues).map((i) => i.detail).join("; ")}`);
 
     if (!canRepair(issues)) {
       return {
         ok: false, issues, repaired: false, costUsd,
-        reason: "нийтлэлийн ӨӨРИЙН гарчиг зөрчилтэй — карт дахин үүсгэж засахгүй",
+        reason: `нийтлэлийн ӨӨРИЙН текст зөрчилтэй — карт дахин үүсгэж засахгүй. ` +
+          `Засах: npm run article:fix -- --slug ${a.slug}`,
         duplicate: { action: "skip", match: null, score: 0, newFacts: [], reason: "шалгаагүй" },
         prefixed: false,
       };
@@ -113,16 +123,16 @@ export async function gateBeforePublish(
         costUsd += fixed.costUsd;
         repaired = true;
         const after = await prisma.article.findUniqueOrThrow({ where: { id: articleId }, select: SELECT });
-        issues = checkBeforePublish(after);
+        issues = checkBeforePublish({ ...after, sourceName: after.source?.name ?? null });
       } catch (e) {
         console.error(`  ✗ дахин үүсгэсэнгүй: ${(e as Error).message.slice(0, 160)}`);
       }
     }
 
-    if (issues.length > 0) {
+    if (blocking(issues).length > 0) {
       return {
         ok: false, issues, repaired, costUsd,
-        reason: `дахин үүсгэсний дараа ч зөрчилтэй: ${issues.map((i) => i.detail).join("; ")}`,
+        reason: `дахин үүсгэсний дараа ч зөрчилтэй: ${blocking(issues).map((i) => i.detail).join("; ")}`,
         duplicate: { action: "skip", match: null, score: 0, newFacts: [], reason: "шалгаагүй" },
         prefixed: false,
       };
@@ -155,7 +165,7 @@ export async function gateBeforePublish(
 async function repair(articleId: string, issues: FieldIssue[]): Promise<{ costUsd: number }> {
   let costUsd = 0;
 
-  if (issues.some((i) => i.field === "картын гарчиг")) {
+  if (blocking(issues).some((i) => i.field === "картын гарчиг")) {
     const { cardForArticle, saveCard } = await import("./card");
     const { recentImagePrompts } = await import("./fbimage");
     console.log("  ↻ картыг шинэ дүрмээр дахин үүсгэж байна…");
@@ -164,7 +174,7 @@ async function repair(articleId: string, issues: FieldIssue[]): Promise<{ costUs
     costUsd += built.costUsd;
   }
 
-  if (issues.some((i) => i.field === "FB текст")) {
+  if (blocking(issues).some((i) => i.field === "FB текст")) {
     const { generateFbCopy } = await import("./fbcopy");
     console.log("  ↻ FB текстийг дахин бичиж байна…");
     const r = await generateFbCopy(articleId);

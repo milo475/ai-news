@@ -2,8 +2,10 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   CARD_FOOTER, CTA, DEFAULT_PROMO_SLOTS, EXAMPLE_LABEL, exampleIndex, hasFakeProof, hasUrl,
-  isPromoSlot, nextSlots, promoBody, promoLink, promoSlots, slotLabel, snippetWords, ubWeekday,
+  isPromoSlot, machineWritten, nextSlots, promoBody, promoLink, promoSlots, slotLabel, snippetWords,
+  ubWeekday,
 } from "./promo.api";
+import { unverifiedClaims } from "./numbers.api";
 import { fitBlock, promoOverlaySvg } from "./promo-card.api";
 import { personas } from "./personas";
 import { exampleCount, pickExample, personaBySlug } from "./personas.api";
@@ -212,4 +214,44 @@ test("мэргэжлийн загварууд бүрэн", () => {
   assert.equal(new Set(list.map((p) => p.slug)).size, 8);
   assert.ok(personaBySlug("bagsh", list));
   assert.equal(personaBySlug("байхгүй", list), null);
+});
+
+// ---------- Hook нь тооны шалгалтаас чөлөөлөгдөнө ----------
+
+test("тооны шалгалт ЗӨВХӨН загварын бичсэн хэсэгт хамаарна", () => {
+  // Пост нь hook, хүсэлт, CTA (гараар бичсэн) + промптын хэсэг (загвар) -ээс
+  // бүрдэнэ. machineWritten нь сүүлчийнхийг л буцаана.
+  assert.equal(machineWritten({ promptSnippet: "16:9 харьцаатай 5 секундын клип…" }),
+    "16:9 харьцаатай 5 секундын клип…");
+});
+
+test("БОДИТ АЛДАА: «20 секундын» hook сурталчилгааг зогсоохоо больсон", () => {
+  const hook = "Шинэ апп гарлаа, гэхдээ 20 секундын бичлэг хийлгэх төсөв алга уу?";
+  const body = promoBody({
+    network: "facebook",
+    personaName: "Маркетер",
+    hook,
+    request: "Шинэ апп-аа танилцуулах 20 секундын сурталчилгааны бичлэг",
+    promptSnippet: "Бүтээгдэхүүний танилцуулга бичлэг…",
+    toolNames: ["Kling"],
+  });
+  // Бүтэн бие нь баталгаагүй тоотой (hook, хүсэлт хоёулаа «20 секунд»)
+  assert.ok(unverifiedClaims(body, "").length > 0);
+  // Харин шалгагдах хэсэг нь цэвэр
+  assert.equal(unverifiedClaims(machineWritten({ promptSnippet: "Бүтээгдэхүүний танилцуулга бичлэг…" }), "").length, 0);
+});
+
+test("hook-ууд асуулт хэлбэртэй хэвээр", () => {
+  for (const p of personas()) {
+    for (const e of p.examples) {
+      assert.ok(e.hook.trim().endsWith("?"), `${p.name}: ${e.hook}`);
+    }
+  }
+});
+
+test("засварласан 3 hook байрандаа орсон", () => {
+  const hooks = personas().flatMap((p) => p.examples.map((e) => e.hook));
+  assert.ok(hooks.includes("Эцэг эхийн хурлын мэдэгдлээ дахин дахин бичсээр байна уу?"));
+  assert.ok(hooks.includes("Шинэ апп гарлаа, гэхдээ 20 секундын бичлэг хийлгэх төсөв алга уу?"));
+  assert.ok(hooks.includes("Вэб сайтынхаа нүүр хуудасны текстийг сүүлд хэзээ шинэчилсэн бэ?"));
 });

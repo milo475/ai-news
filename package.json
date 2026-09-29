@@ -46,7 +46,10 @@
     "cost:report": "tsx src/admin/cost-report.ts",
     "db:backup": "bash scripts/db-backup.sh",
     "db:restore-test": "bash scripts/db-restore-test.sh",
-    "studio:promo": "tsx src/studio/promo.ts"
+    "studio:promo": "tsx src/studio/promo.ts",
+    "publish:audit": "tsx src/publish/audit.ts",
+    "article:fix": "tsx src/publish/fix.ts",
+    "publish:sim": "tsx src/publish/freshness-sim.ts"
   },
   "keywords": [],
   "author": "",

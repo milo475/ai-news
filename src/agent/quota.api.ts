@@ -159,21 +159,64 @@ export function sameTopic(a: PublishCandidate, b: PublishCandidate): boolean {
   return shared >= (bothRisk ? 1 : MIN_SHARED_TAGS);
 }
 
-/** Оноо (давуу онооны хамт) буурахаар, тэнцвэл шинэ мэдээ түрүүлнэ */
-function byScore(a: PublishCandidate, b: PublishCandidate): number {
-  const [sa, sb] = [effectiveScore(a), effectiveScore(b)];
-  if (sa !== sb) return sb - sa;
-  const at = (a.publishedAtSource ?? a.createdAt).getTime();
-  const bt = (b.publishedAtSource ?? b.createdAt).getTime();
-  return bt - at;
+// ---------- Шинэлэг байдал ----------
+
+/**
+ * Шинэлэг байдлын хагас задралын хугацаа.
+ *
+ * Хэмжилт (production, 14 хоног): нийтлэгдэх үеийн нас p50 = 65ц, p90 = 193ц.
+ * Шалтгаан нь буферт хуримтлагдсан хуучин ноорог **оноогоороо** шинэ мэдээг
+ * дийлж байсан: 9 оноотой 5 хоногийн өмнөх мэдээ 7 оноотой өнөөдрийн мэдээг
+ * үргэлж хөөнө. Мэдээний үнэ цэн цагаар буурдаг — оноонд түүнийг тусгана.
+ */
+export const FRESHNESS_HALF_LIFE_H = 24;
+
+/**
+ * Шинэлэг байдлын жин — оноон дээр нэмэгдэх дээд утга.
+ *
+ * 3 нь: дөнгөж гарсан мэдээ +3.0, нэг хоногийнх +1.5, хоёр хоногийнх +0.75.
+ * Өөрөөр хэлбэл 7 оноотой шинэ мэдээ (10.0) нь 9 оноотой 3 хоногийнхийг (9.4)
+ * ялна, харин 5 оноотой шинэ мэдээ (8.0) ялахгүй — чанар хэвээр эхэнд.
+ */
+export const FRESHNESS_WEIGHT = 3;
+
+export function ageHours(c: Pick<PublishCandidate, "publishedAtSource" | "createdAt">, now: Date): number {
+  const at = (c.publishedAtSource ?? c.createdAt).getTime();
+  return Math.max(0, (now.getTime() - at) / 3_600_000);
+}
+
+/** 1 (дөнгөж гарсан) → 0 (хэдэн хоногийн өмнөх) */
+export function freshness(
+  c: Pick<PublishCandidate, "publishedAtSource" | "createdAt">,
+  now: Date,
+  halfLifeH = FRESHNESS_HALF_LIFE_H,
+): number {
+  return 0.5 ** (ageHours(c, now) / halfLifeH);
+}
+
+/** Сонголтын эцсийн оноо: үнэлгээ + ангиллын давуу оноо + шинэлэг байдал */
+export function rankScore(c: PublishCandidate, now: Date): number {
+  return effectiveScore(c) + FRESHNESS_WEIGHT * freshness(c, now);
+}
+
+/** Оноо (шинэлэг байдлын хамт) буурахаар, тэнцвэл шинэ мэдээ түрүүлнэ */
+function byScore(now: Date) {
+  return (a: PublishCandidate, b: PublishCandidate): number => {
+    const [sa, sb] = [rankScore(a, now), rankScore(b, now)];
+    if (sa !== sb) return sb - sa;
+    const at = (a.publishedAtSource ?? a.createdAt).getTime();
+    const bt = (b.publishedAtSource ?? b.createdAt).getTime();
+    return bt - at;
+  };
 }
 
 /** Slot-ын ангилалтай нийтлэл түрүүлнэ, дотроо оноогоор */
-function bySlotThenScore(prefer: ArticleCategory[]) {
+function bySlotThenScore(prefer: ArticleCategory[], now: Date) {
+  const score = byScore(now);
   return (a: PublishCandidate, b: PublishCandidate): number => {
     const pa = prefer.includes(a.category) ? 0 : 1;
     const pb = prefer.includes(b.category) ? 0 : 1;
-    return pa !== pb ? pa - pb : byScore(a, b);
+    return pa !== pb ? pa - pb : score(a, b);
   };
 }
 
@@ -199,6 +242,8 @@ export function selectForPublish(
      * хязгаарыг идэх ёсгүй, гэхдээ ижил үйл явдлыг дахин бэлдэх ч хэрэггүй.
      */
     avoidTopics?: PublishCandidate[];
+    /** Шинэлэг байдлыг тооцох агшин (тестэд тогтмол) */
+    now?: Date;
   } = {},
 ): PublishCandidate[] {
   if (quota <= 0) return [];
@@ -226,7 +271,8 @@ export function selectForPublish(
     byCategory.set(c.category, (byCategory.get(c.category) ?? 0) + 1);
   };
 
-  const sorted = [...candidates].sort(prefer.length ? bySlotThenScore(prefer) : byScore);
+  const now = opts.now ?? new Date();
+  const sorted = [...candidates].sort(prefer.length ? bySlotThenScore(prefer, now) : byScore(now));
   for (const c of sorted) {
     if (picked.length >= quota) break;
     if (!fits(c)) continue;

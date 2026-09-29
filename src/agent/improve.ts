@@ -23,8 +23,8 @@ import { generateFbCopy } from "../publish/fbcopy";
 import { judgeFidelity } from "../publish/fidelity";
 import { chatJson } from "./llm";
 import {
-  checkImproved, IMAGE_AHEAD, IMPROVE_SCHEMA, IMPROVE_SYSTEM, readyTarget, trimTitle,
-  type ImproveOut,
+  checkImproved, IMAGE_AHEAD, IMPROVE_SCHEMA, IMPROVE_SOURCE_CHARS, IMPROVE_SYSTEM, readyTarget,
+  trimTitle, type ImproveOut,
 } from "./improve.api";
 import { pickForPrepare } from "./quota";
 
@@ -48,14 +48,22 @@ export async function improveText(
   const chat = opts.chat ?? chatJson;
   const a = await prisma.article.findUniqueOrThrow({
     where: { id: articleId },
-    select: { id: true, titleMn: true, summaryMn: true, bodyMn: true, improvedAt: true },
+    // Эх текстгүйгээр огнооны дүрмийг («биед байгаа огноо эх сурвалжид байх ёстой»)
+    // хэрэгжүүлэх боломжгүй — редактор юуг шалгахаа мэдэхгүй
+    select: { id: true, titleMn: true, summaryMn: true, bodyMn: true, improvedAt: true, sourceText: true },
   });
   if (a.improvedAt || !a.titleMn || !a.bodyMn) return { changed: [], costUsd: 0 };
 
   const out = await chat<ImproveOut>({
     model: IMPROVE_MODEL,
     system: IMPROVE_SYSTEM,
-    user: [`Гарчиг: ${a.titleMn}`, `Хураангуй: ${a.summaryMn ?? ""}`, `Биет:\n${a.bodyMn}`].join("\n"),
+    user: [
+      `Гарчиг: ${a.titleMn}`,
+      `Хураангуй: ${a.summaryMn ?? ""}`,
+      `Биет:\n${a.bodyMn}`,
+      "",
+      `--- ЭХ НИЙТЛЭЛ (баримт, огноог ЭНДЭЭС шалга) ---\n${(a.sourceText ?? "").slice(0, IMPROVE_SOURCE_CHARS)}`,
+    ].join("\n"),
     schema: IMPROVE_SCHEMA,
     maxTokens: 4_000,
     temperature: 0.3,

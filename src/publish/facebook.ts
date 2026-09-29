@@ -94,6 +94,27 @@ export async function addLinkComment(postId: string, link: string): Promise<stri
   }
 }
 
+/**
+ * Постлогдсон постын текстийг засна (Graph API `POST /{post-id}` + `message`).
+ *
+ * Нийтлэгдсэний дараа зөрчил илэрвэл сайт дээрх текстийг засахад FB дээрх пост
+ * хуучин, буруу хэвээр үлддэг байв. Зураг, реакц, коммент хэвээр үлдэнэ —
+ * зөвхөн текст солигдоно. Зурагтай постод заримдаа зөвшөөрөгддөггүй тул алдааг
+ * дуудсан тал нь шийднэ.
+ */
+export async function editPost(postId: string, message: string): Promise<void> {
+  const { token } = credentials();
+  const res = await fetch(`${GRAPH}/${postId}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ message, access_token: token }),
+  });
+  const json = (await res.json()) as { success?: boolean; error?: { message?: string } };
+  if (!res.ok || json.error) {
+    throw new Error(`Facebook ${res.status}: ${json.error?.message ?? JSON.stringify(json).slice(0, 200)}`);
+  }
+}
+
 /** Зураггүй нөөц хувилбар — холбоосын preview-ээр og:image гарна */
 export async function postLink(message: string, link: string): Promise<string> {
   const { pageId, token } = credentials();

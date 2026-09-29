@@ -7,17 +7,39 @@
  * хэвээр дараалалд хүлээж байсан — «түр» нь алга. Бэлэн картыг постлохын өмнө
  * ХЭЗЭЭ Ч дахин шалгадаггүй байсан нь цоорхой байв.
  */
-import { dropsHedge, dropsRelay, hardensSpeculation } from "./fidelity.api";
+import {
+  dropsHedge, dropsModality, dropsRelay, dropsSourceRelay, hardensLegal, hardensSpeculation,
+  relaySource,
+} from "./fidelity.api";
+import { checkDates } from "./dates.api";
 import { jaccard, sharedCount, stemTokens } from "../lib/text.api";
 
 // ---------- 1. Механик fidelity ----------
 
-export type CheckedField = "гарчиг" | "картын гарчиг" | "FB текст";
+/**
+ * Шалгагдах талбарууд.
+ *
+ * 2026-09-27-ны Пентагоны мэдээнд зөрчил нь гарчигт ч, **биед ч, «Гол баримт»-д
+ * ч** байсан атал зөвхөн гарчиг, картын гарчиг, FB текст гурав шалгагддаг байв.
+ * «Монголд юу гэсэн үг» хэсэг нь уншигчид хамгийн их санагддаг хэсэг тул мөн
+ * шалгагдана. IG тайлбар нь `buildCaption(fbText)` — FB текстийн шалгалт шилжинэ.
+ */
+export type CheckedField =
+  | "гарчиг" | "хураангуй" | "биет" | "Гол баримт" | "Монголд юу гэсэн үг"
+  | "картын гарчиг" | "FB текст";
+
+export type RuleName =
+  | "түр→бүрэн" | "дамжуулалт алга" | "таамаг→баталгаа"
+  | "модаль сулрав" | "хуулийн томьёолол хүчтэй болов" | "эх сурвалжид байхгүй огноо";
+
+/** Нийтлэхийг зогсоох уу, эсвэл зөвхөн тайланд тэмдэглэх үү */
+export type Severity = "ноцтой" | "анхаарах";
 
 export interface FieldIssue {
   field: CheckedField;
   /** Аль дүрэм барив */
-  rule: "түр→бүрэн" | "дамжуулалт алга" | "таамаг→баталгаа";
+  rule: RuleName;
+  severity: Severity;
   detail: string;
 }
 
@@ -28,55 +50,208 @@ export interface PrePublishInput {
   fbText: string | null;
   summaryMn: string | null;
   bodyMn: string | null;
+  /**
+   * Эх нийтлэлийн текст (ихэвчлэн англи). Байвал БҮХ талбарыг үүнтэй тулгана —
+   * өөрийн хураангуйтайгаа тулгах нь зөвхөн дотоод зөрчлийг л олдог байв.
+   */
+  sourceText?: string | null;
+  publishedAtSource?: Date | null;
+  sourceName?: string | null;
 }
 
 /** Шүүгчид өгөх эх текстийн дээд урт */
 export const SOURCE_CHARS = 2_000;
 
-const RULES = [
+/**
+ * Эх сурвалжтай тулгах дүрмүүд (англи эх текст → монгол гаргалт).
+ *
+ * `fields` нь дүрэм бүрийн хүрээ. Дамжуулалтыг («Bloomberg-ийн мэдээлснээр») биеийн
+ * ХЭСЭГ БҮРТ шаардвал нэг нийтлэлээс 7 ижил зөрчил гарч тайлан уншигдахгүй болно:
+ * дамжуулсан давхарга нь уншигчийг чиглүүлэх ёстой газартаа — гарчиг, хураангуй,
+ * нийгмийн сүлжээний текстэд — байвал хангалттай. Эсрэгээр «түр→бүрэн» нь хаана ч
+ * гарсан алдаа тул бүх талбарт шалгагдана.
+ */
+const ALL_FIELDS: CheckedField[] = [
+  "гарчиг", "хураангуй", "биет", "Гол баримт", "Монголд юу гэсэн үг", "картын гарчиг", "FB текст",
+];
+
+const SOURCE_RULES: {
+  rule: RuleName;
+  severity: Severity;
+  fn: (text: string, source: string) => boolean;
+  why: string;
+  fields: CheckedField[];
+}[] = [
+  {
+    rule: "түр→бүрэн", severity: "ноцтой", fn: dropsHedge,
+    why: "эх мэдээ нь ТҮР/хэсэгчилсэн үйлдлийг хэлж байтал эцсийн мэт бичсэн",
+    fields: ALL_FIELDS,
+  },
+  {
+    rule: "дамжуулалт алга", severity: "ноцтой", fn: dropsSourceRelay,
+    why: "эх нийтлэл нэртэй хэвлэлээс дамжуулж байхад тэр давхаргыг хассан",
+    fields: ["гарчиг", "хураангуй", "картын гарчиг", "FB текст"],
+  },
+  {
+    rule: "таамаг→баталгаа", severity: "ноцтой", fn: hardensSpeculation,
+    why: "таамгийг баталгаажсан баримт мэт бичсэн",
+    fields: ALL_FIELDS,
+  },
+  {
+    rule: "хуулийн томьёолол хүчтэй болов", severity: "ноцтой", fn: hardensLegal,
+    why: "«reasonable grounds» зэрэг болзолт эрх зүйн томьёоллыг эргэлзээгүй мэт болгосон",
+    fields: ALL_FIELDS,
+  },
+  {
+    // Гарчиг товч байх ёстой тул модаль тэмдэглэгээг шаардахгүй — нарийн утга
+    // нь биед хадгалагдах ёстой
+    rule: "модаль сулрав", severity: "анхаарах", fn: dropsModality,
+    why: "эх нийтлэлийн болгоомжлол (could, likely, suggested) манай текстэд үлдээгүй",
+    fields: ["биет", "Гол баримт"],
+  },
+];
+
+/** Эх текст байхгүй үеийн нөөц дүрмүүд — өөрийн хураангуйтайгаа тулгана */
+const SELF_RULES = [
   { rule: "түр→бүрэн" as const, fn: dropsHedge, why: "эх мэдээ нь ТҮР/хэсэгчилсэн үйлдлийг хэлж байтал эцсийн мэт бичсэн" },
   { rule: "дамжуулалт алга" as const, fn: dropsRelay, why: "дамжуулсан эх сурвалж («X-ийн мэдээлснээр») алга" },
   { rule: "таамаг→баталгаа" as const, fn: hardensSpeculation, why: "таамгийг баталгаажсан баримт мэт бичсэн" },
 ];
 
+/** Markdown биеийн «## Гарчиг» хэсгүүд */
+export function mdSections(body: string): { heading: string; text: string }[] {
+  const out: { heading: string; text: string }[] = [];
+  const parts = body.split(/^#{2,3}\s+(.+)$/mu);
+  // parts[0] нь эхний гарчгийн өмнөх хэсэг (lead)
+  for (let i = 1; i < parts.length; i += 2) {
+    out.push({ heading: parts[i]!.trim(), text: (parts[i + 1] ?? "").trim() });
+  }
+  return out;
+}
+
+/** Гарчгаар нь хэсэг олно — «Гол баримт», «Гол баримтууд» хоёулаа таарна */
+export function sectionText(body: string, heading: string): string | null {
+  const want = heading.toLowerCase();
+  return mdSections(body).find((s) => s.heading.toLowerCase().startsWith(want))?.text ?? null;
+}
+
+/** Биеийн нэрлэсэн хэсгүүдээс бусад хэсэг — давхар мэдээлэхгүйн тулд */
+export function bodyWithoutSections(body: string, headings: string[]): string {
+  let rest = body;
+  for (const h of headings) {
+    const text = sectionText(body, h);
+    if (text) rest = rest.replace(text, " ");
+  }
+  return rest;
+}
+
+/** Биеэс тусад нь шалгагдах хэсгүүд */
+export const NAMED_SECTIONS: { field: CheckedField; heading: string }[] = [
+  { field: "Гол баримт", heading: "Гол баримт" },
+  { field: "Монголд юу гэсэн үг", heading: "Монголд юу гэсэн үг" },
+];
+
 /**
- * Гурван талбарыг эх нийтлэлтэй нь тулгана.
+ * Бүх текстийг эх нийтлэлтэй нь тулгана.
  *
- * `dropsRelay` нь зөвхөн гарчиг/хураангуйг эх сурвалж болгож харна (биед «мэдээлэв»
- * гэдэг үг санамсаргүй тааралдвал бүх гарчгийг зөрчилтэй болгоно).
+ * `sourceText` байвал тэр нь үнэний эх үүсвэр: гарчиг, хураангуй, биет, нэрлэсэн
+ * хэсгүүд, картын гарчиг, FB текст бүгд түүнтэй тулгагдана. Байхгүй бол (DIGEST,
+ * хуучин мөрүүд) өмнөх зан төлөв — өөрийн хураангуйтайгаа тулгах — хэвээр.
  */
 export function checkBeforePublish(a: PrePublishInput): FieldIssue[] {
-  const head = [a.titleMn, a.summaryMn].filter(Boolean).join(" ");
-  const full = [head, (a.bodyMn ?? "").slice(0, SOURCE_CHARS)].join(" ");
+  const source = (a.sourceText ?? "").trim();
+  const body = a.bodyMn ?? "";
+  const headings = NAMED_SECTIONS.map((s) => s.heading);
 
   const fields: { field: CheckedField; text: string | null }[] = [
     { field: "гарчиг", text: a.titleMn },
+    { field: "хураангуй", text: a.summaryMn },
+    { field: "биет", text: body ? bodyWithoutSections(body, headings) : null },
+    ...NAMED_SECTIONS.map((s) => ({ field: s.field, text: body ? sectionText(body, s.heading) : null })),
     { field: "картын гарчиг", text: a.fbHook },
     { field: "FB текст", text: a.fbText },
   ];
 
   const issues: FieldIssue[] = [];
-  for (const { field, text } of fields) {
+
+  if (source) {
+    const src = source.slice(0, 8_000);
+    for (const { field, text } of fields) {
+      const value = (text ?? "").trim();
+      if (!value) continue;
+      for (const r of SOURCE_RULES) {
+        if (!r.fields.includes(field)) continue;
+        if (!r.fn(value, src)) continue;
+        const outlet = r.rule === "дамжуулалт алга" ? relaySource(src) : null;
+        issues.push({
+          field, rule: r.rule, severity: r.severity,
+          detail: `${field}: ${r.why}${outlet ? ` — «${outlet}»` : ""}`,
+        });
+        // Нэг талбарт ХЭД ХЭДЭН дүрэм барьж болно: Пентагоны мэдээний биед
+        // «таамаг→баталгаа» ба «хуулийн томьёолол» хоёулаа байсан атал эхнийх
+        // дээр таслаад хоёр дахийг нь алддаг байв. Тайланд дүрмээр бүлэглэгдэнэ.
+      }
+    }
+
+    // Огноо: биеийн бүх хэсгийг нэг дор (нэг огноо хоёр газар байвал нэг л удаа)
+    for (const d of checkDates({
+      text: [a.titleMn, a.summaryMn, body].filter(Boolean).join("\n"),
+      sourceText: src,
+      publishedAtSource: a.publishedAtSource ?? null,
+      sourceName: a.sourceName ?? undefined,
+    })) {
+      issues.push({
+        field: "биет",
+        rule: "эх сурвалжид байхгүй огноо",
+        severity: d.severity,
+        detail: `огноо «${d.text}»: ${d.reason}. ${d.suggestion}`,
+      });
+    }
+    return issues;
+  }
+
+  // ——— Эх текстгүй: хуучин зан төлөв ———
+  const head = [a.titleMn, a.summaryMn].filter(Boolean).join(" ");
+  const full = [head, body.slice(0, SOURCE_CHARS)].join(" ");
+  for (const { field, text } of [
+    { field: "гарчиг" as const, text: a.titleMn },
+    { field: "картын гарчиг" as const, text: a.fbHook },
+    { field: "FB текст" as const, text: a.fbText },
+  ]) {
     const value = (text ?? "").trim();
     if (!value) continue;
     // Гарчиг нь эх сурвалжийн нэг хэсэг тул өөртэйгөө тулгахгүй
-    const source = field === "гарчиг" ? [a.summaryMn, (a.bodyMn ?? "").slice(0, SOURCE_CHARS)].filter(Boolean).join(" ") : full;
-    const relaySource = field === "гарчиг" ? (a.summaryMn ?? "") : head;
+    const self = field === "гарчиг"
+      ? [a.summaryMn, body.slice(0, SOURCE_CHARS)].filter(Boolean).join(" ")
+      : full;
+    const relayFrom = field === "гарчиг" ? (a.summaryMn ?? "") : head;
 
-    for (const r of RULES) {
-      const src = r.rule === "дамжуулалт алга" ? relaySource : source;
-      if (src && r.fn(value, src)) {
-        issues.push({ field, rule: r.rule, detail: `${field}: ${r.why}` });
-        break; // нэг талбарт нэг шалтгаан хангалттай
+    for (const r of SELF_RULES) {
+      const s = r.rule === "дамжуулалт алга" ? relayFrom : self;
+      if (s && r.fn(value, s)) {
+        issues.push({ field, rule: r.rule, severity: "ноцтой", detail: `${field}: ${r.why}` });
+        break;
       }
     }
   }
   return issues;
 }
 
-/** Карт дахин үүсгэхэд утгатай эсэх — гарчиг өөрөө зөрчилтэй бол нэмэргүй */
+/** Нийтлэхийг зогсоох зөрчлүүд */
+export function blocking(issues: FieldIssue[]): FieldIssue[] {
+  return issues.filter((i) => i.severity === "ноцтой");
+}
+
+/** Карт/FB текстийг дахин үүсгэхэд засагддаг талбарууд */
+const REPAIRABLE = new Set<CheckedField>(["картын гарчиг", "FB текст"]);
+
+/**
+ * Карт дахин үүсгэхэд утгатай эсэх — нийтлэлийн ӨӨРИЙН текст зөрчилтэй бол нэмэргүй.
+ * Тэр тохиолдолд `article:fix` ажиллуулах хэрэгтэй.
+ */
 export function canRepair(issues: FieldIssue[]): boolean {
-  return issues.length > 0 && !issues.some((i) => i.field === "гарчиг");
+  const bad = blocking(issues);
+  return bad.length > 0 && bad.every((i) => REPAIRABLE.has(i.field));
 }
 
 // ---------- 2. Ижил үйл явдлын давхардал ----------
@@ -208,12 +383,19 @@ export function checkDuplicate(candidate: RecentArticle, recent: RecentArticle[]
 /**
  * Эх сурвалжийн нийтэлсэн огноо үүнээс хуучин бол нийтлэхгүй.
  *
- * Хэмжилт (production, 14 хоног, 19 нийтлэл): нас p50 = 65ц, p90 = 193ц,
- * дээд тал нь 245ц. 72 цагийн босго нь гаралтын 47%-ийг хаах байсан тул
- * анхдагчийг 120 цаг (5 хоног) болгов — 32%-ийг хаана. Үндсэн шалтгаан нь
- * босго биш, дараалал: мэдээ дунджаар 2.7 хоногийн дараа нийтлэгддэг.
+ * 2026-09-29-нд 120 цаг байсныг 72 болгов. Дарааллыг засахаас ӨМНӨ 72 цаг нь
+ * гаралтын 47%-ийг хаах байсан тул 120-оор эхэлсэн юм. Одоо дараалал өөрөө
+ * засагдсан — RSS 48 цагийн цонх, шинэлэг байдлын жин, LLM зарцуулахаас өмнөх
+ * насны шүүлт:
+ *
+ *   14 хоногийн өгөгдөл дээрх симуляц (npm run publish:sim)
+ *     бодит production   p50  65ц   p90 239.5ц
+ *     одоогийн дүрэм     p50 30.3ц  p90   115ц
+ *     шинэ дүрэм         p50  7.3ц  p90  63.7ц   ← хоосон үлдэх slot 0
+ *
+ * p90 нь 72-оос доош буусан тул энэ босго одоо гаралтыг бараг хаахгүй.
  */
-export const DEFAULT_NEWS_MAX_AGE_H = 120;
+export const DEFAULT_NEWS_MAX_AGE_H = 72;
 
 export function newsMaxAgeHours(env: NodeJS.ProcessEnv = process.env): number {
   const raw = Number(env.NEWS_MAX_AGE_H);

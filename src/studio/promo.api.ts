@@ -127,6 +127,19 @@ export const CARD_FOOTER: Record<Network, string> = {
   instagram: `${EXAMPLE_LABEL} · холбоос bio-д`,
 };
 
+/**
+ * ЗАГВАРЫН бичсэн хэсгүүд — тооны баталгаажуулалт зөвхөн эдгээрт хамаарна.
+ *
+ * Hook, хүсэлт (personas.json), CTA, эргэлтийн өгүүлбэр бүгд ГАРААР бичигдэж,
+ * хянагдсан текст. Тэднийг мэдлэгийн сангийн тоотой тулгах нь утгагүй: «20
+ * секундын бичлэг», «30 секунд» гэсэн бодит амьдралын хэллэг Kling/Runway-н
+ * баримтад байхгүй тул шалгалт унаж, сурталчилгааны slot чимээгүй мэдээ рүү
+ * буцдаг байв (2026-09-29-нд 24 hook-оос 3 нь ингэж унасан).
+ */
+export function machineWritten(a: { promptSnippet: string }): string {
+  return a.promptSnippet;
+}
+
 /** Промптын хэсэг — хэдэн үгээр харуулах вэ */
 export const SNIPPET_WORDS = 12;
 

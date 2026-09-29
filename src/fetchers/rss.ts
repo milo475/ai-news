@@ -14,8 +14,15 @@ import { jobRunMeta } from "../jobs/meta";
 import { closeBrowser, fetchFullText, textFromFeedHtml } from "./fulltext.api";
 import { fetchFeed, normalizeUrl, titleHash, type FeedItem } from "./rss.api";
 
-/** Үүнээс хуучин нийтлэл татахгүй — анхны татахад олон жилийн архив орохоос сэргийлнэ */
-const MAX_AGE_DAYS = 7;
+/**
+ * Үүнээс хуучин нийтлэл ТАТАХГҮЙ.
+ *
+ * 7 хоног байсныг 48 цаг болгов: 5 хоногийн настай мэдээ RAW болж орж ирээд,
+ * үнэлгээ, бичилт, засвар бүрд LLM идээд эцэст нь нийтлэхийн өмнөх насны
+ * шалгалтад унадаг байв. Хуучирсан мэдээг дараалалд оруулахгүй байх нь хамгийн
+ * хямд шийдэл — зардал гарахаас өмнө таслана.
+ */
+const RSS_MAX_AGE_H = 48;
 /** Гарчгийн hash-аар давхардал хайх цонх */
 const DUPE_WINDOW_DAYS = 3;
 /** Бүтэн текст татах хүсэлтүүдийн хоорондох завсар — эх сурвалжид ачаалал өгөхгүй */
@@ -23,6 +30,10 @@ const FULLTEXT_GAP_MS = 500;
 
 function daysAgo(days: number): Date {
   return new Date(Date.now() - days * 86_400_000);
+}
+
+function hoursAgo(hours: number): Date {
+  return new Date(Date.now() - hours * 3_600_000);
 }
 
 function sleep(ms: number): Promise<void> {
@@ -40,7 +51,7 @@ interface SourceResult {
   saved: number;      // шинээр хадгалсан
   dupeUrl: number;    // ижил хаягаар өмнө орсон
   dupeTitle: number;  // өөр хаяг, ижил гарчиг (өөр сайт дамжуулсан)
-  old: number;        // MAX_AGE_DAYS-ээс хуучин
+  old: number;        // RSS_MAX_AGE_H-ээс хуучин
   offTopic: number;   // MN эх сурвалжаас AI/технологийн бус
   fullText: number;   // бүтэн текст олдсон
   error: string;
@@ -55,7 +66,7 @@ async function saveItems(
   items: FeedItem[],
   res: SourceResult,
 ): Promise<void> {
-  const ageLimit = daysAgo(MAX_AGE_DAYS);
+  const ageLimit = hoursAgo(RSS_MAX_AGE_H);
   for (const item of items) {
     if (item.publishedAt && item.publishedAt < ageLimit) { res.old++; continue; }
 
