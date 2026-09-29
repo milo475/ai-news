@@ -43,7 +43,9 @@
     "publish:check": "tsx src/publish/precheck.ts",
     "studio:kb-check": "tsx src/studio/kb-check.ts",
     "bench:status": "tsx src/bench/status.ts",
-    "cost:report": "tsx src/admin/cost-report.ts"
+    "cost:report": "tsx src/admin/cost-report.ts",
+    "db:backup": "bash scripts/db-backup.sh",
+    "db:restore-test": "bash scripts/db-restore-test.sh"
   },
   "keywords": [],
   "author": "",

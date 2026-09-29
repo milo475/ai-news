@@ -471,3 +471,59 @@ test(
     }
   },
 );
+
+test(
+  "түгжээ булаагдвал дүгнэлт, DRAFT бичилгүй зогсоно",
+  { skip: !hasDb && "DATABASE_URL алга" },
+  async () => {
+    const MONTH = nextMonth();
+    const { prisma } = await import("../db");
+    const { runBenchmark, benchLockName } = await import("./run");
+    const { resetMonth } = await import("./reset");
+    const { LOCK_TTL_MIN, tryLock } = await import("../lib/lock");
+    const { chatJson, chatText } = await import("../agent/llm");
+
+    if ((await prisma.benchTask.count({ where: { isActive: true } })) < 3) return;
+    await cleanup(MONTH);
+
+    const text = (async () => {
+      // Эхний хос бичигдсэний дараа түгжээг булаана
+      await prisma.jobLock.updateMany({
+        where: { name: benchLockName(MONTH) },
+        data: { heartbeatAt: new Date(Date.now() - (LOCK_TTL_MIN + 5) * 60_000) },
+      });
+      await tryLock(benchLockName(MONTH));
+      // Цохилт (25мс) булаагдсаныг мэдрэх зай
+      await new Promise((r) => setTimeout(r, 90));
+      return {
+        text: "Монгол хэл дээрх бүрэн хариулт.", tokensIn: 10, tokensOut: 20, costUsd: 0,
+        latencyMs: 5, finishReason: "stop", reasoningTokens: 0,
+      };
+    }) as typeof chatText;
+    const chat = (async () => ({ data: { score: 8, note: "сайн" }, tokens: 0, costUsd: 0 })) as unknown as typeof chatJson;
+
+    try {
+      const r = await runBenchmark({
+        month: MONTH, skipBalanceCheck: true, now: SAFE_NOW, heartbeatMs: 25,
+        models: ["test/alpha"], taskLimit: 3, text, chat, writeArticle: true,
+      });
+
+      assert.equal(r.status, "RUNNING");
+      assert.match(r.note ?? "", /түгжээ алдагдсан/);
+      assert.equal(r.models, 0, "булаагдсан процесс дүгнэлт гаргах ёсгүй");
+      assert.equal(r.articleSlug, undefined, "DRAFT нийтлэл үүсэх ёсгүй");
+
+      const run = await prisma.benchRun.findUniqueOrThrow({
+        where: { month: MONTH },
+        select: { status: true, _count: { select: { summaries: true } } },
+      });
+      assert.equal(run.status, "RUNNING");
+      assert.equal(run._count.summaries, 0);
+    } finally {
+      await prisma.jobLock.deleteMany({ where: { name: benchLockName(MONTH) } });
+      await resetMonth(MONTH, { yes: true }).catch(() => {});
+      await cleanup(MONTH);
+      await prisma.$disconnect();
+    }
+  },
+);

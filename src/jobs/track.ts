@@ -7,8 +7,8 @@
  */
 import { prisma } from "../db";
 import { jobRunMeta } from "./meta";
-import { mark, spentSince } from "../lib/spend";
-import type { Ledger } from "../lib/spend.api";
+import { withScope } from "../lib/spend";
+import { emptyLedger, type Ledger } from "../lib/spend.api";
 
 export interface TrackedRun {
   id: string;
@@ -16,11 +16,13 @@ export interface TrackedRun {
   spent: () => Ledger;
 }
 
-/** JobRun үүсгээд зардлын тэмдэг тавина */
+/**
+ * JobRun үүсгэнэ. Зардал нь `withJob`-ийн хүрээнээс л бүртгэгдэнэ — энэ
+ * функцийг дангаар нь ашиглавал зардал тоологдохгүй тул `withJob`-ийг сонго.
+ */
 export async function startJob(job: string): Promise<TrackedRun> {
   const run = await prisma.jobRun.create({ data: { job, ...jobRunMeta() } });
-  const m = mark();
-  return { id: run.id, spent: () => spentSince(m) };
+  return { id: run.id, spent: () => emptyLedger() };
 }
 
 type JobData = Parameters<typeof prisma.jobRun.update>[0]["data"];
@@ -59,13 +61,19 @@ export async function withJob<T>(
   fn: (run: TrackedRun) => Promise<T>,
   opts: { onFinish?: (r: T, run: TrackedRun) => JobData } = {},
 ): Promise<T> {
-  const run = await startJob(job);
-  try {
-    const out = await fn(run);
-    await finishJob(run, { ...(opts.onFinish?.(out, run) ?? {}), ok: true });
-    return out;
-  } catch (e) {
-    await finishJob(run, { ok: false, error: String(e).slice(0, 1000) });
-    throw e;
-  }
+  return withScope(async (spent) => {
+    const created = await prisma.jobRun.create({ data: { job, ...jobRunMeta() } });
+    const run: TrackedRun = { id: created.id, spent };
+    try {
+      const out = await fn(run);
+      // `onFinish` нь `ok`-ийг дарж болно: амжилттай буцсан ч үр дүн нь
+      // «амжилтгүй» гэж хэлж болно (жишээ нь bench нь FAILED төлөвтэй буцдаг)
+      const extra = opts.onFinish?.(out, run) ?? {};
+      await finishJob(run, { ok: true, ...extra } as JobData & { ok: boolean });
+      return out;
+    } catch (e) {
+      await finishJob(run, { ok: false, error: String(e).slice(0, 1000) });
+      throw e;
+    }
+  });
 }

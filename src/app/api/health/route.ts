@@ -7,10 +7,11 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/db";
 import { levelOf, openRouterBalance } from "@/lib/balance";
+import { backupHealth } from "@/jobs/backup.api";
 
 export const dynamic = "force-dynamic";
 
-const JOBS = ["openrouter", "rss", "agent", "publish", "pipeline"] as const;
+const JOBS = ["openrouter", "rss", "agent", "publish", "pipeline", "backup"] as const;
 
 /** Сүүлийн ажиллалт хэр хуучирсан бэ (минутаар) */
 function minutesSince(d: Date | null): number | null {
@@ -65,6 +66,19 @@ export async function GET() {
     // 10 минут кэшлэгддэг — health check олон дуудагддаг ч OpenRouter-д ачаалал өгөхгүй.
     const balance = await openRouterBalance();
 
+    // Railway Hobby-д backup байхгүй — энэ машины systemd timer л хамгаална.
+    // Тэр чимээгүй унтарвал health-ээс мэдэгдэнэ.
+    const lastBackup = await prisma.jobRun.findFirst({
+      where: { job: "backup", ok: true },
+      orderBy: { finishedAt: "desc" },
+      select: { finishedAt: true, itemsOut: true },
+    });
+    const backup = backupHealth(lastBackup, new Date());
+    if (backup.stale && backup.message) {
+      const { logError } = await import("@/lib/errors");
+      await logError({ source: "cron", path: "backup", error: new Error(backup.message) }).catch(() => {});
+    }
+
     return NextResponse.json({
       ok: true,
       db: { ok: true, ms: dbMs },
@@ -80,6 +94,13 @@ export async function GET() {
         minutesAgo: minutesSince(lastAny.finishedAt ?? lastAny.startedAt),
       },
       lastRuns: Object.fromEntries(runs),
+      backup: {
+        at: backup.at,
+        hoursAgo: backup.hoursAgo,
+        megabytes: backup.bytes === null ? null : Math.round((backup.bytes / 1024 / 1024) * 10) / 10,
+        stale: backup.stale,
+        ...(backup.message ? { warning: backup.message } : {}),
+      },
     });
   } catch (e) {
     return NextResponse.json(

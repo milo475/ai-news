@@ -85,3 +85,78 @@ test("шинэхэн түгжээг булаахгүй", { skip }, async () => {
     await prisma.$disconnect();
   }
 });
+
+test("хэсэг дуусмагц дараагийн процесс ШУУД авна", { skip }, async () => {
+  const { tryLock } = await import("./lock");
+  const { prisma } = await import("../db");
+  const name = `тест:суллах:${Date.now()}`;
+
+  try {
+    // 00:00-ийн хэсэг
+    const first = await tryLock(name);
+    assert.ok(first);
+    // 00:20-д дуусаад суллана
+    await first!.release();
+
+    // 00:30-ын cron — TTL (25 мин) хараахан болоогүй ч ШУУД авах ёстой
+    const second = await tryLock(name);
+    assert.ok(second, "суллагдсан түгжээг дараагийн процесс шууд авах ёстой");
+    await second!.release();
+  } finally {
+    await prisma.jobLock.deleteMany({ where: { name } });
+    await prisma.$disconnect();
+  }
+});
+
+test("булаагдсаныг цохилт мэдэрнэ — хуучин процесс зогсоно", { skip }, async () => {
+  const { tryLock, LOCK_TTL_MIN } = await import("./lock");
+  const { prisma } = await import("../db");
+  const name = `тест:булаах:${Date.now()}`;
+
+  try {
+    // Цохилтыг хурдан болгоно (тестэд 30мс)
+    const first = await tryLock(name, LOCK_TTL_MIN, 30);
+    assert.ok(first);
+    assert.equal(first!.lost(), false);
+
+    // TTL хуучраад өөр процесс булаана
+    await prisma.jobLock.update({
+      where: { name },
+      data: { heartbeatAt: new Date(Date.now() - (LOCK_TTL_MIN + 5) * 60_000) },
+    });
+    const thief = await tryLock(name);
+    assert.ok(thief, "хуучирсан түгжээ булаагдах ёстой");
+
+    // Хуучин процессын цохилт 0 мөр шинэчилнэ → алдагдсаныг мэдэрнэ
+    await new Promise((r) => setTimeout(r, 120));
+    assert.equal(first!.lost(), true, "булаагдсаныг мэдрээгүй байна");
+
+    // Хуучин эзэмшигч суллахад ШИНЭ эзэмшигчийнхийг хөндөхгүй
+    await first!.release();
+    const holder = await prisma.jobLock.findUnique({ where: { name } });
+    assert.equal(holder?.lockedBy, thief!.owner);
+    await thief!.release();
+  } finally {
+    await prisma.jobLock.deleteMany({ where: { name } });
+    await prisma.$disconnect();
+  }
+});
+
+test("суллалт, цохилт нь throw хийхгүй", { skip }, async () => {
+  const { tryLock } = await import("./lock");
+  const { prisma } = await import("../db");
+  const name = `тест:алдаа:${Date.now()}`;
+
+  try {
+    const lock = await tryLock(name);
+    assert.ok(lock);
+    // Мөрийг гараар устгана — суллалт «олдсонгүй» болно
+    await prisma.jobLock.deleteMany({ where: { name } });
+    await assert.doesNotReject(() => lock!.release());
+    // Давхар суллалт ч унахгүй
+    await assert.doesNotReject(() => lock!.release());
+  } finally {
+    await prisma.jobLock.deleteMany({ where: { name } });
+    await prisma.$disconnect();
+  }
+});

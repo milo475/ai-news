@@ -2,7 +2,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   cappedTotal, dailyLlmBudget, DEFAULT_DAILY_LLM_USD, limitMessage, LLM_STEPS, nearDailyLimit,
-  overDailyLimit, sortSteps, stepLabel, UNCAPPED_STEPS, unrecorded, WARN_RATIO, type StepCost,
+  isLocalDb, overDailyLimit, sortSteps, stepLabel, UNCAPPED_STEPS, unrecorded, USAGE_LABEL,
+  WARN_RATIO, type StepCost,
 } from "./cost.api";
 
 const step = (job: string, usd: number, runs = 1): StepCost => ({
@@ -101,4 +102,26 @@ test("мэдээний алхмууд өөрсдөө хязгаарт хүрвэ
   const steps = [step("bench", 4.2), step("agent", 2.0), step("improve", 0.6)];
   assert.equal(Number(cappedTotal(steps).toFixed(2)), 2.6);
   assert.equal(overDailyLimit(cappedTotal(steps), 2.5), true);
+});
+
+// ---------- Харьцуулалтын цонх ба шошго ----------
+
+test("OpenRouter-ийн цонхыг зөв нэрлэнэ (баримтаас шалгасан)", () => {
+  // usage_daily = одоогийн UTC ӨДӨР; usage_weekly = UTC долоо хоног, ДАВААГААС
+  assert.match(USAGE_LABEL.daily, /UTC/);
+  assert.match(USAGE_LABEL.weekly, /даваагаас/);
+  assert.match(USAGE_LABEL.weekly, /UTC/);
+  assert.match(USAGE_LABEL.monthly, /UTC/);
+  // «7 хоног» гэж нэрлэхгүй — тэр нь гүйдэг цонх гэсэн буруу ойлголт өгнө
+  assert.ok(!USAGE_LABEL.weekly.includes("7 хоног"));
+});
+
+test("локал DB-г таньж харьцуулалт хийхгүй", () => {
+  assert.equal(isLocalDb("postgresql://u:p@localhost:5432/db"), true);
+  assert.equal(isLocalDb("postgresql://u:p@127.0.0.1:5432/db"), true);
+  assert.equal(isLocalDb("postgres://u:p@[::1]:5432/db"), true);
+  assert.equal(isLocalDb("file:./dev.db"), true);
+  // Production
+  assert.equal(isLocalDb("postgresql://u:p@containers.railway.app:1234/railway"), false);
+  assert.equal(isLocalDb(""), false);
 });

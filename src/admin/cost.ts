@@ -18,7 +18,11 @@ export async function dayCost(now = new Date()): Promise<DayCost> {
   const { start, end } = ubDayRange(now);
   const day = ubDateLabel(now);
 
-  const [jobs, studio] = await Promise.all([
+  // UTC өдрийн хил — OpenRouter-ийн usage_daily-тай тулгахад
+  const utcStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  const utcEnd = new Date(utcStart.getTime() + 86_400_000);
+
+  const [jobs, studio, utcJobs] = await Promise.all([
     prisma.jobRun.groupBy({
       by: ["job"],
       where: { startedAt: { gte: start, lt: end } },
@@ -28,6 +32,10 @@ export async function dayCost(now = new Date()): Promise<DayCost> {
     prisma.studioUsage.findMany({
       where: { day, subject: { startsWith: "ip:" } },
       select: { costUsd: true, count: true },
+    }),
+    prisma.jobRun.aggregate({
+      where: { startedAt: { gte: utcStart, lt: utcEnd }, job: { not: "pipeline" } },
+      _sum: { costUsd: true },
     }),
   ]);
 
@@ -51,6 +59,10 @@ export async function dayCost(now = new Date()): Promise<DayCost> {
   return {
     day,
     total: steps.reduce((n, s) => n + s.usd, 0),
+    // ЗӨВХӨН JobRun: түүнд бодит цагийн тэмдэг байдаг тул UTC өдрөөр яг
+    // тоологдоно. `StudioUsage` нь зөвхөн УБ огнооны мөртэй (цагийн тэмдэггүй)
+    // тул UTC өдөрт хуваарилах боломжгүй — харьцуулалтаас гадуур үлдэнэ.
+    utcTotal: num(utcJobs._sum.costUsd),
     capped: cappedTotal(steps),
     steps: sortSteps(steps),
   };

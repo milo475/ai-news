@@ -24,9 +24,22 @@ export function ownerId(): string {
   return `${hostname()}:${process.pid}:${randomUUID().slice(0, 8)}`;
 }
 
+/** Цохилт дараалан хэдэн удаа унавал түгжээг алдагдсан гэж үзэх вэ */
+export const HEARTBEAT_FAILS = 3;
+
 export interface Lock {
   name: string;
   owner: string;
+  /**
+   * Түгжээ алдагдсан эсэх.
+   *
+   * · цохилт 0 мөр шинэчилсэн (өөр процесс булаасан), эсвэл
+   * · цохилт дараалан 3 удаа унасан (DB хүрэхгүй).
+   *
+   * Ажил үүнийг дараагийн алхмынхаа ӨМНӨ шалгаж, үнэн бол дүгнэлт, DRAFT
+   * бичилгүй зогсоно — булаагдсан процесс шинэ эзэмшигчтэй мөргөлдөх ёсгүй.
+   */
+  lost: () => boolean;
   release: () => Promise<void>;
 }
 
@@ -37,7 +50,11 @@ export interface Lock {
  * (процесс унасан) булаана. Шинэхэн түгжээтэй бол `WHERE` нөхцөл биелэхгүй тул
  * мөр буцахгүй — хоёр процесс зэрэг оролдоход зөвхөн НЭГ нь авна.
  */
-export async function tryLock(name: string, ttlMin = LOCK_TTL_MIN): Promise<Lock | null> {
+export async function tryLock(
+  name: string,
+  ttlMin = LOCK_TTL_MIN,
+  heartbeatMs = HEARTBEAT_MS,
+): Promise<Lock | null> {
   const owner = ownerId();
   const now = new Date();
   // Хугацааг JS-ээс бэлдэнэ: `${n} * interval '1 minute'` нь параметржүүлэхэд
@@ -56,21 +73,48 @@ export async function tryLock(name: string, ttlMin = LOCK_TTL_MIN): Promise<Lock
   `;
   if (rows[0]?.lockedBy !== owner) return null;
 
-  // Амьд байгаагаа мэдэгдэнэ — урт ажил дундуур түгжээ хуучрахгүй
-  const timer = setInterval(() => {
-    void prisma.jobLock
-      .updateMany({ where: { name, lockedBy: owner }, data: { heartbeatAt: new Date() } })
-      .catch(() => {});
-  }, HEARTBEAT_MS);
+  // Амьд байгаагаа мэдэгдэнэ — урт ажил дундуур түгжээ хуучрахгүй.
+  // Цохилт нь ӨӨРИЙН эзэмшлийг шалгана: 0 мөр шинэчлэгдвэл түгжээ булаагдсан.
+  let lost = false;
+  let fails = 0;
+
+  const beat = async (): Promise<void> => {
+    try {
+      const r = await prisma.jobLock.updateMany({
+        where: { name, lockedBy: owner },
+        data: { heartbeatAt: new Date() },
+      });
+      if (r.count === 0) {
+        lost = true;
+        console.warn(`  ⚠ «${name}» түгжээ алдагдлаа — өөр процесс булаасан байна`);
+        return;
+      }
+      fails = 0;
+    } catch (e) {
+      fails += 1;
+      console.warn(`  ⚠ «${name}» цохилт ${fails}/${HEARTBEAT_FAILS}: ${(e as Error).message.slice(0, 80)}`);
+      if (fails >= HEARTBEAT_FAILS) lost = true;
+    }
+  };
+
+  const timer = setInterval(() => void beat(), heartbeatMs);
   timer.unref?.();
 
   return {
     name,
     owner,
+    lost: () => lost,
     release: async () => {
       clearInterval(timer);
-      // Зөвхөн ӨӨРИЙН түгжээг суллана — булаагдсан бол хөндөхгүй
-      await prisma.jobLock.deleteMany({ where: { name, lockedBy: owner } }).catch(() => {});
+      try {
+        // Зөвхөн ӨӨРИЙН түгжээг суллана — булаагдсан бол хөндөхгүй.
+        // Хэсэг дуусмагц суллах нь чухал: 00:20-д дууссан ажлын түгжээ 00:30-ын
+        // cron-д «10 минутын настай, шинэхэн» гэж харагдаж алгасуулна.
+        await prisma.jobLock.deleteMany({ where: { name, lockedBy: owner } });
+      } catch (e) {
+        // Суллалт унах нь ажлыг унагаах ёсгүй — TTL нь нөөц хамгаалалт
+        console.warn(`  ⚠ «${name}» түгжээ суллагдсангүй: ${(e as Error).message.slice(0, 80)}`);
+      }
     },
   };
 }

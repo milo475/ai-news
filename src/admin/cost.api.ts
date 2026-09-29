@@ -62,6 +62,15 @@ export interface StepCost {
 export interface DayCost {
   /** УБ огноо */
   day: string;
+  /**
+   * UTC өдрийн (00:00–24:00 UTC) нийлбэр — ЗӨВХӨН JobRun.
+   *
+   * OpenRouter-ийн `usage_daily` нь UTC өдрөөр тоологддог тул харьцуулалтад
+   * үүнийг ашиглана. УБ өдрийн нийлбэртэй тулгавал 8 цагийн зөрүүнээс ХУДАЛ ⚠
+   * гарна. `StudioUsage` нь цагийн тэмдэггүй (зөвхөн УБ огноо) тул энд орохгүй —
+   * харьцуулалт нь студийн зардлаар дутуу гарахыг дуудагч мэдэж байх ёстой.
+   */
+  utcTotal: number;
   /** Бүх алхмын нийлбэр */
   total: number;
   /** ӨДРИЙН ХЯЗГААРТ тооцогдох нийлбэр (бенчмаркгүй) */
@@ -118,4 +127,29 @@ export function limitMessage(spentUsd: number, budget: number): string | null {
     return `Өдрийн LLM зардал $${spentUsd.toFixed(2)}/$${budget.toFixed(2)} — хязгаарт ойрхон.`;
   }
   return null;
+}
+
+
+// ---------- Харьцуулалтын цонх, шошго ----------
+
+/**
+ * OpenRouter-ийн `/api/v1/key` талбаруудын утга (баримтаас шалгасан):
+ *   usage_daily   — одоогийн UTC ӨДӨР
+ *   usage_weekly  — одоогийн UTC долоо хоног, ДАВААГААС эхэлнэ
+ *   usage_monthly — одоогийн UTC САР
+ */
+export const USAGE_LABEL = {
+  daily: "өнөөдөр (UTC)",
+  weekly: "энэ долоо хоног (даваагаас, UTC)",
+  monthly: "энэ сар (UTC)",
+} as const;
+
+/**
+ * Локал хөгжүүлэлтийн DB мөн үү.
+ *
+ * Локал DB нь production-ийн ажлуудыг агуулдаггүй тул OpenRouter-ийн бодит
+ * зарцуулалттай харьцуулах нь утгагүй — ямагт 100% зөрүү гарна.
+ */
+export function isLocalDb(url = process.env.DATABASE_URL ?? ""): boolean {
+  return /@(localhost|127\.0\.0\.1|\[::1\])[:/]/.test(url) || url.startsWith("file:");
 }

@@ -17,8 +17,8 @@ import {
 import { nextPublishAt, publishTimes } from "../jobs/mode.api";
 import { isEntry, runCli } from "../lib/cli";
 import { prisma } from "../db";
-import { finishJob, startJob } from "../jobs/track";
-import { lockHolder, tryLock } from "../lib/lock";
+import { withJob } from "../jobs/track";
+import { lockHolder, LOCK_TTL_MIN, tryLock, type Lock } from "../lib/lock";
 import { benchModels } from "./models";
 import { judgeModel, judgeModel2 } from "./models.api";
 import { judge } from "./judge";
@@ -64,6 +64,8 @@ export interface RunOptions {
   skipBalanceCheck?: boolean;
   /** Түгжээг алгасах (зөвхөн тест) */
   skipLock?: boolean;
+  /** Түгжээний цохилтын давтамж (зөвхөн тест — бодит нь 60 секунд) */
+  heartbeatMs?: number;
   /** Нэг cron run-д олгох хугацаа. Тестэд богиносгоно. */
   chunkMs?: number;
   /** Одоогийн цаг — НИЙТЛЭХ цонхны шалгалтад (тестэд) */
@@ -100,7 +102,9 @@ export async function runBenchmark(opts: RunOptions = {}): Promise<RunSummary> {
 
   // Нэг run-ыг нэг л процесс ажиллуулна. Гараар дуудсан `npm run bench` ба
   // cron-ы үргэлжлүүлэх алхам зэрэг ажиллаад unique зөрчил гаргаж байсан.
-  const lock = opts.skipLock ? null : await tryLock(benchLockName(month));
+  const lock = opts.skipLock
+    ? null
+    : await tryLock(benchLockName(month), LOCK_TTL_MIN, opts.heartbeatMs);
   if (!opts.skipLock && !lock) {
     const holder = await lockHolder(benchLockName(month));
     const note = `өөр процесс ажиллаж байна${holder ? ` (${holder.lockedBy})` : ""}`;
@@ -111,25 +115,27 @@ export async function runBenchmark(opts: RunOptions = {}): Promise<RunSummary> {
     };
   }
 
-  const job = await startJob("bench");
   try {
-    const r = await execute(opts);
-    await finishJob(job, {
-      ok: r.status !== "FAILED",
-      itemsIn: r.models * r.tasks,
-      itemsOut: r.results,
-      ...(r.note ? { error: r.note.slice(0, 1000) } : {}),
-    });
-    return r;
-  } catch (e) {
-    await finishJob(job, { ok: false, error: String(e).slice(0, 1000) });
-    throw e;
+    return await withJob(
+      "bench",
+      () => execute(opts, lock),
+      {
+        onFinish: (r) => ({
+          ok: r.status !== "FAILED",
+          itemsIn: r.models * r.tasks,
+          itemsOut: r.results,
+          ...(r.note ? { error: r.note.slice(0, 1000) } : {}),
+        }),
+      },
+    );
   } finally {
+    // Хэсэг дуусмагц ҮРГЭЛЖ суллана (амжилт ч, алдаа ч) — дараагийн cron
+    // 10 минутын настай түгжээг «шинэхэн» гэж үзэж алгасах ёсгүй
     await lock?.release();
   }
 }
 
-async function execute(opts: RunOptions): Promise<RunSummary> {
+async function execute(opts: RunOptions, lock: Lock | null): Promise<RunSummary> {
   const month = opts.month ?? currentMonth();
   const text = opts.text ?? chatText;
   const chat = opts.chat ?? chatJson;
@@ -246,6 +252,8 @@ async function execute(opts: RunOptions): Promise<RunSummary> {
 
   /** Хугацаа дуусаж, дутуу үлдсэн эсэх */
   let ranOutOfTime = false;
+  /** Түгжээ алдагдсан — дүгнэлт, DRAFT бичихгүй */
+  let lockLost = false;
   const byId = new Map(tasks.map((t) => [t.id, t]));
 
   /**
@@ -262,6 +270,13 @@ async function execute(opts: RunOptions): Promise<RunSummary> {
       const task = byId.get(pair.taskId);
       if (!task) continue;
 
+      // Түгжээ алдагдсан бол ДАРААГИЙН хосоос өмнө зогсоно: шинэ эзэмшигчтэй
+      // мөргөлдөж unique зөрчил гаргах, хагас дүгнэлт бичих ёсгүй
+      if (lock?.lost()) {
+        lockLost = true;
+        console.warn(`\n⛔ түгжээ алдагдсан — ${pending.length - pi} даалгавар хийгдсэнгүй`);
+        break;
+      }
       // Эхний хос үргэлж гүйцэтгэгдэнэ — хэсэг бүр дор хаяж нэг алхам урагшилна,
       // эс тэгвээс буруу тохиргоотой үед run мөнхөд RUNNING үлдэнэ
       if (pi > 0 && outOfTime(chunkStart, new Date(), chunkMs)) {
@@ -416,6 +431,16 @@ async function execute(opts: RunOptions): Promise<RunSummary> {
       },
     });
     throw e;
+  }
+
+  // ——— Түгжээ алдагдсан: юу ч дүгнэхгүй, RUNNING хэвээр ———
+  if (lockLost) {
+    const note = "түгжээ алдагдсан — өөр процесс үргэлжлүүлж байна";
+    console.warn(`\n⛔ ${month}: ${note}`);
+    return {
+      month, runId: run.id, models: 0, tasks: tasks.length, results: scored.length,
+      costUsd: spent, status: "RUNNING", note, top: [], pending: pending.length - scored.length,
+    };
   }
 
   // ——— Хугацаа дуусаж дутуу үлдсэн бол: RUNNING хэвээр, дүгнэлт бичихгүй ———

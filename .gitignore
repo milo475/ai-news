@@ -12,3 +12,7 @@ logs/*
 *.swo
 *.dump
 *.sql.gz
+
+# DB нөөц — хэрэглэгчийн имэйл, нууц үгийн hash агуулна. ХЭЗЭЭ Ч commit хийхгүй.
+*.dump.partial
+backups/

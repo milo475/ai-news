@@ -3,7 +3,9 @@ import { studioStats } from "@/studio/stats";
 import { balanceMessage, levelOf, openRouterBalance, openRouterUsage } from "@/lib/balance";
 import { drift, driftMessage } from "@/lib/spend.api";
 import { recentCosts } from "@/admin/cost";
-import { dailyLlmBudget, limitMessage, UNCAPPED_STEPS, unrecorded } from "@/admin/cost.api";
+import {
+  dailyLlmBudget, isLocalDb, limitMessage, UNCAPPED_STEPS, unrecorded, USAGE_LABEL,
+} from "@/admin/cost.api";
 import { prisma } from "@/db";
 import { CATEGORY_LABEL } from "@/agent/category";
 import { humanDelay, nextPublishAt, publishTimes, timeLabel } from "@/jobs/mode.api";
@@ -624,19 +626,25 @@ function CostBreakdown({
         </p>
       )}
 
-      {usage && <DriftNote recorded={today.total} actual={usage.daily} />}
+      {usage && <DriftNote recorded={today.utcTotal} actual={usage.daily} />}
     </section>
   );
 }
 
 /** Бүртгэгдсэн ба OpenRouter-ийн бодит зарцуулалтын зөрүү */
 function DriftNote({ recorded, actual }: { recorded: number; actual: number }) {
+  // Локал DB нь production-ийн ажлуудыг агуулдаггүй — зөрүү ямагт 100% гарна
+  if (isLocalDb()) {
+    return <p className="text-xs text-muted">⊘ локал DB — OpenRouter-тэй харьцуулалт хийгдэхгүй</p>;
+  }
   const d = drift(recorded, actual);
   if (!d) return null;
   const msg = driftMessage(d);
   return (
     <p className={`text-xs ${msg ? "text-warn" : "text-muted"}`}>
-      {msg ?? `✓ OpenRouter-ийн бодит зарцуулалт $${d.actual.toFixed(3)} — зөрүү ${Math.round(d.ratio * 100)}%`}
+      {msg
+        ? `${msg} (${USAGE_LABEL.daily})`
+        : `✓ ${USAGE_LABEL.daily} бодит $${d.actual.toFixed(3)} — зөрүү ${Math.round(d.ratio * 100)}%`}
     </p>
   );
 }

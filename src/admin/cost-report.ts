@@ -10,7 +10,9 @@ import "dotenv/config";
 import { prisma } from "../db";
 import { isEntry, runCli } from "../lib/cli";
 import { recentCosts } from "./cost";
-import { dailyLlmBudget, UNCAPPED_STEPS, unrecorded, type DayCost } from "./cost.api";
+import {
+  dailyLlmBudget, isLocalDb, UNCAPPED_STEPS, unrecorded, USAGE_LABEL, type DayCost,
+} from "./cost.api";
 import { openRouterBalance, openRouterUsage } from "../lib/balance";
 import { drift, driftMessage } from "../lib/spend.api";
 
@@ -91,16 +93,23 @@ if (isEntry("cost-report.ts")) {
     const [balance, usage] = await Promise.all([openRouterBalance(), openRouterUsage()]);
     console.log("\nOpenRouter-тэй харьцуулалт:");
     console.log(`  үлдэгдэл (дансны кредит): $${balance === null ? "?" : balance.toFixed(2)}`);
-    if (usage) {
-      const today = rows[0];
-      const d = drift(today?.total ?? 0, usage.daily);
-      console.log(`  өнөөдөр бодит:   $${usage.daily.toFixed(4)}`);
-      console.log(`  өнөөдөр бүртгэл: $${(today?.total ?? 0).toFixed(4)}`);
+
+    if (isLocalDb()) {
+      console.log("  ⊘ локал DB — харьцуулалт хийгдэхгүй (энэ DB нь production-ийн");
+      console.log("    ажлуудыг агуулдаггүй тул зөрүү нь ямагт 100% гарна)");
+    } else if (usage) {
+      // usage_daily нь UTC ӨДРӨӨР тоологддог — УБ өдрийн нийлбэрээр тулгавал
+      // 8 цагийн зөрүүнээс худал ⚠ гарна
+      const recorded = rows[0]?.utcTotal ?? 0;
+      const d = drift(recorded, usage.daily);
+      console.log(`  ${USAGE_LABEL.daily} бодит:   $${usage.daily.toFixed(4)}`);
+      console.log(`  ${USAGE_LABEL.daily} бүртгэл: $${recorded.toFixed(4)} (JobRun; студи цагийн тэмдэггүй тул орохгүй)`);
       if (d) {
         const msg = driftMessage(d);
         console.log(msg ? `  ⚠ ${msg}` : `  ✓ зөрүү ${Math.round(d.ratio * 100)}% — хэвийн`);
       }
-      console.log(`  7 хоногийн бодит: $${usage.weekly.toFixed(3)} · сарын $${usage.monthly.toFixed(3)}`);
+      console.log(`  ${USAGE_LABEL.weekly}: $${usage.weekly.toFixed(3)}`);
+      console.log(`  ${USAGE_LABEL.monthly}: $${usage.monthly.toFixed(3)}`);
     } else {
       console.log("  бодит зарцуулалт уншигдсангүй (/api/v1/key)");
     }
