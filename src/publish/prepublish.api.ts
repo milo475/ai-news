@@ -201,3 +201,61 @@ export function checkDuplicate(candidate: RecentArticle, recent: RecentArticle[]
     reason: `/medee/${best.a.slug} -ийн үргэлжлэл (${best.score}), шинэ: ${newFacts.slice(0, 4).join(", ")}`,
   };
 }
+
+
+// ---------- 3. Хуучирсан мэдээ ----------
+
+/**
+ * Эх сурвалжийн нийтэлсэн огноо үүнээс хуучин бол нийтлэхгүй.
+ *
+ * Хэмжилт (production, 14 хоног, 19 нийтлэл): нас p50 = 65ц, p90 = 193ц,
+ * дээд тал нь 245ц. 72 цагийн босго нь гаралтын 47%-ийг хаах байсан тул
+ * анхдагчийг 120 цаг (5 хоног) болгов — 32%-ийг хаана. Үндсэн шалтгаан нь
+ * босго биш, дараалал: мэдээ дунджаар 2.7 хоногийн дараа нийтлэгддэг.
+ */
+export const DEFAULT_NEWS_MAX_AGE_H = 120;
+
+export function newsMaxAgeHours(env: NodeJS.ProcessEnv = process.env): number {
+  const raw = Number(env.NEWS_MAX_AGE_H);
+  return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_NEWS_MAX_AGE_H;
+}
+
+/**
+ * Хугацаа хамаарахгүй ангиллууд.
+ *
+ * HOWTO (заавар) ба FACT (тайлбар) нь үйл явдалд бус мэдлэгт суурилдаг —
+ * долоо хоногийн дараа ч адил үнэ цэнэтэй.
+ */
+export const TIMELESS_CATEGORIES = new Set(["HOWTO", "FACT"]);
+
+export interface AgeVerdict {
+  stale: boolean;
+  hours: number | null;
+  reason: string | null;
+}
+
+/** Эх сурвалжийн нас — хуучирсан эсэх */
+export function checkAge(a: {
+  category: string;
+  publishedAtSource: Date | null;
+  now: Date;
+  maxAgeH?: number;
+}): AgeVerdict {
+  if (TIMELESS_CATEGORIES.has(a.category)) {
+    return { stale: false, hours: null, reason: null };
+  }
+  if (!a.publishedAtSource) {
+    // Огноо мэдэгдэхгүй бол хаахгүй — «мэдэхгүй» нь «хуучин» гэсэн үг биш
+    return { stale: false, hours: null, reason: null };
+  }
+
+  const max = a.maxAgeH ?? DEFAULT_NEWS_MAX_AGE_H;
+  const hours = Math.round(((a.now.getTime() - a.publishedAtSource.getTime()) / 3_600_000) * 10) / 10;
+  if (hours <= max) return { stale: false, hours, reason: null };
+
+  return {
+    stale: true,
+    hours,
+    reason: `эх сурвалж ${Math.round(hours)}ц (${Math.round(hours / 24)} хоног) хуучин — хязгаар ${max}ц`,
+  };
+}

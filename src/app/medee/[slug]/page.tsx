@@ -1,4 +1,5 @@
 import Image from "next/image";
+import { onlyMentioned } from "@/lib/text.api";
 import { DIGEST_DISCLOSURE, NEWS_DISCLOSURE } from "@/lib/disclosure.api";
 import { notFound } from "next/navigation";
 import Link from "next/link";
@@ -57,6 +58,14 @@ export default async function NewsPage({ params }: { params: Promise<Params> }) 
     user ? isBookmarked(user.id, { articleId: n.id }) : Promise.resolve(false),
     getCard(slug),
   ]);
+
+  // «Холбоотой» хэсэгт зөвхөн нийтлэлд ДУРДАГДСАН нэрс. Muse-ийн мэдээнд
+  // Google, Anthropic дурдагдаагүй атал «холбоотой» гэж гарч байсан.
+  const text = [n.titleMn, n.summaryMn, n.bodyMn].filter(Boolean).join(" ");
+  const mentionedModels = onlyMentioned(n.models, text);
+  const mentionedCompanies = onlyMentioned(n.companies, text);
+  const otherModels = n.models.filter((m) => !mentionedModels.includes(m));
+  const otherCompanies = n.companies.filter((c) => !mentionedCompanies.includes(c));
 
   return (
     <article className="max-w-2xl space-y-6">
@@ -118,16 +127,33 @@ export default async function NewsPage({ params }: { params: Promise<Params> }) 
 
       <Tags tags={n.tags} />
 
-      {(n.models.length > 0 || n.companies.length > 0) && (
+      {(mentionedModels.length > 0 || mentionedCompanies.length > 0) && (
         <section className="space-y-2 border-t border-line pt-4">
           <h2 className="text-sm font-semibold">Холбоотой</h2>
           <div className="flex flex-wrap gap-x-3 gap-y-1 text-sm">
-            {n.models.map((m) => (
+            {mentionedModels.map((m) => (
               <Link key={m.slug} href={`/model/${m.slug}`} className="text-accent hover:underline">
                 {m.nameMn ?? m.name}
               </Link>
             ))}
-            {n.companies.map((c) => (
+            {mentionedCompanies.map((c) => (
+              <span key={c.name} className="text-muted">{c.name}</span>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {(otherModels.length > 0 || otherCompanies.length > 0) && (
+        <section className="space-y-2 border-t border-line pt-4">
+          <h2 className="text-sm font-semibold">Ижил сэдвийн</h2>
+          <p className="text-xs text-muted">Энэ мэдээнд дурдагдаагүй ч ойролцоо сэдэвтэй.</p>
+          <div className="flex flex-wrap gap-x-3 gap-y-1 text-sm">
+            {otherModels.map((m) => (
+              <Link key={m.slug} href={`/model/${m.slug}`} className="text-accent hover:underline">
+                {m.nameMn ?? m.name}
+              </Link>
+            ))}
+            {otherCompanies.map((c) => (
               <span key={c.name} className="text-muted">{c.name}</span>
             ))}
           </div>

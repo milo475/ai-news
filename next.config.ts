@@ -19,6 +19,12 @@ const config: NextConfig = {
       // жагсаалтын хуудасны доод талд үлдсэн
       // 301 (308 биш) — хуучин холбоосууд хайлтын системд ингэж шилждэг
       { source: "/argachlal", destination: "/", statusCode: 301 },
+      // Мэргэжлийн slug-ийг уншигдахуйц болгов (2026-09-30).
+      // «albany» нь англиар Albany хот шиг уншигдаж байсан.
+      { source: "/prompt/studio/m/albany-ajiltan", destination: "/prompt/studio/m/ofis-ajiltan", statusCode: 301 },
+      { source: "/prompt/studio/m/hunii-nootsz", destination: "/prompt/studio/m/hunii-noots", statusCode: 301 },
+      { source: "/prompt/studio/m/nyagtlan", destination: "/prompt/studio/m/nyagtlan-bodogch", statusCode: 301 },
+      { source: "/prompt/studio/m/borluulalt", destination: "/prompt/studio/m/borluulagch", statusCode: 301 },
     ];
   },
 };

@@ -56,3 +56,23 @@ export function stem(word: string, chars = STEM_CHARS): string {
 export function stemTokens(text: string, chars = STEM_CHARS): Set<string> {
   return new Set([...titleTokens(text)].map((w) => stem(w, chars)));
 }
+
+/**
+ * Нэр нийтлэлийн текстэд ҮНЭХЭЭР дурдагдсан эсэх.
+ *
+ * «Холбоотой» хэсэгт зөвхөн дурдагдсаныг харуулна: Muse-ийн нийтлэлд Google,
+ * Anthropic огт дурдагдаагүй атал «холбоотой» гэж гарч байсан нь уншигчийг
+ * төөрөгдүүлнэ. Монгол нөхцөлийг тооцно («OpenAI-ийн» → «OpenAI» таарна).
+ */
+export function mentions(text: string, name: string): boolean {
+  const n = name.trim();
+  if (n.length < 2) return false;
+  const esc = n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  // Үгийн эхлэл таарна; ард нь нөхцөл (-ийн, -д) эсвэл үгийн төгсгөл
+  return new RegExp(`(?<![\\p{L}\\p{N}])${esc}(?![\\p{L}\\p{N}])`, "iu").test(text);
+}
+
+/** Текстэд дурдагдсан нэрсийг л үлдээнэ */
+export function onlyMentioned<T extends { name: string }>(items: T[], text: string): T[] {
+  return items.filter((i) => mentions(text, i.name));
+}

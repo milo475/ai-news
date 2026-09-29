@@ -1,8 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  DEFAULT_PROMO_SLOTS, EXAMPLE_LABEL, exampleIndex, hasFakeProof, isPromoSlot, promoBody,
-  promoLink, promoSlots, promptSnippet, ubWeekday,
+  CARD_FOOTER, CTA, DEFAULT_PROMO_SLOTS, EXAMPLE_LABEL, exampleIndex, hasFakeProof, hasUrl,
+  isPromoSlot, nextSlots, promoBody, promoLink, promoSlots, slotLabel, snippetWords, ubWeekday,
 } from "./promo.api";
 import { fitBlock, promoOverlaySvg } from "./promo-card.api";
 import { personas } from "./personas";
@@ -77,17 +77,90 @@ test("зохиомол нийгмийн баталгааг барина", () => 
   assert.equal(hasFakeProof("Жишээ: багш — «слайд бэлдэх»"), null);
 });
 
-test("постын бие «Жишээ» гэж тодорхой хэлнэ, зохиомол баталгаагүй", () => {
-  const body = promoBody({
-    personaName: "Багш",
-    request: "Хичээлийн слайд бэлдэх",
-    promptSnippet: "A bright classroom…",
-    toolNames: ["Gemini (Nano Banana)", "Canva"],
-  });
-  assert.ok(body.startsWith(`${EXAMPLE_LABEL}:`), body.slice(0, 40));
+const BODY = {
+  personaName: "Багш",
+  hook: "Фотосинтезийг 30 хүүхдэд ойлгуулах слайдыг шөнө бэлддэг үү?",
+  request: "Хичээлийн слайд бэлдэх",
+  promptSnippet: "A bright classroom…",
+  toolNames: ["Gemini (Nano Banana)", "Canva"],
+};
+
+test("пост hook-оос эхэлж, эргэлт → жишээ → CTA дарааллаар", () => {
+  const body = promoBody({ ...BODY, network: "facebook" });
+  assert.ok(body.startsWith(BODY.hook), body.slice(0, 60));
+  // Эргэлт: «өөрөө хийж үзээгүй ч болно»
+  assert.match(body, /Өөрөө хийж үзээгүй ч болно/);
+  assert.match(body, new RegExp(`${EXAMPLE_LABEL} — Багш`));
+  assert.match(body, /Жишээ промптын эхлэл:/);
   assert.equal(hasFakeProof(body), null);
-  assert.match(body, /Багш/);
-  assert.match(body, /Gemini \(Nano Banana\) \+ Canva/);
+});
+
+test("CTA нь сүлжээнээс хамаарна — IG-д коммент дарагддаг", () => {
+  assert.match(promoBody({ ...BODY, network: "facebook" }), /холбоос коммент дээр/);
+  assert.match(promoBody({ ...BODY, network: "instagram" }), /холбоос bio-д/);
+  assert.equal(CTA.instagram.includes("коммент"), false);
+});
+
+test("IG текстэд URL БАЙЖ БОЛОХГҮЙ", () => {
+  const ig = promoBody({ ...BODY, network: "instagram" });
+  assert.equal(hasUrl(ig), false, ig);
+  assert.equal(hasUrl("Дэлгэрэнгүй ainews.mn дээр"), true);
+  assert.equal(hasUrl("https://ainews.mn/ig"), true);
+  assert.equal(hasUrl("Холбоос bio-д"), false);
+});
+
+test("картын доод мөр сүлжээнээс хамаарна", () => {
+  assert.match(CARD_FOOTER.facebook, /коммент дээр/);
+  assert.match(CARD_FOOTER.instagram, /bio-д/);
+  const ig = promoOverlaySvg({ request: "х", outcome: "ю", footer: CARD_FOOTER.instagram });
+  assert.match(ig, /bio-д/);
+  assert.ok(!ig.includes("коммент"), "IG картад коммент дурдагдах ёсгүй");
+  assert.equal(hasUrl(ig.replace(/xmlns="[^"]*"/, "")), false, "картад URL байх ёсгүй");
+});
+
+test("промптын хэсэг 12 үгээр хязгаарлагдана", () => {
+  const long = Array.from({ length: 40 }, (_, i) => `word${i}`).join(" ");
+  const s = snippetWords(long);
+  // «…» нь сүүлийн үгэнд наалддаг тул 12 хэсэг
+  assert.equal(s.split(" ").length, 12, s);
+  assert.ok(s.endsWith("…"));
+  assert.equal(snippetWords("богино промпт"), "богино промпт");
+});
+
+// ---------- Дараагийн slot ----------
+
+test("өнгөрсөн slot-ыг тоохгүй — дараагийнхаас эхэлнэ", () => {
+  const slots = promoSlots(env());
+  // Мягмар 20:04 УБ = 12:04 UTC. 19:30 өнгөрсөн тул баасан эхэлнэ.
+  const now = new Date("2026-09-29T12:04:00Z");
+  const next = nextSlots(now, slots, 3);
+  assert.equal(next.length, 3);
+  assert.equal(slotLabel(next[0]!.at), "10/02 баасан 19:30");
+  assert.equal(slotLabel(next[1]!.at), "10/06 мягмар 19:30");
+  assert.equal(slotLabel(next[2]!.at), "10/09 баасан 19:30");
+});
+
+test("slot-оос өмнө бол тэр slot өөрөө дараагийнх", () => {
+  // Мягмар 18:00 УБ — тэр өдрийн 19:30 хараахан болоогүй
+  const next = nextSlots(new Date("2026-09-29T10:00:00Z"), promoSlots(env()), 1);
+  assert.equal(slotLabel(next[0]!.at), "09/29 мягмар 19:30");
+});
+
+test("унтраалттай бол дараагийн slot алга", () => {
+  assert.deepEqual(nextSlots(new Date(), promoSlots(env("")), 3), []);
+});
+
+test("жишээ бүрт ГАРААР бичсэн hook бий", () => {
+  for (const p of personas()) {
+    for (const e of p.examples) {
+      assert.ok(e.hook.length > 15, `${p.slug}: ${e.hook}`);
+      assert.ok(/[?]$/.test(e.hook), `${p.slug}: hook асуулт байх ёстой — ${e.hook}`);
+      // Бүтээгдэхүүнээс биш, ХҮНЭЭС эхэлнэ
+      assert.ok(!e.hook.startsWith("Промпт студи"), p.slug);
+    }
+  }
+  const all = personas().flatMap((p) => p.examples.map((e) => e.hook));
+  assert.equal(new Set(all).size, 24, "hook давтагдаж байна");
 });
 
 test("холбоос utm-тэй, мэргэжлийн хуудас руу", () => {
@@ -98,18 +171,15 @@ test("холбоос utm-тэй, мэргэжлийн хуудас руу", () =
   assert.ok(!promoLink("https://ainews.mn/", "bagsh", "facebook").includes("mn//"));
 });
 
-test("промптын хэсгийг үгээр таслана", () => {
-  const long = "a".repeat(50) + " " + "b".repeat(200);
-  const s = promptSnippet(long, 100);
-  assert.ok(s.length <= 101, `${s.length}`);
-  assert.ok(s.endsWith("…"));
-  assert.equal(promptSnippet("богино промпт", 100), "богино промпт");
-});
+
 
 // ---------- Карт ----------
 
 test("карт хоёр блоктой, «Жишээ» гэж бичсэн", () => {
-  const svg = promoOverlaySvg({ request: "Хурлын илтгэлээ видео болгох", outcome: "Бэлэн промпт" });
+  const svg = promoOverlaySvg({
+    request: "Хурлын илтгэлээ видео болгох", outcome: "Бэлэн промпт",
+    footer: CARD_FOOTER.facebook,
+  });
   assert.match(svg, /ХҮСЭЛТ/);
   assert.match(svg, /ЮУ ГАРАХ/);
   assert.match(svg, /Промпт студи/);
@@ -126,6 +196,10 @@ test("урт текстийг тайрч багтаана", () => {
 test("мэргэжлийн загварууд бүрэн", () => {
   const list = personas();
   assert.equal(list.length, 8);
+  assert.deepEqual(
+    list.map((p) => p.slug),
+    ["ofis-ajiltan", "bagsh", "nyagtlan-bodogch", "marketer", "borluulagch", "hunii-noots", "oyutan", "jijig-biznes"],
+  );
   for (const p of list) {
     assert.equal(p.examples.length, 3, p.slug);
     assert.ok(p.title.length > 5, p.slug);

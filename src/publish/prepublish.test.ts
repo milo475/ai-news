@@ -1,7 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  canRepair, checkBeforePublish, checkDuplicate, EVENT_JACCARD, EVENT_SHARED_STEMS,
+  canRepair, checkAge, checkBeforePublish, checkDuplicate, DEFAULT_NEWS_MAX_AGE_H,
+  EVENT_JACCARD, EVENT_SHARED_STEMS, newsMaxAgeHours, TIMELESS_CATEGORIES,
   factTokens, MIN_NEW_FACTS, newFactsVs, RECENT_HOURS, sameEvent,
   UPDATE_PREFIX, withUpdatePrefix, type RecentArticle,
 } from "./prepublish.api";
@@ -219,4 +220,51 @@ test("монгол нөхцөл нь «шинэ баримт» болохгүй"
     ),
     [],
   );
+});
+
+// ---------- Хуучирсан мэдээ ----------
+
+const NOW = new Date("2026-09-29T12:00:00Z");
+const hoursAgo = (h: number) => new Date(NOW.getTime() - h * 3_600_000);
+
+test("хязгаарын анхдагч нь хэмжилтэд тулгуурласан", () => {
+  // 72ц нь production-ийн гаралтын 47%-ийг хаах байсан (p50 = 65ц)
+  assert.equal(DEFAULT_NEWS_MAX_AGE_H, 120);
+  assert.equal(newsMaxAgeHours({} as unknown as NodeJS.ProcessEnv), 120);
+  assert.equal(newsMaxAgeHours({ NEWS_MAX_AGE_H: "72" } as unknown as NodeJS.ProcessEnv), 72);
+  assert.equal(newsMaxAgeHours({ NEWS_MAX_AGE_H: "муу" } as unknown as NodeJS.ProcessEnv), 120);
+});
+
+test("хуучирсан мэдээг хаана", () => {
+  const fresh = checkAge({ category: "NEWS", publishedAtSource: hoursAgo(20), now: NOW });
+  assert.equal(fresh.stale, false);
+
+  // Бодит тохиолдол: Muse zero-day, эх сурвалж 181 цагийн өмнөх
+  const old = checkAge({ category: "NEWS", publishedAtSource: hoursAgo(181), now: NOW });
+  assert.equal(old.stale, true);
+  assert.equal(old.hours, 181);
+  assert.match(old.reason!, /181ц \(8 хоног\) хуучин/);
+});
+
+test("яг хязгаар дээр өнгөрнө", () => {
+  assert.equal(checkAge({ category: "NEWS", publishedAtSource: hoursAgo(120), now: NOW }).stale, false);
+  assert.equal(checkAge({ category: "NEWS", publishedAtSource: hoursAgo(121), now: NOW }).stale, true);
+});
+
+test("HOWTO, FACT-д хугацаа хамаарахгүй", () => {
+  for (const category of ["HOWTO", "FACT"]) {
+    const v = checkAge({ category, publishedAtSource: hoursAgo(500), now: NOW });
+    assert.equal(v.stale, false, category);
+  }
+  assert.ok(TIMELESS_CATEGORIES.has("HOWTO"));
+  // Бусад ангилалд хамаарна
+  for (const category of ["NEWS", "RISK", "BUSINESS"]) {
+    assert.equal(checkAge({ category, publishedAtSource: hoursAgo(500), now: NOW }).stale, true, category);
+  }
+});
+
+test("огноо мэдэгдэхгүй бол хаахгүй", () => {
+  const v = checkAge({ category: "NEWS", publishedAtSource: null, now: NOW });
+  assert.equal(v.stale, false);
+  assert.equal(v.hours, null);
 });

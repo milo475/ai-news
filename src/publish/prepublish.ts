@@ -7,11 +7,15 @@
  *   2. Сүүлийн 48 цагийн нийтлэлтэй давхардлын шалгалт.
  */
 import { prisma } from "../db";
-import { checkBeforePublish, canRepair, checkDuplicate, RECENT_HOURS, UPDATE_PREFIX, withUpdatePrefix, type DuplicateVerdict, type FieldIssue, type RecentArticle } from "./prepublish.api";
+import {
+  canRepair, checkAge, checkBeforePublish, checkDuplicate, newsMaxAgeHours, RECENT_HOURS,
+  UPDATE_PREFIX, withUpdatePrefix,
+  type DuplicateVerdict, type FieldIssue, type RecentArticle,
+} from "./prepublish.api";
 
 const SELECT = {
   id: true, slug: true, titleMn: true, summaryMn: true, bodyMn: true, category: true,
-  fbHook: true, fbText: true, fbImageData: true,
+  fbHook: true, fbText: true, fbImageData: true, publishedAtSource: true,
   companies: { select: { name: true } },
 } as const;
 
@@ -70,6 +74,21 @@ export async function gateBeforePublish(
 ): Promise<GateResult> {
   const now = opts.now ?? new Date();
   const a = await prisma.article.findUniqueOrThrow({ where: { id: articleId }, select: SELECT });
+
+  // ——— 0. Хуучирсан мэдээ (LLM-гүй, $0) ———
+  const age = checkAge({
+    category: a.category,
+    publishedAtSource: a.publishedAtSource,
+    now,
+    maxAgeH: newsMaxAgeHours(),
+  });
+  if (age.stale) {
+    return {
+      ok: false, issues: [], repaired: false, costUsd: 0, prefixed: false,
+      reason: age.reason ?? "хуучирсан",
+      duplicate: { action: "skip", match: null, score: 0, newFacts: [], reason: "шалгаагүй" },
+    };
+  }
 
   // ——— 1. Механик fidelity ———
   let issues = checkBeforePublish(a);

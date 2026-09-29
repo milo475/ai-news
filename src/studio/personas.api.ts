@@ -7,6 +7,11 @@
 import type { StudioFormat } from "./studio.api";
 
 export interface PersonaExample {
+  /**
+   * Постын эхний мөр — тухайн хүний БОДИТ нөхцөл, асуулт хэлбэрээр.
+   * Гараар бичсэн (LLM-гүй): insight нь бүтээгдэхүүнээс биш, хүнээс эхэлнэ.
+   */
+  hook: string;
   request: string;
   format: StudioFormat;
   /** Тодруулах асуултын урьдчилсан хариулт — brief-ийн талбаруудаар */

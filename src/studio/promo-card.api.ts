@@ -6,7 +6,7 @@
  */
 import { CARD_H, CARD_W, PAD, wrapLines } from "../publish/card.api";
 import { FONT_FALLBACK, FONT_FAMILY } from "../publish/fonts";
-import { EXAMPLE_LABEL, PROMO_TAG } from "./promo.api";
+import { PROMO_TAG } from "./promo.api";
 
 /** Блокийн фонтын хэмжээ — эхнийхээс эхэлж, багтахгүй бол дараагийнх */
 export const BLOCK_SIZES = [52, 44, 38];
@@ -39,6 +39,8 @@ function esc(s: string): string {
 export interface PromoOverlay {
   request: string;
   outcome: string;
+  /** Доод мөр — сүлжээнээс хамаарна («коммент дээр» / «bio-д») */
+  footer: string;
   width?: number;
   height?: number;
 }
@@ -110,6 +112,6 @@ ${first.svg}
 ${second.svg}
 
   <text x="${PAD}" y="${h - PAD}" font-family="${font}" font-weight="400" font-size="26"
-        fill="#ffffff" fill-opacity="0.6">${esc(EXAMPLE_LABEL)} · холбоос коммент дээр</text>
+        fill="#ffffff" fill-opacity="0.6">${esc(o.footer)}</text>
 </svg>`;
 }
