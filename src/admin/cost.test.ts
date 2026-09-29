@@ -1,8 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  dailyLlmBudget, DEFAULT_DAILY_LLM_USD, limitMessage, LLM_STEPS, nearDailyLimit,
-  overDailyLimit, sortSteps, stepLabel, unrecorded, WARN_RATIO, type StepCost,
+  cappedTotal, dailyLlmBudget, DEFAULT_DAILY_LLM_USD, limitMessage, LLM_STEPS, nearDailyLimit,
+  overDailyLimit, sortSteps, stepLabel, UNCAPPED_STEPS, unrecorded, WARN_RATIO, type StepCost,
 } from "./cost.api";
 
 const step = (job: string, usd: number, runs = 1): StepCost => ({
@@ -61,4 +61,44 @@ test("мессеж зөвхөн шаардлагатай үед", () => {
   assert.match(limitMessage(2.1, 2.5)!, /хязгаарт ойрхон/);
   assert.match(limitMessage(2.6, 2.5)!, /дүүрлээ/);
   assert.match(limitMessage(2.6, 2.5)!, /нийтлэхээс бусад LLM алхам зогсоно/);
+});
+
+// ---------- Бенчмарк өдрийн хязгаарт орохгүй ----------
+
+test("бенчмарк өдрийн хязгаараас чөлөөтэй", () => {
+  assert.ok(UNCAPPED_STEPS.has("bench"));
+  // Бусад LLM алхмууд хязгаарт ОРНО
+  for (const j of ["agent", "improve", "digest", "studio", "publish", "local"]) {
+    assert.ok(!UNCAPPED_STEPS.has(j), j);
+  }
+});
+
+test("10/1: bench $4.20 зарцуулсан ч мэдээний алхмууд ажиллана", () => {
+  // Бодит 10/1-ний хувилбар: bench $4.20, мэдээний алхмууд $0.60
+  const steps = [
+    step("bench", 4.2, 6),
+    step("agent", 0.35, 3),
+    step("improve", 0.2, 3),
+    step("publish", 0.05, 3),
+  ];
+  const capped = cappedTotal(steps);
+
+  assert.equal(Number(capped.toFixed(2)), 0.6, "бенчмарк хязгаарын тооцоонд орохгүй");
+  assert.equal(overDailyLimit(capped, 2.5), false, "agent, improve зогсох ёсгүй");
+  assert.equal(limitMessage(capped, 2.5), null);
+
+  // Хэрэв бенчмаркийг оруулбал хязгаар давж, мэдээний бэлтгэл зогсоно
+  const naive = steps.reduce((n, s) => n + s.usd, 0);
+  assert.equal(overDailyLimit(naive, 2.5), true, "хуучин зан төлөв — яг үүнийг зассан");
+});
+
+test("бенчмаркгүй өдөр хоёр тоо ижил", () => {
+  const steps = [step("agent", 1.0), step("improve", 0.5)];
+  assert.equal(cappedTotal(steps), steps.reduce((n, s) => n + s.usd, 0));
+});
+
+test("мэдээний алхмууд өөрсдөө хязгаарт хүрвэл зогсоно", () => {
+  const steps = [step("bench", 4.2), step("agent", 2.0), step("improve", 0.6)];
+  assert.equal(Number(cappedTotal(steps).toFixed(2)), 2.6);
+  assert.equal(overDailyLimit(cappedTotal(steps), 2.5), true);
 });

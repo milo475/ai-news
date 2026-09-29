@@ -42,7 +42,8 @@
     "cards:footer": "tsx src/gallery/refooter.ts",
     "publish:check": "tsx src/publish/precheck.ts",
     "studio:kb-check": "tsx src/studio/kb-check.ts",
-    "bench:status": "tsx src/bench/status.ts"
+    "bench:status": "tsx src/bench/status.ts",
+    "cost:report": "tsx src/admin/cost-report.ts"
   },
   "keywords": [],
   "author": "",

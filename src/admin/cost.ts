@@ -7,7 +7,7 @@
  */
 import { prisma } from "../db";
 import { ubDateLabel, ubDayRange } from "../jobs/day";
-import { LLM_STEPS, sortSteps, stepLabel, type DayCost, type StepCost } from "./cost.api";
+import { cappedTotal, LLM_STEPS, sortSteps, stepLabel, type DayCost, type StepCost } from "./cost.api";
 
 function num(v: unknown): number {
   return Number(v ?? 0) || 0;
@@ -51,6 +51,7 @@ export async function dayCost(now = new Date()): Promise<DayCost> {
   return {
     day,
     total: steps.reduce((n, s) => n + s.usd, 0),
+    capped: cappedTotal(steps),
     steps: sortSteps(steps),
   };
 }
@@ -64,7 +65,10 @@ export async function recentCosts(days = 2, now = new Date()): Promise<DayCost[]
   return out;
 }
 
-/** Өнөөдрийн нийт LLM зардал — pipeline-ийн хязгаарын шалгалтад */
+/**
+ * Өнөөдөр ӨДРИЙН ХЯЗГААРТ тооцогдох зардал — pipeline-ийн шалгалтад.
+ * Бенчмарк энд ОРОХГҮЙ (өөрийн төсөв, үлдэгдлийн шалгалттай).
+ */
 export async function spentTodayUsd(now = new Date()): Promise<number> {
-  return (await dayCost(now)).total;
+  return (await dayCost(now)).capped;
 }

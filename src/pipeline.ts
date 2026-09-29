@@ -27,7 +27,7 @@ import { openRouterKey } from "./env";
 import { ubDayRange } from "./jobs/day";
 import { logError } from "./lib/errors";
 import { balanceMessage, llmAllowed, openRouterBalance } from "./lib/balance";
-import { dailyLlmBudget, limitMessage, overDailyLimit } from "./admin/cost.api";
+import { dailyLlmBudget, limitMessage, overDailyLimit, UNCAPPED_STEPS } from "./admin/cost.api";
 import { isCoreStep, shouldGiveUpToday } from "./jobs/steps.api";
 import { dailyHour, modeFor, publishTimes, type Mode } from "./jobs/mode.api";
 import { runArena } from "./fetchers/arena";
@@ -394,10 +394,12 @@ async function main() {
       await logError({ source: "cron", path: "daily-budget", error: new Error(budgetMsg) }).catch(() => {});
     }
   } else if (llmPlanned) {
-    console.log(`Өдрийн LLM зардал: $${spentToday.toFixed(3)}/$${budget.toFixed(2)}`);
+    console.log(
+      `Өдрийн LLM зардал: $${spentToday.toFixed(3)}/$${budget.toFixed(2)} (бенчмарк тусдаа)`,
+    );
   }
 
-  const llmHalted = !llmAllowed(balance) || overDailyLimit(spentToday, budget);
+
 
   const lock = selected ? null : await acquireLock(activeMode);
   if (!lock && !selected) {
@@ -416,8 +418,12 @@ async function main() {
   for (const step of STEPS) {
     if (!willRun(step)) continue;
 
-    // Кредит дууссан — LLM шаардсан алхмыг алгасна. Нийтлэх нь үргэлжилнэ.
-    if (llmHalted && step.needsLlm) {
+    // Кредит дууссан эсвэл өдрийн хязгаар дүүрсэн — LLM шаардсан алхмыг алгасна.
+    // Бенчмарк нь өдрийн хязгаараас чөлөөтэй (өөрийн төсөв, үлдэгдлийн шалгалттай),
+    // харин кредит бүрэн дууссан үед бусадтай адил зогсоно.
+    const cappedStep = step.needsLlm && !UNCAPPED_STEPS.has(step.name);
+    const halted = !llmAllowed(balance) || (cappedStep && overDailyLimit(spentToday, budget));
+    if (halted && step.needsLlm) {
       rows.push({
         Алхам: step.name, Төлөв: "алгасав",
         "Үр дүн": overDailyLimit(spentToday, budget)

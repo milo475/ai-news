@@ -33,6 +33,19 @@ export const LLM_STEPS = new Set([
   "agent", "improve", "publish", "digest", "bench", "studio", "local",
 ]);
 
+/**
+ * ӨДРИЙН хязгаарт ОРОХГҮЙ алхмууд.
+ *
+ * Бенчмарк нь сард НЭГ удаа ~$4.20 зарцуулдаг тул $2.5-ын өдрийн хязгаарт
+ * оруулбал 10/1-нд хязгаар хүрмэгц agent, improve, digest бүгд зогсож мэдээний
+ * бэлтгэл тасарна. Дараа өдөр нь үлдсэнээ түрүүлж зарцуулж дахин тасална.
+ *
+ * Бенчмарк нь өөрийн ХОЁР хамгаалалттай тул давхар хязгаар шаардлагагүй:
+ *   · BENCH_BUDGET_USD (анхдагч $15) — run дундуур зогсооно;
+ *   · эхлэхийн өмнө «үлдэгдэл ≥ тооцоолсон зардлын 1.5 дахин» шалгалт.
+ */
+export const UNCAPPED_STEPS = new Set(["bench"]);
+
 export function stepLabel(job: string): string {
   return STEP_LABEL[job] ?? job;
 }
@@ -49,8 +62,16 @@ export interface StepCost {
 export interface DayCost {
   /** УБ огноо */
   day: string;
+  /** Бүх алхмын нийлбэр */
   total: number;
+  /** ӨДРИЙН ХЯЗГААРТ тооцогдох нийлбэр (бенчмаркгүй) */
+  capped: number;
   steps: StepCost[];
+}
+
+/** Өдрийн хязгаарт тооцогдох нийлбэр */
+export function cappedTotal(steps: StepCost[]): number {
+  return steps.filter((s) => !UNCAPPED_STEPS.has(s.job)).reduce((n, s) => n + s.usd, 0);
 }
 
 /** Зардлаар буурахаар эрэмбэлж, тэг зардалтайг ард нь */
@@ -91,7 +112,7 @@ export function nearDailyLimit(spentUsd: number, budget: number): boolean {
 export function limitMessage(spentUsd: number, budget: number): string | null {
   if (overDailyLimit(spentUsd, budget)) {
     return `Өдрийн LLM хязгаар дүүрлээ: $${spentUsd.toFixed(2)}/$${budget.toFixed(2)} — ` +
-      "маргааш хүртэл нийтлэхээс бусад LLM алхам зогсоно.";
+      "маргааш хүртэл нийтлэхээс бусад LLM алхам зогсоно (бенчмарк хамаарахгүй).";
   }
   if (nearDailyLimit(spentUsd, budget)) {
     return `Өдрийн LLM зардал $${spentUsd.toFixed(2)}/$${budget.toFixed(2)} — хязгаарт ойрхон.`;

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { nextPublishAt, publishTimes } from "../jobs/mode.api";
 
 const hasDb = Boolean(process.env.DATABASE_URL);
 
@@ -10,12 +11,23 @@ const hasDb = Boolean(process.env.DATABASE_URL);
  * ажиллуулдаг).
  */
 /**
- * НИЙТЛЭХ цонхны хамгаалалтаас хол агшин (УБ 03:00).
+ * НИЙТЛЭХ цонхны хамгаалалтаас хол агшин.
  *
- * `runBenchmark` нь slot-ын 45 минутын дотор шинэ хэсэг эхлүүлдэггүй. Бодит
- * цагаар ажиллуулбал тест нь өдрийн аль цагт ажилласнаас хамаарч хааяа унана.
+ * `runBenchmark` нь slot-ын 45 минутын дотор шинэ хэсэг эхлүүлдэггүй тул бодит
+ * цагаар ажиллуулбал тест өдрийн аль цагт ажилласнаас хамаарч хааяа унана.
+ *
+ * Тогтмол огноо (жишээ нь 2026-10-05) БОЛОХГҮЙ: `BenchRun.startedAt` нь бодит
+ * цагаар бичигддэг тул 3 хоногийн «хуучирсан» шалгалт дээр мөргөлдөнө. Тиймээс
+ * бодит цагийг авч, шаардвал цонхноос гарах хүртэл л зөөнө.
  */
-const SAFE_NOW = new Date("2026-10-05T19:00:00Z");
+function safeNow(): Date {
+  let t = new Date();
+  for (let i = 0; i < 8 && nextPublishAt(t, publishTimes()).minutes < 60; i++) {
+    t = new Date(t.getTime() + 30 * 60_000);
+  }
+  return t;
+}
+const SAFE_NOW = safeNow();
 
 let monthSeq = 0;
 const nextMonth = () => `1999-${String((monthSeq++ % 12) + 1).padStart(2, "0")}`;
@@ -246,7 +258,7 @@ test(
     try {
       // 1-р хэсэг: chunkMs = 0 → эхний хосын дараа шууд зогсоно
       const first = await runBenchmark({
-        month: MONTH, skipBalanceCheck: true, chunkMs: 0,
+        month: MONTH, skipBalanceCheck: true, now: SAFE_NOW, chunkMs: 0,
         models: ["test/alpha"], taskLimit: 3, text, chat, writeArticle: false,
       });
       assert.equal(first.status, "RUNNING", "дутуу run нь RUNNING хэвээр");
@@ -264,7 +276,7 @@ test(
 
       // 2-р хэсэг: хугацаа хангалттай → үлдсэнийг дуусгана
       const second = await runBenchmark({
-        month: MONTH, skipBalanceCheck: true,
+        month: MONTH, skipBalanceCheck: true, now: SAFE_NOW,
         models: ["test/alpha"], taskLimit: 3, text, chat, writeArticle: false,
       });
       assert.equal(second.status, "DONE");

@@ -2,7 +2,7 @@ import Link from "next/link";
 import { studioStats } from "@/studio/stats";
 import { balanceMessage, levelOf, openRouterBalance } from "@/lib/balance";
 import { recentCosts } from "@/admin/cost";
-import { dailyLlmBudget, limitMessage, unrecorded } from "@/admin/cost.api";
+import { dailyLlmBudget, limitMessage, UNCAPPED_STEPS, unrecorded } from "@/admin/cost.api";
 import { prisma } from "@/db";
 import { CATEGORY_LABEL } from "@/agent/category";
 import { humanDelay, nextPublishAt, publishTimes, timeLabel } from "@/jobs/mode.api";
@@ -546,7 +546,8 @@ function CostBreakdown({ days }: { days: Awaited<ReturnType<typeof recentCosts>>
   const budget = dailyLlmBudget();
   const today = days[0];
   if (!today) return null;
-  const warn = limitMessage(today.total, budget);
+  // Бенчмарк нь сард нэг удаа ~$4 зарцуулдаг тул өдрийн хязгаарт ОРОХГҮЙ
+  const warn = limitMessage(today.capped, budget);
   const missing = unrecorded(today.steps);
 
   return (
@@ -554,7 +555,10 @@ function CostBreakdown({ days }: { days: Awaited<ReturnType<typeof recentCosts>>
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <h2 className="text-sm font-medium">Өдрийн LLM зардал</h2>
         <span className={`text-sm tabular-nums ${warn ? "text-warn" : "text-muted"}`}>
-          ${today.total.toFixed(3)} / ${budget.toFixed(2)}
+          ${today.capped.toFixed(3)} / ${budget.toFixed(2)}
+          {today.total !== today.capped && (
+            <span className="text-muted"> · нийт ${today.total.toFixed(3)}</span>
+          )}
         </span>
       </div>
       {warn && <p className="text-xs text-warn">{warn}</p>}
@@ -575,6 +579,9 @@ function CostBreakdown({ days }: { days: Awaited<ReturnType<typeof recentCosts>>
                 <td className="py-1.5 pr-3">
                   {s.label}
                   {!s.llm && <span className="ml-1 text-xs text-muted">(LLM-гүй)</span>}
+                  {UNCAPPED_STEPS.has(s.job) && (
+                    <span className="ml-1 text-xs text-muted">(хязгаараас чөлөөтэй)</span>
+                  )}
                 </td>
                 {days.map((d) => {
                   const row = d.steps.find((x) => x.job === s.job);
@@ -586,6 +593,14 @@ function CostBreakdown({ days }: { days: Awaited<ReturnType<typeof recentCosts>>
                 })}
               </tr>
             ))}
+            <tr className="border-t border-line">
+              <td className="py-1.5 pr-3 text-muted">Хязгаарт тооцогдох</td>
+              {days.map((d) => (
+                <td key={d.day} className="py-1.5 pr-3 text-right tabular-nums text-muted">
+                  ${d.capped.toFixed(3)}
+                </td>
+              ))}
+            </tr>
             <tr className="border-t border-line font-medium">
               <td className="py-1.5 pr-3">Нийт</td>
               {days.map((d) => (

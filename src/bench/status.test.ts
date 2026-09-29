@@ -1,6 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { decideStart, isMeasured, MEASURED, RETRY_AFTER_HOURS } from "./status.api";
+import {
+  decideStart, isMeasured, MEASURED, RETRY_AFTER_HOURS, RETRY_WINDOW_DAYS,
+} from "./status.api";
 
 const NOW = new Date("2026-10-01T19:30:00Z"); // УБ 10/1 03:30
 const BASE = { now: NOW, day: 1, ubHour: 3, dailyHour: 3, finishedAt: null };
@@ -45,10 +47,10 @@ test("УНАСАН run 6 цагийн дараа дахин оролдоно", (
   assert.equal(old.resume, false);
 });
 
-test("унасан run сарын 1 биш ч дахин оролдоно", () => {
-  // /benchmark-ыг сар дуустал хоосон үлдээх нь буруу
+test("унасан run сарын 1 биш ч (эхний 5 хоногт) дахин оролдоно", () => {
+  // /benchmark-ыг сар дуустал хоосон үлдээх нь буруу — гэхдээ зөвхөн сарын эхэнд
   const d = decideStart({
-    ...BASE, status: "FAILED", day: 17,
+    ...BASE, status: "FAILED", day: 3,
     finishedAt: new Date(NOW.getTime() - 24 * 3_600_000),
   });
   assert.equal(d.go, true);
@@ -83,4 +85,40 @@ test("гараар дуудвал өдөр, цагийн шалгалт алга
 
 test("гараар дуудсан ч ХЭМЖИГДСЭН сарыг дахин ажиллуулахгүй", () => {
   assert.equal(decideStart({ ...BASE, status: "DONE", manual: true }).go, false);
+});
+
+// ---------- Унасан run: зөвхөн сарын эхний 5 хоногт ----------
+
+test("унасан run сарын эхний 5 хоногт л дахин оролдоно", () => {
+  const long = new Date(NOW.getTime() - 24 * 3_600_000);
+  for (const day of [1, 3, 5]) {
+    const d = decideStart({ ...BASE, status: "FAILED", day, finishedAt: long });
+    assert.equal(d.go, true, `өдөр ${day}`);
+  }
+});
+
+test("сарын дунд хуучин FAILED мөрөөс гэнэт bench эхлэхгүй", () => {
+  // $4.20-ын хэмжилт сарын 17-нд гэнэт эхлэх ёсгүй
+  const d = decideStart({
+    ...BASE, status: "FAILED", day: 17,
+    finishedAt: new Date(NOW.getTime() - 16 * 86_400_000),
+  });
+  assert.equal(d.go, false);
+  assert.equal(d.skip, "унасан — сарын эхэн өнгөрсөн");
+  assert.match(d.detail, /--only bench/);
+  assert.equal(RETRY_WINDOW_DAYS, 5);
+});
+
+test("сарын эхэн өнгөрсөн ч гараар эхлүүлж болно", () => {
+  const d = decideStart({ ...BASE, status: "FAILED", day: 17, manual: true, finishedAt: null });
+  assert.equal(d.go, true);
+  assert.match(d.detail, /гараар дуудсан/);
+});
+
+test("сарын эхэн дотор ч 6 цаг хүлээнэ", () => {
+  const d = decideStart({
+    ...BASE, status: "FAILED", day: 2, finishedAt: new Date(NOW.getTime() - 60 * 60_000),
+  });
+  assert.equal(d.go, false);
+  assert.equal(d.skip, "унасан — хүлээж байна");
 });
