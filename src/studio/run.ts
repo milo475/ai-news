@@ -19,7 +19,7 @@ import { checkOutput, ISSUE_FEEDBACK, type StudioOutput, type ToolOutput } from 
 import {
   PLAN_SCHEMA, PLAN_SYSTEM, planUser, toolSchema, toolSystem, toolUser, type StepTimings,
 } from "./parallel.api";
-import { stripUnverified, type NumberClaim } from "./numbers.api";
+import { CHECK_LIMITS, officialLink, stripUnverified, type NumberClaim } from "./numbers.api";
 import {
   applyRevision, REVISE_SCHEMA, REVISE_SYSTEM, reviseUser, type RevisionOut,
 } from "./revise.api";
@@ -221,7 +221,12 @@ export async function buildOutput(
   };
 }
 
-/** Хэрэгслийн гаргалтын БҮХ текстээс баталгаажаагүй тоог хасна */
+/**
+ * Хэрэгслийн гаргалтын БҮХ текстээс баталгаажаагүй тоотой ӨГҮҮЛБЭРИЙГ хасна.
+ *
+ * Хасалт болсон бол картын доор НЭГ УДАА «хязгаарыг албан ёсны сайтаас шалгана
+ * уу» гэсэн сануулгыг холбоостой нь нэмнэ — өгүүлбэр дундуур бус.
+ */
 function fixNumbers(t: ToolOutput, doc: string): { output: ToolOutput; removed: NumberClaim[] } {
   const removed: NumberClaim[] = [];
   const clean = (text: string): string => {
@@ -229,10 +234,17 @@ function fixNumbers(t: ToolOutput, doc: string): { output: ToolOutput; removed: 
     removed.push(...r.removed);
     return r.text;
   };
+
+  const steps = (t.steps ?? []).map(clean).filter((x) => x.trim() && x !== CHECK_LIMITS);
+  if (removed.length > 0) {
+    const link = officialLink(doc);
+    steps.push(link ? `${CHECK_LIMITS.replace(/\.$/, "")} — ${link}` : CHECK_LIMITS);
+  }
+
   return {
     output: {
       ...t,
-      steps: (t.steps ?? []).map(clean),
+      steps,
       params: (t.params ?? []).map((p) => ({ ...p, why: clean(p.why) })),
       parts: (t.parts ?? []).map((p) => ({ ...p, why: clean(p.why) })),
       ...(t.draft ? { draft: t.draft } : {}),

@@ -85,26 +85,60 @@ export function unverifiedClaims(text: string, doc: string): NumberClaim[] {
   });
 }
 
-/** Баталгаажаагүй тоог орлуулах хэллэг */
-export const CHECK_OFFICIAL = "одоогийн хязгаарыг албан ёсны сайтаас шалгана уу";
+/**
+ * Хэрэгслийн картын доор НЭГ УДАА гарах сануулга.
+ *
+ * Тоог өгүүлбэр дундуур солихын оронд энэ мөрийг картын төгсгөлд тавина —
+ * хэрэглэгч хаанаас шалгахаа мэдэж байна, өгүүлбэрүүд нь бүтэн хэвээр.
+ */
+export const CHECK_LIMITS =
+  "Үнэгүй кредит, клипийн урт зэрэг хязгаарыг албан ёсны сайтаас шалгана уу.";
 
 /**
- * Баталгаажаагүй тоог хасна.
+ * Баталгаажаагүй тоотой ӨГҮҮЛБЭРИЙГ БҮХЭЛД НЬ хасна.
  *
- * «Өдөрт 120 кредит өгдөг» → «Өдөрт (одоогийн хязгаарыг албан ёсны сайтаас
- * шалгана уу) өгдөг». Хэсгийг бүхэлд нь дахин үүсгэхээс хямд бөгөөд хэрэглэгч
- * юу мэдэхгүй байгааг ил хардаг.
+ * Өмнө нь тоог өгүүлбэр дундуур «(одоогийн хязгаарыг … шалгана уу)» гэж
+ * сольдог байсан нь уншигдахгүй хэллэг үүсгэж байв:
+ *   «Kling дээр өдөрт (одоогийн хязгаарыг албан ёсны сайтаас шалгана уу)
+ *    үнэгүй. (одоогийн хязгаарыг …) клип зарцуулна.»
+ * Одоо тэр өгүүлбэрийг бүтнээр нь хаяна — үлдсэн текст бүтэн өгүүлбэрүүдтэй
+ * хэвээр байна. Хязгаарын тухай сануулгыг картын доор НЭГ УДАА бичнэ.
  */
-export function stripUnverified(text: string, doc: string): { text: string; removed: NumberClaim[] } {
-  const bad = unverifiedClaims(text, doc);
-  if (bad.length === 0) return { text, removed: [] };
+export interface StripResult {
+  text: string;
+  removed: NumberClaim[];
+  /** Хэдэн өгүүлбэр бүхэлдээ хасагдсан */
+  droppedSentences: number;
+}
 
-  let out = text;
-  for (const c of bad) {
-    const re = new RegExp(`${escapeRe(c.value)}\\s*${escapeRe(c.unit)}`, "giu");
-    out = out.replace(re, `(${CHECK_OFFICIAL})`);
+/** Өгүүлбэрийн төгсгөл: «.», «!», «?» + зай/мөр. Товчлолыг тоохгүй — гаргалт энгийн текст. */
+function splitSentences(text: string): string[] {
+  return text.split(/(?<=[.!?])\s+/u).filter((s) => s.length > 0);
+}
+
+export function stripUnverified(text: string, doc: string): StripResult {
+  const bad = unverifiedClaims(text, doc);
+  if (bad.length === 0) return { text, removed: [], droppedSentences: 0 };
+
+  const kept: string[] = [];
+  let dropped = 0;
+
+  for (const sentence of splitSentences(text)) {
+    const inSentence = unverifiedClaims(sentence, doc);
+    if (inSentence.length === 0) {
+      kept.push(sentence);
+      continue;
+    }
+    dropped++;
   }
-  return { text: out, removed: bad };
+
+  // Бүх өгүүлбэр хасагдвал текст хоосон болно — тэр үед сануулга үлдээнэ
+  const text2 = kept.join(" ").replace(/\s+/g, " ").trim();
+  return {
+    text: text2 || CHECK_LIMITS,
+    removed: bad,
+    droppedSentences: dropped,
+  };
 }
 
 function escapeRe(s: string): string {
@@ -130,4 +164,12 @@ export function daysSince(date: string, now: Date): number {
 export function isStaleDoc(date: string | null, now: Date, days = STALE_DAYS): boolean {
   if (!date) return true;
   return daysSince(date, now) > days;
+}
+
+/** Мэдлэгийн сангийн файлаас албан ёсны холбоосыг гаргана */
+const DOC_LINK = /Баримт:\s*(https:\/\/\S+)/u;
+const ANY_LINK = /(https:\/\/[^\s·)]+)/u;
+
+export function officialLink(doc: string): string | null {
+  return DOC_LINK.exec(doc)?.[1] ?? ANY_LINK.exec(doc)?.[1] ?? null;
 }

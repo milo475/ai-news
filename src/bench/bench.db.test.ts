@@ -9,6 +9,14 @@ const hasDb = Boolean(process.env.DATABASE_URL);
  * тестүүд зэрэг ажиллахад хааяа мөргөлддөг байсан (npm test нь файлуудыг зэрэг
  * ажиллуулдаг).
  */
+/**
+ * НИЙТЛЭХ цонхны хамгаалалтаас хол агшин (УБ 03:00).
+ *
+ * `runBenchmark` нь slot-ын 45 минутын дотор шинэ хэсэг эхлүүлдэггүй. Бодит
+ * цагаар ажиллуулбал тест нь өдрийн аль цагт ажилласнаас хамаарч хааяа унана.
+ */
+const SAFE_NOW = new Date("2026-10-05T19:00:00Z");
+
 let monthSeq = 0;
 const nextMonth = () => `1999-${String((monthSeq++ % 12) + 1).padStart(2, "0")}`;
 
@@ -36,6 +44,7 @@ test(
       const r = await runBenchmark({
         month: MONTH,
         skipBalanceCheck: true,
+        now: SAFE_NOW,
         models: ["test/alpha", "test/beta"],
         taskLimit: 2,
         // 401 биш энгийн алдаа — цикл дуустал үргэлжилж, эцэст нь FAILED болох ёстой
@@ -120,6 +129,7 @@ test(
       const r = await runBenchmark({
         month: MONTH,
         skipBalanceCheck: true,
+        now: SAFE_NOW,
         models: ["test/alpha", "test/beta"],
         taskLimit: 2,
         text,
@@ -187,6 +197,7 @@ test(
           runBenchmark({
             month: MONTH,
             skipBalanceCheck: true,
+            now: SAFE_NOW,
             models: ["test/alpha", "test/beta"],
             taskLimit: 3,
             text,

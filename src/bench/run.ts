@@ -155,11 +155,14 @@ async function execute(opts: RunOptions, jobId: string): Promise<RunSummary> {
     select: { id: true, status: true, startedAt: true, costUsd: true },
   });
 
-  const chunkStart = opts.now ?? new Date();
-  const minutesToPublish = nextPublishAt(chunkStart, publishTimes()).minutes;
+  // Хэсгийн эхлэл нь ҮРГЭЛЖ бодит цаг (хугацааны хэмжилт), харин цонхны шалгалт
+  // нь `opts.now`-оор хийгдэнэ (тестэд тодорхой агшин өгөхийн тулд).
+  const chunkStart = new Date();
+  const gateNow = opts.now ?? chunkStart;
+  const minutesToPublish = nextPublishAt(gateNow, publishTimes()).minutes;
   const gate = canStartChunk({
     runStartedAt: existing?.status === "RUNNING" ? existing.startedAt : null,
-    now: chunkStart,
+    now: gateNow,
     minutesToPublish,
     balanceUsd: balance,
     needUsd,

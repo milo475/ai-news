@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
-  checkedDate, CHECK_OFFICIAL, daysSince, docNumbers, extractClaims, isStaleDoc, STALE_DAYS,
+  checkedDate, CHECK_LIMITS, daysSince, docNumbers, extractClaims, isStaleDoc, STALE_DAYS,
   stripUnverified, unverifiedClaims,
 } from "./numbers.api";
 
@@ -38,10 +38,32 @@ test("зөөлөн нэгжтэй жижиг тоог алгасна", () => {
   assert.deepEqual(unverifiedClaims("Эхлээд 3 алхам хийнэ, 2 хувилбар гаргана.", KLING), []);
 });
 
-test("баталгаажаагүй тоог хасаж, шалгахыг санал болгоно", () => {
-  const r = stripUnverified("Өдөрт 120 кредит өгдөг.", KLING);
+test("баталгаажаагүй тоотой ӨГҮҮЛБЭРИЙГ бүтнээр нь хасна", () => {
+  // Бодит эвдрэл: «Kling дээр өдөрт (…) үнэгүй. (…) клип» гэсэн уншигдахгүй текст
+  const input =
+    "Kling дээр өдөрт 120 кредит үнэгүй олгоно. " +
+    "Клипээ 9:16 харьцаатай болго. " +
+    "4 секундын клип 90 кредит зарцуулна. " +
+    "Дараа нь татаж аваад CapCut дээр оруулна.";
+  const r = stripUnverified(input, KLING);
+
   assert.ok(!r.text.includes("120"), r.text);
-  assert.match(r.text, new RegExp(CHECK_OFFICIAL));
+  assert.ok(!r.text.includes("90 кредит"), r.text);
+  assert.equal(r.droppedSentences, 2);
+
+  // Үлдсэн текст нь ЗӨВХӨН бүтэн өгүүлбэрүүд
+  assert.equal(
+    r.text,
+    "Клипээ 9:16 харьцаатай болго. Дараа нь татаж аваад CapCut дээр оруулна.",
+  );
+  // Хагас хаалт, өлгөөтэй хэллэг үлдээгүй
+  assert.ok(!/\(\s*\)|\(\s*\./.test(r.text), r.text);
+});
+
+test("бүх өгүүлбэр хасагдвал сануулга үлдэнэ", () => {
+  const r = stripUnverified("Өдөрт 120 кредит өгдөг.", KLING);
+  assert.equal(r.text, CHECK_LIMITS);
+  assert.equal(r.droppedSentences, 1);
   assert.equal(r.removed.length, 1);
 });
 

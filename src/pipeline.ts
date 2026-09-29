@@ -27,6 +27,7 @@ import { openRouterKey } from "./env";
 import { ubDayRange } from "./jobs/day";
 import { logError } from "./lib/errors";
 import { balanceMessage, llmAllowed, openRouterBalance } from "./lib/balance";
+import { dailyLlmBudget, limitMessage, overDailyLimit } from "./admin/cost.api";
 import { isCoreStep, shouldGiveUpToday } from "./jobs/steps.api";
 import { dailyHour, modeFor, publishTimes, type Mode } from "./jobs/mode.api";
 import { runArena } from "./fetchers/arena";
@@ -222,18 +223,23 @@ const STEPS: Step[] = [
 
       const existing = await prisma.benchRun.findUnique({
         where: { month },
-        select: { status: true },
+        select: { status: true, finishedAt: true },
       });
-      if (existing && existing.status !== "RUNNING") return `${month} аль хэдийн хэмжигдсэн, алгасав`;
 
-      const resuming = existing?.status === "RUNNING";
-      if (!resuming) {
-        // Шинээр эхлэх нь зөвхөн сарын 1-нд, өдрийн алхмын цагаас хойш
-        if (day !== 1 && !process.argv.includes("--only")) return `сарын ${day} — 1-нд ажиллана`;
-        if (ubHour(now) < dailyHour() && !process.argv.includes("--only")) {
-          return `УБ ${dailyHour()}:00-аас хойш эхэлнэ`;
-        }
-      }
+      // 2026-09-28: энд `status !== "RUNNING"` гэж шалгаснаас УНАСАН (FAILED) run
+      // ч «хэмжигдсэн» гэж тооцогдож, cron бүр алгасаж, /benchmark хоосон
+      // үлдсэн. Зөвхөн DONE/BUDGET нь хэмжигдсэн гэсэн үг.
+      const { decideStart } = await import("./bench/status.api");
+      const d = decideStart({
+        status: existing?.status ?? null,
+        finishedAt: existing?.finishedAt ?? null,
+        now,
+        day,
+        ubHour: ubHour(now),
+        dailyHour: dailyHour(),
+        manual: process.argv.includes("--only"),
+      });
+      if (!d.go) return `${month}: ${d.skip} — ${d.detail}`;
 
       const { runBenchmark } = await import("./bench/run");
       const r = await runBenchmark({ month });
@@ -376,7 +382,22 @@ async function main() {
   } else if (balance !== null) {
     console.log(`OpenRouter үлдэгдэл: $${balance.toFixed(2)}`);
   }
-  const llmHalted = !llmAllowed(balance);
+  // Өдрийн НИЙТ LLM зардлын хязгаар. Үлдэгдлийн шалгалтаас тусдаа: данс дүүрэн
+  // байсан ч өдөрт $2.5-аас илүү зарцуулахгүй (2026-09-28-нд 24 цагт $3.1
+  // зарцуулагдсан атал ганц алхмын төсөв $1.5 байсан).
+  const budget = dailyLlmBudget();
+  const spentToday = llmPlanned ? await (await import("./admin/cost")).spentTodayUsd(now) : 0;
+  const budgetMsg = limitMessage(spentToday, budget);
+  if (budgetMsg) {
+    console.warn(`⚠ ${budgetMsg}`);
+    if (overDailyLimit(spentToday, budget)) {
+      await logError({ source: "cron", path: "daily-budget", error: new Error(budgetMsg) }).catch(() => {});
+    }
+  } else if (llmPlanned) {
+    console.log(`Өдрийн LLM зардал: $${spentToday.toFixed(3)}/$${budget.toFixed(2)}`);
+  }
+
+  const llmHalted = !llmAllowed(balance) || overDailyLimit(spentToday, budget);
 
   const lock = selected ? null : await acquireLock(activeMode);
   if (!lock && !selected) {
@@ -399,7 +420,10 @@ async function main() {
     if (llmHalted && step.needsLlm) {
       rows.push({
         Алхам: step.name, Төлөв: "алгасав",
-        "Үр дүн": `OpenRouter кредит $${(balance ?? 0).toFixed(2)}`, Хугацаа: "—",
+        "Үр дүн": overDailyLimit(spentToday, budget)
+          ? `өдрийн хязгаар $${spentToday.toFixed(2)}/$${budget.toFixed(2)}`
+          : `OpenRouter кредит $${(balance ?? 0).toFixed(2)}`,
+        Хугацаа: "—",
       });
       continue;
     }

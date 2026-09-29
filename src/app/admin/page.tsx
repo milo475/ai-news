@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { studioStats } from "@/studio/stats";
 import { balanceMessage, levelOf, openRouterBalance } from "@/lib/balance";
+import { recentCosts } from "@/admin/cost";
+import { dailyLlmBudget, limitMessage, unrecorded } from "@/admin/cost.api";
 import { prisma } from "@/db";
 import { CATEGORY_LABEL } from "@/agent/category";
 import { humanDelay, nextPublishAt, publishTimes, timeLabel } from "@/jobs/mode.api";
@@ -55,7 +57,7 @@ export default async function Admin({
 
   const umamiUrl = process.env.NEXT_PUBLIC_UMAMI_URL?.trim().replace(/\/+$/, "") || null;
 
-  const [board, counts, jobs, articles, searches, empties, todayCount, fbQueue, readyCount, studio, balance] = await Promise.all([
+  const [board, counts, jobs, articles, searches, empties, todayCount, fbQueue, readyCount, studio, balance, costs] = await Promise.all([
     dashboard(),
     prisma.article.groupBy({ by: ["status"], _count: true }),
     Promise.all(
@@ -87,6 +89,7 @@ export default async function Admin({
     prisma.article.count({ where: { status: "DRAFT", readyAt: { not: null } } }),
     studioStats(),
     openRouterBalance(),
+    recentCosts(2),
   ]);
   const next = nextPublishAt(new Date(), publishTimes());
   const countOf = (s: string) => counts.find((c) => c.status === s)?._count ?? 0;
@@ -126,6 +129,7 @@ export default async function Admin({
       </div>
 
       <BalanceBanner balance={balance} />
+      <CostBreakdown days={costs} />
 
       <Dashboard d={board} dailyLimit={dailyLimit} igOn={igOn} />
 
@@ -534,5 +538,69 @@ function BalanceBanner({ balance }: { balance: number | null }) {
     >
       ⚠ {message} <span className="underline">Цэнэглэх →</span>
     </a>
+  );
+}
+
+/** Өдрийн LLM зардал алхам бүрээр — хаана мөнгө явж байгааг харах */
+function CostBreakdown({ days }: { days: Awaited<ReturnType<typeof recentCosts>> }) {
+  const budget = dailyLlmBudget();
+  const today = days[0];
+  if (!today) return null;
+  const warn = limitMessage(today.total, budget);
+  const missing = unrecorded(today.steps);
+
+  return (
+    <section className="rounded-lg border border-line p-4 space-y-3">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h2 className="text-sm font-medium">Өдрийн LLM зардал</h2>
+        <span className={`text-sm tabular-nums ${warn ? "text-warn" : "text-muted"}`}>
+          ${today.total.toFixed(3)} / ${budget.toFixed(2)}
+        </span>
+      </div>
+      {warn && <p className="text-xs text-warn">{warn}</p>}
+
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-left text-muted">
+              <th className="py-1 pr-3 font-normal">Алхам</th>
+              {days.map((d) => (
+                <th key={d.day} className="py-1 pr-3 text-right font-normal tabular-nums">{d.day.slice(5)}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {today.steps.map((s) => (
+              <tr key={s.job} className="border-t border-line">
+                <td className="py-1.5 pr-3">
+                  {s.label}
+                  {!s.llm && <span className="ml-1 text-xs text-muted">(LLM-гүй)</span>}
+                </td>
+                {days.map((d) => {
+                  const row = d.steps.find((x) => x.job === s.job);
+                  return (
+                    <td key={d.day} className="py-1.5 pr-3 text-right tabular-nums">
+                      {row ? `$${row.usd.toFixed(4)}` : "—"}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+            <tr className="border-t border-line font-medium">
+              <td className="py-1.5 pr-3">Нийт</td>
+              {days.map((d) => (
+                <td key={d.day} className="py-1.5 pr-3 text-right tabular-nums">${d.total.toFixed(3)}</td>
+              ))}
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      {missing.length > 0 && (
+        <p className="text-xs text-warn">
+          ⚠ Зардал бүртгэгдээгүй алхам: {missing.join(", ")} — LLM дуудсан ч $0 гэж бичигдсэн байна.
+        </p>
+      )}
+    </section>
   );
 }

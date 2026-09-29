@@ -41,7 +41,8 @@
     "studio:eval": "tsx src/studio/eval.ts",
     "cards:footer": "tsx src/gallery/refooter.ts",
     "publish:check": "tsx src/publish/precheck.ts",
-    "studio:kb-check": "tsx src/studio/kb-check.ts"
+    "studio:kb-check": "tsx src/studio/kb-check.ts",
+    "bench:status": "tsx src/bench/status.ts"
   },
   "keywords": [],
   "author": "",
