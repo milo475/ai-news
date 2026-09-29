@@ -22,6 +22,15 @@ export const FIX_SYSTEM = `Чи баримт шалгагч редактор. Н
   гэж үзэх шалтгаан бий» (БҮРЭН үндэслэлтэй БИШ).
 - Эх нийтлэлд БАЙХГҮЙ огноог хас, эсвэл «<эх сурвалж> <огноо>-нд мэдээлснээр»
   гэж эх сурвалжид хамааруул. RSS-ийн нийтэлсэн огноо нь үйл явдлын огноо БИШ.
+ГАРЧИГ (засварын дараа ч мэдээ нь ойлгомжтой хэвээр байх ёстой):
+- ҮЙЛДЭГЧ («хэн») заавал хадгалагдана. «АНУ-ын арми цохив» гэснийг «сургууль
+  цохисныг Bloomberg мэдээлэв» болговол хэн цохисон нь алга болно — энэ нь
+  дамжуулалтыг сэргээсэн ч мэдээг ГУЙВУУЛСАН хэрэг.
+- Эх нийтлэлд ГАЗАР («хаана») байвал нэм: «Иран дахь сургууль».
+- Дамжуулсан хэвлэлийг гарчгийн ТӨГСГӨЛД бич, эхэнд биш.
+  Муу:  «Хиймэл оюунд найдаж сургууль цохисныг Bloomberg мэдээлэв»
+  Сайн: «АНУ Иран дахь сургуулийг AI-д найдан цохисон гэж Bloomberg мэдээлэв»
+- Картын гарчигт ч ижил дүрэм — үйлдэгч, газар хадгалагдана.
 - Гарчиг {{MAX_TITLE}} тэмдэгтээс богино. Биеийн бүтэц (## гарчгууд) хэвээр.
 - Биеийн урт эх хувилбарынхаа 80 хувиас багагүй байна.
 
@@ -189,4 +198,54 @@ export function diffLines(before: string, after: string): { before: string; afte
     i++; j++;
   }
   return out.filter((d) => d.before.trim() || d.after.trim());
+}
+
+// ---------- Гарчиг үйлдэгчээ хадгалсан эсэх ----------
+
+/**
+ * Гарчгийн «хэн, хаана» тэмдэглэгээ — том үсгээр эхэлсэн нэрс.
+ *
+ * Монгол гарчигт зөвхөн эхний үг том үсгээр бичигддэг тул: (а) эхний үгээс
+ * бусад том үсгээр эхэлсэн үг («Пентагон», «Иран», «Bloomberg») ба (б) байрлал
+ * хамаарахгүй БҮХ ТОМ ҮСЭГТ товчлол («АНУ», «НҮБ», «OpenAI») нь нэр гэж тооцогдоно.
+ */
+export function actorTokens(title: string): Set<string> {
+  const words = title.replace(/[«»"'(),.:;!?—–]/gu, " ").split(/\s+/u).filter(Boolean);
+  const out = new Set<string>();
+  for (const [i, raw] of words.entries()) {
+    // Монгол нөхцөлийг таслана: «Пентагоны» → «Пентагон»
+    const w = raw.replace(/-[\p{L}]+$/u, "");
+    if (w.length < 2) continue;
+    const first = w[0]!;
+    const isUpperFirst = first === first.toLocaleUpperCase("mn") && first !== first.toLocaleLowerCase("mn");
+    if (!isUpperFirst) continue;
+    // Хоёроос дээш том үсэгтэй товчлол — байрлал хамаарахгүй
+    const caps = [...w].filter((c) => c === c.toLocaleUpperCase("mn") && c !== c.toLocaleLowerCase("mn")).length;
+    if (caps >= 2 || i > 0) out.add(w.toLocaleLowerCase("mn"));
+  }
+  return out;
+}
+
+/**
+ * Засварласан гарчиг эх гарчгийн үйлдэгчийг хадгалсан эсэх.
+ *
+ * 2026-09-29: «АНУ хиймэл оюунд найдаж сургууль цохисныг Пентагон тогтоов»
+ * гэснийг «Хиймэл оюунд найдаж сургууль цохисныг Bloomberg мэдээлэв» болгосон —
+ * дамжуулалт сэргэсэн ч ХЭН цохисон нь алга болжээ.
+ */
+export function keepsActor(before: string, after: string): boolean {
+  const actors = actorTokens(before);
+  if (actors.size === 0) return true;
+  const lower = after.toLocaleLowerCase("mn");
+  return [...actors].some((a) => lower.includes(a));
+}
+
+/** Загварт өгөх дахин оролдох заавар */
+export function actorFeedback(before: string, after: string): string {
+  const missing = [...actorTokens(before)].filter((a) => !after.toLocaleLowerCase("mn").includes(a));
+  return (
+    `Гарчиг үйлдэгчээ алдлаа. Эх гарчиг: «${before}». Чиний гарчиг: «${after}». ` +
+    `Дараах нэрсийн ДОР ХАЯЖ НЭГ нь гарчигт байх ёстой: ${missing.join(", ")}. ` +
+    `Дамжуулсан хэвлэлийг гарчгийн төгсгөлд бич.`
+  );
 }

@@ -1,8 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  checkFixed, correctionNote, CORRECTION_PREFIX, diffLines, FIX_SCHEMA, fixSystem, fixUser,
-  MIN_BODY_RATIO, ubDate, type FixOut,
+  actorFeedback, actorTokens, checkFixed, correctionNote, CORRECTION_PREFIX, diffLines, FIX_SCHEMA,
+  fixSystem, fixUser, keepsActor, MIN_BODY_RATIO, ubDate, type FixOut,
 } from "./fix.api";
 
 const OUT: FixOut = {
@@ -101,4 +101,74 @@ test("мөр нэмэгдсэнийг тэмдэглэнэ", () => {
   assert.equal(d.length, 1);
   assert.equal(d[0]?.after, "хоёр");
   assert.equal(d[0]?.before, "");
+});
+
+// ---------- Огноо: УБ = UTC+8, нэг л удаа хөрвүүлнэ ----------
+
+test("УБ 23:30 — тэр өдрийнхөө огноо", () => {
+  // УБ 2026-09-29 23:30 = UTC 2026-09-29 15:30
+  assert.equal(ubDate(new Date("2026-09-29T15:30:00Z")), "2026-09-29");
+});
+
+test("УБ 00:30 — ДАРААГИЙН өдрийн огноо (UTC-ээр өмнөх өдөр)", () => {
+  // УБ 2026-09-30 00:30 = UTC 2026-09-29 16:30
+  assert.equal(ubDate(new Date("2026-09-29T16:30:00Z")), "2026-09-30");
+});
+
+test("УБ 21:36 (энэ бүлгийн ажлын цаг) — 9/29 хэвээр", () => {
+  assert.equal(ubDate(new Date("2026-09-29T13:36:00Z")), "2026-09-29");
+});
+
+test("UTC шөнө дунд — УБ аль хэдийн шинэ өдөр", () => {
+  assert.equal(ubDate(new Date("2026-09-30T00:00:00Z")), "2026-09-30");
+  assert.equal(ubDate(new Date("2026-09-29T23:59:59Z")), "2026-09-30");
+});
+
+test("тэмдэглэлийн огноо ubDate-тэй ижил — давхар хөрвүүлэлт алга", () => {
+  const at = new Date("2026-09-29T16:30:00Z"); // УБ 9/30 00:30
+  assert.match(correctionNote(at, ["x"]), /\(2026-09-30\)/);
+});
+
+// ---------- Гарчиг үйлдэгчээ хадгалах ----------
+
+const PENTAGON_TITLE = "АНУ хиймэл оюунд найдаж сургууль цохисныг Пентагон тогтоов";
+
+test("гарчгийн нэрсийг таана — товчлол ба том үсгээр эхэлсэн үг", () => {
+  const a = actorTokens(PENTAGON_TITLE);
+  assert.ok(a.has("ану"), [...a].join(","));
+  assert.ok(a.has("пентагон"), [...a].join(","));
+  assert.ok(!a.has("хиймэл"), "жирийн үг нэр биш");
+});
+
+test("БОДИТ АЛДАА: «Bloomberg мэдээлэв» гарчиг үйлдэгчээ алдсан", () => {
+  assert.equal(
+    keepsActor(PENTAGON_TITLE, "Хиймэл оюунд найдаж сургууль цохисныг Bloomberg мэдээлэв"),
+    false,
+  );
+});
+
+test("үйлдэгчээ хадгалсан гарчиг тэнцэнэ", () => {
+  assert.equal(
+    keepsActor(PENTAGON_TITLE, "АНУ Иран дахь сургуулийг AI-д найдан цохисон гэж Bloomberg мэдээлэв"),
+    true,
+  );
+});
+
+test("нөхцөлтэй хэлбэр ч тоологдоно", () => {
+  assert.equal(keepsActor(PENTAGON_TITLE, "Пентагоны шалгалтын дүгнэлтийг Bloomberg мэдээлэв"), true);
+});
+
+test("эх гарчигт нэр байхгүй бол шаардахгүй", () => {
+  assert.equal(keepsActor("Шинэ загвар гарлаа", "Өөр гарчиг"), true);
+});
+
+test("дахин оролдох заавар алга болсон нэрийг нэрлэнэ", () => {
+  const fb = actorFeedback(PENTAGON_TITLE, "Хиймэл оюунд найдаж сургууль цохисныг Bloomberg мэдээлэв");
+  assert.match(fb, /ану/);
+  assert.match(fb, /пентагон/);
+});
+
+test("prompt-д үйлдэгчийн дүрэм баримтжсан", () => {
+  assert.match(fixSystem(60), /ҮЙЛДЭГЧ/);
+  assert.match(fixSystem(60), /гарчгийн ТӨГСГӨЛД/);
 });
