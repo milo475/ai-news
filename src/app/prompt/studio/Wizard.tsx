@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { answerStudio, createPlan, createStudio, createTool, finishStudio, startStudio } from "@/studio/actions";
 import { FORMAT_LABEL, FORMATS, type StudioFormat } from "@/studio/studio.api";
 import {
@@ -60,7 +60,12 @@ function Skeleton({ label }: { label: string }) {
   );
 }
 
-export function StudioWizard() {
+export function StudioWizard({
+  personaExamples,
+}: {
+  /** «<slug>:<index>» → жишээ. Мэргэжлийн хуудаснаас ирэхэд урьдчилан бөглөнө. */
+  personaExamples?: Record<string, { request: string; format: StudioFormat; answers: Record<string, string> }>;
+}) {
   const [step, setStep] = useState<Step>("request");
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
@@ -73,6 +78,8 @@ export function StudioWizard() {
   const [round, setRound] = useState(0);
   const [questions, setQuestions] = useState<StudioQuestion[]>([]);
   const [answers, setAnswers] = useState<Record<string, string>>({});
+  /** Мэргэжлийн жишээний урьдчилсан хариулт — асуултад автоматаар тавигдана */
+  const [prefill, setPrefill] = useState<Record<string, string>>({});
   const [free, setFree] = useState<Record<string, boolean>>({});
 
   const [brief, setBrief] = useState<Record<string, string>>({});
@@ -85,21 +92,49 @@ export function StudioWizard() {
   const [placement, setPlacement] = useState("");
 
   const [result, setResult] = useState<ResultData | null>(null);
+  /** Хэмжилт — хаанаас ирсэн, аль мэргэжлийн жишээ */
+  const [from, setFrom] = useState<{ persona?: string; utmSource?: string; utmCampaign?: string }>({});
   /** Хүлээгдэж буй хэрэгслийн нэрс — «Kling-ийн промпт бэлдэж байна…» */
   const [pending, setPending] = useState<string[]>([]);
   const [seconds, setSeconds] = useState<number | null>(null);
 
+  /**
+   * Мэргэжлийн хуудаснаас ирвэл хүсэлт, хэлбэрийг урьдчилан бөглөнө
+   * (`?m=<slug>&j=<index>`), utm-ийг хэмжилтэд авна.
+   */
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search);
+    const m = q.get("m");
+    const j = Number(q.get("j") ?? "0");
+    setFrom({
+      persona: m ?? undefined,
+      utmSource: q.get("utm_source") ?? undefined,
+      utmCampaign: q.get("utm_campaign") ?? undefined,
+    });
+    const ex = m && personaExamples ? personaExamples[`${m}:${Number.isFinite(j) ? j : 0}`] : null;
+    if (ex) {
+      setRequest(ex.request);
+      setFormat(ex.format);
+      setPrefill(ex.answers);
+    }
+  }, [personaExamples]);
+
   async function onStart() {
     setError("");
     setBusy("Хүсэлтийг уншиж байна…");
-    const r = await startStudio({ request, format: format || undefined });
+    const r = await startStudio({ request, format: format || undefined, ...from });
     setBusy("");
     if (!r.ok || !r.sessionId) return setError(r.message ?? "Алдаа гарлаа.");
     setSessionId(r.sessionId);
     setFormat(r.format!);
     setQuestions(r.questions ?? []);
     setLeft(r.left ?? null);
-    setAnswers({});
+    // Мэргэжлийн жишээний хариултууд асуултад урьдчилан тавигдана
+    setAnswers(
+      Object.fromEntries(
+        (r.questions ?? []).flatMap((q) => (prefill[q.field] ? [[q.field, prefill[q.field]!]] : [])),
+      ),
+    );
     setRound(0);
     setStep("questions");
   }

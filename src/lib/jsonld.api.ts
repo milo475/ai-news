@@ -121,7 +121,8 @@ export function newsArticleJsonLd(n: NewsArticleInput): Record<string, unknown> 
     inLanguage: "mn-MN",
     ...(published ? { datePublished: published } : {}),
     ...(iso(n.updatedAt) ? { dateModified: iso(n.updatedAt) } : {}),
-    // Хураангуйг AI agent бэлтгэж, редактор хянадаг — зохиогч нь байгууллага өөрөө
+    // Хураангуйг хиймэл оюун бэлтгэж, эх сурвалжтай нь автоматаар тулгадаг —
+    // зохиогч нь хувь хүн биш, байгууллага өөрөө
     author: { "@id": orgId(n.siteUrl) },
     publisher: { "@id": orgId(n.siteUrl) },
     ...(n.imageUrl

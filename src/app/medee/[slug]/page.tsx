@@ -1,4 +1,5 @@
 import Image from "next/image";
+import { DIGEST_DISCLOSURE, NEWS_DISCLOSURE } from "@/lib/disclosure.api";
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { currentUser } from "@/auth/session";
@@ -173,13 +174,10 @@ export default async function NewsPage({ params }: { params: Promise<Params> }) 
       <NewsletterForm />
 
       {n.kind === "DIGEST" ? (
-        <p className="text-xs text-muted border-t border-line pt-4">
-          Энэ тоймыг AI agent долоо хоногийн мэдээнээс нэгтгэж, редактор хянасан. Мэдээ бүрийн эх
-          сурвалжийг тухайн нийтлэл дээрээс нь үзнэ үү.
-        </p>
+        <p className="text-xs text-muted border-t border-line pt-4">{DIGEST_DISCLOSURE}</p>
       ) : (
         <p className="text-xs text-muted border-t border-line pt-4">
-          Энэ хураангуйг AI agent эх сурвалжаас бэлтгэж, редактор хянан нийтэлсэн. Бүрэн мэдээллийг{" "}
+          {NEWS_DISCLOSURE} Бүрэн мэдээллийг{" "}
           <a href={n.sourceUrl} target="_blank" rel="noopener nofollow" className="text-accent underline">
             эх сурвалжаас
           </a>{" "}

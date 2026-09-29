@@ -23,6 +23,8 @@ import {
 import { openRouterBalance } from "../lib/balance";
 import { studioLinks } from "./links";
 import { docCheckedDate } from "./knowledge";
+import { campaignOf, personaOf, sourceOf } from "./attribution.api";
+import { personas } from "./personas";
 import {
   aspectFor, defaultTools, detectFormat, FORMATS, limitLeft, OFF_MESSAGE, PLACEMENTS,
   placementById, studioOff, toolById, toolsFor, type StudioFormat,
@@ -96,6 +98,11 @@ export async function startStudio(a: {
   request: string;
   format?: string;
   placement?: string;
+  /** Мэргэжлийн хуудаснаас ирсэн бол slug */
+  persona?: string;
+  /** utm_source / utm_campaign — хуудаснаас дамжуулна */
+  utmSource?: string;
+  utmCampaign?: string;
 }): Promise<StartResult> {
   const request = a.request.trim().slice(0, MAX_REQUEST);
   if (request.length < 5) return { ok: false, message: "Юу хийхээ хоёр гурван үгээр бичээрэй." };
@@ -141,9 +148,20 @@ export async function startStudio(a: {
   }
 
   const placement = placementById(a.placement)?.id ?? null;
+
+  // Хэмжилт: эх сурвалж, кампанит ажил, мэргэжил. IP, бүтэн URL хадгалахгүй.
+  const h = await headers();
+  const source = sourceOf({
+    utmSource: a.utmSource,
+    referrer: h.get("referer"),
+    host: h.get("host"),
+  });
   const sessionId = await createSession({
     userId: who.userId, anonId: who.anonId, request, format,
     tools: defaultTools(format), placement,
+    source,
+    campaign: campaignOf(a.utmCampaign),
+    persona: personaOf(a.persona, personas().map((p) => p.slug)),
   });
 
   try {
@@ -392,6 +410,8 @@ export async function finishStudio(a: {
     await patchSession(a.sessionId, {
       outputs: asJson(a.output),
       timings: asJson(a.timings),
+      // Гаргалт бүрэн гарлаа — дуусгалтын хувь бодоход
+      completed: (a.output.tools?.length ?? 0) > 0,
     });
     return {
       ok: true,
@@ -501,4 +521,16 @@ export async function rateStudio(sessionId: string, up: boolean): Promise<void> 
   const s = await getSession(sessionId);
   if (!s || !owns(s, who)) return;
   await setFeedback(sessionId, up);
+}
+
+
+/**
+ * «Хуулах» дарсныг тэмдэглэнэ — бодит ашиглалтын хамгийн ойрын дохио.
+ *
+ * Нэвтрэхгүйгээр ажиллана, юу хуулсныг ХАДГАЛАХГҮЙ — зөвхөн тэмдэг.
+ */
+export async function markCopied(sessionId: string): Promise<void> {
+  const id = sessionId.trim();
+  if (!/^[a-z0-9]{20,40}$/i.test(id)) return;
+  await patchSession(id, { copied: true }).catch(() => {});
 }

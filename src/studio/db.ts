@@ -81,6 +81,10 @@ export interface NewSession {
   format: StudioFormat;
   tools?: string[];
   placement?: string | null;
+  /** Хэмжилт — ангилал төдий, IP ч, бүтэн URL ч биш */
+  source?: string | null;
+  campaign?: string | null;
+  persona?: string | null;
 }
 
 export async function createSession(a: NewSession): Promise<string> {
@@ -92,6 +96,9 @@ export async function createSession(a: NewSession): Promise<string> {
       format: a.format,
       tools: a.tools ?? [],
       placement: a.placement ?? null,
+      source: a.source ?? null,
+      campaign: a.campaign ?? null,
+      persona: a.persona ?? null,
     },
     select: { id: true },
   });

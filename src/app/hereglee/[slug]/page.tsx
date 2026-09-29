@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { TOOLS_DISCLOSURE } from "@/lib/disclosure.api";
 import { notFound } from "next/navigation";
 import { getNewsForUseCase, getUseCase, type UseCaseToolRow } from "@/data";
 import { NewsList } from "@/components/NewsList";
@@ -111,8 +112,7 @@ export default async function UseCasePage({ params }: { params: Promise<Params> 
       )}
 
       <p className="text-xs text-muted border-t border-line pt-4">
-        Энэ жагсаалтыг хүн бэлтгэсэн. «Монголоор ажилладаг» тэмдэг нь редакторын үнэлгээ —
-        хэрэгслүүдийн чанар байнга өөрчлөгддөг тул өөрөө туршиж үзэхийг зөвлөе.
+        {TOOLS_DISCLOSURE}
       </p>
     </div>
   );

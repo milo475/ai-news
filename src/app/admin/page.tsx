@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { studioStats } from "@/studio/stats";
+import { studioWindows } from "@/studio/funnel";
 import { balanceMessage, levelOf, openRouterBalance, openRouterUsage } from "@/lib/balance";
 import { drift, driftMessage } from "@/lib/spend.api";
 import { recentCosts } from "@/admin/cost";
@@ -60,7 +61,7 @@ export default async function Admin({
 
   const umamiUrl = process.env.NEXT_PUBLIC_UMAMI_URL?.trim().replace(/\/+$/, "") || null;
 
-  const [board, counts, jobs, articles, searches, empties, todayCount, fbQueue, readyCount, studio, balance, costs, usage] = await Promise.all([
+  const [board, counts, jobs, articles, searches, empties, todayCount, fbQueue, readyCount, studio, balance, costs, usage, funnels] = await Promise.all([
     dashboard(),
     prisma.article.groupBy({ by: ["status"], _count: true }),
     Promise.all(
@@ -94,6 +95,7 @@ export default async function Admin({
     openRouterBalance(),
     recentCosts(2),
     openRouterUsage(),
+    studioWindows(),
   ]);
   const next = nextPublishAt(new Date(), publishTimes());
   const countOf = (s: string) => counts.find((c) => c.status === s)?._count ?? 0;
@@ -174,6 +176,7 @@ export default async function Admin({
       </section>
 
       <StudioPanel s={studio} />
+      <StudioFunnel windows={funnels} />
 
       <section className="rounded-lg border border-line p-4 space-y-3">
         <div className="flex flex-wrap items-center gap-2">
@@ -646,5 +649,90 @@ function DriftNote({ recorded, actual }: { recorded: number; actual: number }) {
         ? `${msg} (${USAGE_LABEL.daily})`
         : `✓ ${USAGE_LABEL.daily} бодит $${d.actual.toFixed(3)} — зөрүү ${Math.round(d.ratio * 100)}%`}
     </p>
+  );
+}
+
+/** Студийн юүлүүр — 7 ба 30 хоног. IP, хүсэлтийн текст ЭНД ГАРАХГҮЙ. */
+function StudioFunnel({ windows }: { windows: Awaited<ReturnType<typeof studioWindows>> }) {
+  const [w7, w30] = windows;
+  if (!w7 || !w30) return null;
+  if (w30.funnel.sessions === 0) {
+    return (
+      <section className="rounded-lg border border-dashed border-line p-4 text-sm text-muted">
+        Студи — 30 хоногт сесс алга. Мэргэжлийн хуудас, «Долоо хоногийн промпт» пост нь эхний
+        хэрэглэгчдийг авчрах ёстой.
+      </section>
+    );
+  }
+
+  const rows: [string, string, string][] = [
+    ["Сесс", `${w7.funnel.sessions}`, `${w30.funnel.sessions}`],
+    ["Сесс/өдөр", `${w7.funnel.perDay}`, `${w30.funnel.perDay}`],
+    ["Дуусгалт", `${w7.funnel.completedPct}%`, `${w30.funnel.completedPct}%`],
+    ["Хуулсан", `${w7.funnel.copiedPct}%`, `${w30.funnel.copiedPct}%`],
+    ["Засвар ашигласан", `${w7.funnel.revisedPct}%`, `${w30.funnel.revisedPct}%`],
+    ["Гаргалт p50 / p90", `${w7.funnel.p50}с / ${w7.funnel.p90}с`, `${w30.funnel.p50}с / ${w30.funnel.p90}с`],
+    ["Сесс тутмын зардал", `$${w7.funnel.costPerSession.toFixed(4)}`, `$${w30.funnel.costPerSession.toFixed(4)}`],
+  ];
+
+  return (
+    <section className="rounded-lg border border-line p-4 space-y-4">
+      <h2 className="text-sm font-medium">Студи — хэрэглээ</h2>
+
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-left text-muted">
+              <th className="py-1 pr-3 font-normal">Үзүүлэлт</th>
+              <th className="py-1 pr-3 text-right font-normal">7 хоног</th>
+              <th className="py-1 text-right font-normal">30 хоног</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map(([label, a, b]) => (
+              <tr key={label} className="border-t border-line">
+                <td className="py-1.5 pr-3">{label}</td>
+                <td className="py-1.5 pr-3 text-right tabular-nums">{a}</td>
+                <td className="py-1.5 text-right tabular-nums">{b}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-3">
+        <BucketList title="Эх сурвалж (30 хоног)" items={w30.sources} />
+        <BucketList title="Мэргэжил (топ 10)" items={w30.personas} empty="хуудсаар ирээгүй" />
+        <BucketList title="Хэрэгсэл (топ 10)" items={w30.tools} />
+      </div>
+    </section>
+  );
+}
+
+function BucketList({
+  title, items, empty = "алга",
+}: {
+  title: string;
+  items: { key: string; count: number; completedPct: number }[];
+  empty?: string;
+}) {
+  return (
+    <div className="space-y-1">
+      <p className="text-xs text-muted">{title}</p>
+      {items.length === 0 ? (
+        <p className="text-xs text-muted">{empty}</p>
+      ) : (
+        <ul className="space-y-0.5 text-sm">
+          {items.map((b) => (
+            <li key={b.key} className="flex justify-between gap-2">
+              <span className="truncate">{b.key}</span>
+              <span className="shrink-0 tabular-nums text-muted">
+                {b.count} · {b.completedPct}%
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }

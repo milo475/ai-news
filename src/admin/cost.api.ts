@@ -15,6 +15,7 @@ export const STEP_LABEL: Record<string, string> = {
   digest: "Долоо хоногийн тойм",
   bench: "Бенчмарк",
   studio: "Промпт студи",
+  "studio-promo": "Долоо хоногийн промпт",
   local: "Дотоодын мэдээ",
   instagram: "Instagram",
   newsletter: "Мэйл",
@@ -30,7 +31,7 @@ export const STEP_LABEL: Record<string, string> = {
 
 /** LLM зарцуулдаг алхмууд — бусад нь $0 байх ёстой */
 export const LLM_STEPS = new Set([
-  "agent", "improve", "publish", "digest", "bench", "studio", "local",
+  "agent", "improve", "publish", "digest", "bench", "studio", "studio-promo", "local",
 ]);
 
 /**

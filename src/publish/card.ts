@@ -28,7 +28,7 @@ import {
 import { judgeFidelity } from "./fidelity";
 import { isEntry } from "../lib/cli";
 
-const JPEG_QUALITY = 86;
+export const JPEG_QUALITY = 86;
 
 /** Нэг оролдлогод хэдэн хувилбарыг үнэн зөвөөр шалгах вэ (дуудлагын тоог барина) */
 const MAX_FIDELITY_CHECKS = 2;

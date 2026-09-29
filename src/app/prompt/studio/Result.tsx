@@ -28,19 +28,20 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   );
 }
 
-function PromptBlock({ text }: { text: string }) {
+function PromptBlock({ text, sessionId }: { text: string; sessionId?: string }) {
   return (
     <div className="flex items-start gap-2 rounded border border-line bg-card p-3">
       <pre className="min-w-0 flex-1 whitespace-pre-wrap break-words font-mono text-[13px] leading-relaxed">
         {text}
       </pre>
-      <Copy text={text} />
+      <Copy text={text} sessionId={sessionId} />
     </div>
   );
 }
 
 export function StudioResult({ data, canRate = true }: { data: ResultData; canRate?: boolean }) {
   const { output, tools, warnings, links } = data;
+  const sessionId = data.shareUrl?.split("/").pop();
   const nameOf = (id: string) => tools.find((t) => t.id === id)?.name ?? id;
 
   return (
@@ -62,12 +63,12 @@ export function StudioResult({ data, canRate = true }: { data: ResultData; canRa
                 <pre className="min-w-0 flex-1 whitespace-pre-wrap break-words text-sm leading-relaxed">
                   {t.draft}
                 </pre>
-                <Copy text={t.draft} />
+                <Copy text={t.draft} sessionId={sessionId} />
               </div>
               <p className="text-xs text-muted">Доорх промпт нь үүнийг засах, өөр хувилбар гаргуулахад:</p>
             </div>
           )}
-          <PromptBlock text={t.prompt} />
+          <PromptBlock text={t.prompt} sessionId={sessionId} />
 
           {t.params.length > 0 && (
             <div className="overflow-x-auto">

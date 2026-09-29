@@ -1,4 +1,5 @@
 import type { MetadataRoute } from "next";
+import { personas } from "@/studio/personas";
 import { prisma } from "@/db";
 import { sitemapEntries } from "@/guides/seo.api";
 import { siteUrl } from "@/lib/site";
@@ -71,5 +72,6 @@ async function fullSitemap(): Promise<MetadataRoute.Sitemap> {
 
   return sitemapEntries({
     siteUrl: siteUrl(), articles, guides, prompts, tools, models, useCases, pairs, cards,
+    personas: personas().map((p) => ({ slug: p.slug })),
   });
 }

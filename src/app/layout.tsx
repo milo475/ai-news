@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { FOOTER_DISCLOSURE } from "@/lib/disclosure.api";
 import { AuthNav } from "@/components/AuthNav";
 import { JsonLd } from "@/components/JsonLd";
 import { Logo } from "@/components/Logo";
@@ -112,8 +113,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               <p className="font-semibold text-ink">AI News</p>
               <p className="text-xs leading-relaxed">
                 Дэлхийн хиймэл оюуны мэдээ, моделийн жагсаалт, хэрэгслийн каталогийг монгол хэлээр
-                нэг дор. Хураангуйг AI agent бэлтгэж, хүн хянан нийтэлдэг — эх сурвалж бүрийн
-                холбоосыг нийтлэл дээр заана.
+                нэг дор. {FOOTER_DISCLOSURE}
               </p>
             </div>
 

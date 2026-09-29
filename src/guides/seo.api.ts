@@ -87,6 +87,11 @@ export interface SitemapEntry {
  * Sitemap-ийн оролт. Статик хуудсуудаас бусад нь заавал биш — DB байхгүй үед
  * (Docker build) зөвхөн статик хэсгийг гаргана.
  */
+/** Мэргэжлийн хуудсууд — статик, LLM-гүй */
+export interface PersonaPath {
+  slug: string;
+}
+
 export interface SitemapInput {
   siteUrl: string;
   articles?: { slug: string; publishedAt: Date | null; updatedAt: Date }[];
@@ -99,6 +104,7 @@ export interface SitemapInput {
   cards?: { slug: string; updatedAt: Date }[];
   models?: { slug: string; updatedAt: Date }[];
   useCases?: { slug: string; updatedAt: Date }[];
+  personas?: PersonaPath[];
 }
 
 /** Статик хуудсууд — жагсаалт, мэдээ, хэрэглээ, заавар */
@@ -162,6 +168,12 @@ export function sitemapEntries(input: SitemapInput): SitemapEntry[] {
       url: `${site}/hereglee/${u.slug}`,
       lastModified: u.updatedAt,
       changeFrequency: "weekly" as const,
+      priority: 0.7,
+    })),
+    ...(input.personas ?? []).map((p) => ({
+      url: `${site}/prompt/studio/m/${p.slug}`,
+      lastModified: now,
+      changeFrequency: "monthly" as const,
       priority: 0.7,
     })),
     ...(input.models ?? []).map((m) => ({

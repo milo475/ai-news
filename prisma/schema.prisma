@@ -935,12 +935,26 @@ model StudioSession {
   /// Мэдлэгийн сангаас баталгаажаагүй тул хасагдсан тооны тоо
   strippedNumbers Int @default(0)
 
+  /// Хаанаас ирсэн: "facebook" | "instagram" | "google" | "direct" | домэйн.
+  /// utm_source, эс тэгвээс referrer-ийн домэйн. IP, бүтэн URL хадгалахгүй.
+  source     String?
+  /// utm_campaign — «weekly_prompt» гэх мэт
+  campaign   String?
+  /// Мэргэжлийн хуудаснаас ирсэн бол тэр мэргэжлийн slug
+  persona    String?
+  /// Гаргалт бүрэн гарсан эсэх — дуусгалтын хувь бодоход
+  completed  Boolean @default(false)
+  /// «Хуулах» товч дарсан эсэх — бодит ашиглалтын хамгийн ойрын дохио
+  copied     Boolean @default(false)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([userId, createdAt])
   @@index([anonId, createdAt])
   @@index([createdAt])
+  @@index([createdAt, source])
+  @@index([createdAt, persona])
 }
 
 /// Өдрийн хязгаар — нэг мөр = нэг өдөр × нэг хэрэглэгч/IP

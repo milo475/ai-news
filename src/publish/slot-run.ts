@@ -76,6 +76,21 @@ export async function runPublishSlot(now = new Date()): Promise<SlotResult> {
     }
   }
 
+  // 1б. «Долоо хоногийн промпт» — мягмар, баасан 19:30 (STUDIO_PROMO_SLOTS).
+  //     Шалгалт унавал энэ slot ердийн мэдээгээр дүүрнэ — хоосон үлдэхгүй.
+  try {
+    const { isPromoSlot, promoSlots } = await import("../studio/promo.api");
+    if (isPromoSlot(now, promoSlots())) {
+      const { postWeeklyPrompt } = await import("../studio/promo");
+      if (await postWeeklyPrompt(now)) {
+        return finish({ action: "ranking", detail: "долоо хоногийн промпт" });
+      }
+      console.log("Долоо хоногийн промпт гарсангүй — ердийн мэдээгээр үргэлжилнэ");
+    }
+  } catch (e) {
+    console.error(`✗ долоо хоногийн промпт: ${(e as Error).message.slice(0, 160)}`);
+  }
+
   // 2. Квотын хүрээнд нэг нийтлэл сонгоно
   const limit = dailyPublishLimit();
   const already = await publishedToday(now);
