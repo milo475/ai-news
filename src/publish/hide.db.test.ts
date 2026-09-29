@@ -74,3 +74,65 @@ test(
     await prisma.$disconnect();
   },
 );
+
+/**
+ * Нуухаас өмнө: энэ нийтлэл рүү заасан бусад агуулгыг олох ёстой. Тоймын
+ * хэсгийн мэдээний жагсаалт нь биед /medee/<slug> гэж бичигддэг бөгөөд
+ * DigestItem хүснэгтээр ч холбогддог — хоёуланг нь барина, давхардуулахгүй.
+ */
+test(
+  "inboundLinks — тойм ба холбоос бүхий нийтлэлийг олно",
+  { skip: !hasDb && "DATABASE_URL алга" },
+  async () => {
+    const { prisma } = await import("../db");
+    const { inboundLinks } = await import("./fix");
+
+    const source = await prisma.source.findFirst({ select: { id: true } });
+    if (!source) { assert.ok(true, "эх сурвалж алга — алгаслаа"); return; }
+
+    const stamp = Date.now();
+    const base = {
+      status: "PUBLISHED" as const, category: "NEWS" as const, sourceId: source.id,
+      sourceTitle: "Test", publishedAt: new Date(),
+      titleMn: "Тест", summaryMn: "Хураангуй",
+    };
+    const target = await prisma.article.create({
+      data: {
+        ...base, kind: "NEWS", slug: `t-target-${stamp}`, sourceHash: `h1-${stamp}`,
+        sourceUrl: `https://example.test/t1-${stamp}`, bodyMn: "Биет",
+      },
+      select: { id: true, slug: true },
+    });
+    const linker = await prisma.article.create({
+      data: {
+        ...base, kind: "NEWS", slug: `t-linker-${stamp}`, sourceHash: `h2-${stamp}`,
+        sourceUrl: `https://example.test/t2-${stamp}`,
+        bodyMn: `Дэлгэрэнгүй: /medee/${target.slug} дээр.`,
+      },
+      select: { id: true, slug: true },
+    });
+    const digest = await prisma.article.create({
+      data: {
+        ...base, kind: "DIGEST", slug: `t-digest-${stamp}`, sourceHash: `h3-${stamp}`,
+        sourceUrl: `https://example.test/t3-${stamp}`,
+        bodyMn: `Тойм. /medee/${target.slug}`,
+        digestItems: { create: [{ articleId: target.id, order: 1 }] },
+      },
+      select: { id: true, slug: true },
+    });
+
+    try {
+      const links = await inboundLinks(target.slug);
+      assert.deepEqual(links.digests.map((d) => d.slug), [digest.slug]);
+      assert.deepEqual(links.articles.map((a) => a.slug), [linker.slug], "тойм давхардахгүй");
+
+      // Холбоосгүй нийтлэлд хоосон
+      const none = await inboundLinks(linker.slug);
+      assert.deepEqual([...none.articles, ...none.digests], []);
+    } finally {
+      await prisma.digestItem.deleteMany({ where: { digestId: digest.id } });
+      await prisma.article.deleteMany({ where: { id: { in: [target.id, linker.id, digest.id] } } });
+      await prisma.$disconnect();
+    }
+  },
+);

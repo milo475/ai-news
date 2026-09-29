@@ -184,6 +184,9 @@ export function inflections(...stems: string[]): string[] {
 const ASSERTION_WORDS = [
   // Үндэс нь нөхцөлд хураагддаг («нотол» → «нотлов») тул хоёр хэлбэрийг нь өгнө
   ...inflections("тогтоо", "батал", "батл", "нотол", "нотл", "илрүүл", "мэдэгд", "мэдэгдэ", "дүгнэ", "дүгн"),
+  // «няцаав» (няцаасан), «үгүйсгэв» нь мөн танин мэдэхүйн батлалт: эх сурвалж
+  // «downplayed» гэж байхад «үгүйсгэв» гэж бичих нь хүчтэй болгосон хэрэг
+  ...inflections("няцаа", "үгүйсгэ"),
   "баталгаажуул", "гэдэг нь тогтоогдов", "болохыг тогтоов",
 ];
 
@@ -224,17 +227,47 @@ export function hardensSpeculation(text: string, sourceText: string): boolean {
  * ишлэлтэй бол АНХААРАХ — хэн хэлснийг нь заасан тул уншигч тогтсон үнэн гэж
  * уншихгүй, харин ишлэлийн хүч зөв эсэхийг LLM шүүгч шийднэ.
  */
+/**
+ * Эсрэгцүүлсэн холбоос — түүний ард ирэх хэсэг нь БИДНИЙ өөрсдийн мэдэгдэл.
+ *
+ * «Трамп … гэж мэдэгдэж байсан Ч албаны шалгалт үүнийг НЯЦААВ» гэсэн өгүүлбэрт
+ * эхний хэсэг нь ишлэлтэй, хоёр дахь нь ишлэлгүй батлалт. Өгүүлбэрийг бүхэлд нь
+ * «ишлэлтэй» гэж үзвэл хоёр дахь хэсэг нь эхнийхийн ард нуугдана.
+ */
+const CONTRAST = /\s(?:боловч|гэвч|харин|атал|хэдий\sч)\s|\sч\s/u;
+
+/**
+ * ХЭН хэлснийг нэрлэсэн эсэх.
+ *
+ * `hasAttribution` нь «гэж» гэсэн ишлэлийн НӨХЦӨЛИЙГ ч тоолдог: «Пентагон энэ
+ * явдлыг AI-ийн буруу ГЭЖ ТОГТООВ» гэдэг нь ишлэл биш, бидний батлалт. Зэргийг
+ * шийдэхэд ярьсан хүн/байгууллагыг нэрлэсэн ҮЙЛ ҮГ хэрэгтэй.
+ */
+const SPEAKER_VERBS = [
+  ...inflections("мэдэгд", "мэдэгдэ", "мэдээл", "буруутга", "зарла", "тайлагна", "нэхэмжил"),
+  "хэлэв", "хэлсэн", "хэллээ", "хэлжээ", "сурвалжил", "шүүхэд өг",
+  "гэж үзэж", "гэж үзэн", "гэж үзсэн", "судалгаагаар", "судалгаанд",
+];
+
+export function hasSpeaker(text: string): boolean {
+  return hasAny(text, SPEAKER_VERBS);
+}
+
+export function clausesOf(sentence: string): string[] {
+  return sentence.split(CONTRAST).map((c) => c.trim()).filter(Boolean);
+}
+
 export function speculationVerdict(text: string, sourceText: string): "ноцтой" | "анхаарах" | null {
   // Урт нийтлэлд санамсаргүй тааралдсан НЭГ «may» нь гол мэдэгдлийг таамаг
   // болгодоггүй — MODALITY_MIN-тэй ижил босго (хэмжилт: 20 нийтлэлийн эх
   // текстэд 0–5 тэмдэглэгээ, 1-тэй нь бүгд баталгаатай мэдээ байв)
   if (countSpeculation(sourceText) < MODALITY_MIN) return null;
 
-  const offending = sentencesOf(text).filter(
-    (s) => hasAssertion(s) && !hasSpeculation(s) && !keepsRelay(s),
-  );
+  const offending = sentencesOf(text)
+    .flatMap(clausesOf)
+    .filter((s) => hasAssertion(s) && !hasSpeculation(s) && !keepsRelay(s));
   if (offending.length === 0) return null;
-  return offending.some((s) => !hasAttribution(s)) ? "ноцтой" : "анхаарах";
+  return offending.some((s) => !hasSpeaker(s)) ? "ноцтой" : "анхаарах";
 }
 
 // ---------- ЭХ СУРВАЛЖТАЙ ШУУД ТУЛГАХ (англи эх → монгол гаргалт) ----------

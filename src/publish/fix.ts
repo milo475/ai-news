@@ -529,6 +529,45 @@ export async function digestsContaining(slugs: string[]): Promise<
   }));
 }
 
+export interface Inbound {
+  /** Биедээ /medee/<slug> холбоос агуулсан нийтлэлүүд */
+  articles: { slug: string; titleMn: string | null; kind: string; publishedAt: Date | null }[];
+  /** Энэ нийтлэлийг агуулсан долоо хоногийн тоймууд */
+  digests: { slug: string; titleMn: string | null; publishedAt: Date | null }[];
+}
+
+/**
+ * Энэ нийтлэл рүү заасан бусад НИЙТЛЭГДСЭН агуулга.
+ *
+ * Нийтлэлийг нуувал тэдгээрийн холбоос 404 болно — нуухаас өмнө мэдэх ёстой.
+ * Хоёр эх үүсвэр: (а) биед бичигдсэн /medee/<slug> холбоос (тоймын хэсгийн
+ * мэдээний жагсаалт ингэж бичигддэг), (б) DigestItem хүснэгтийн холбоо.
+ */
+export async function inboundLinks(slug: string): Promise<Inbound> {
+  const [articles, digests] = await Promise.all([
+    prisma.article.findMany({
+      where: {
+        status: "PUBLISHED",
+        slug: { not: slug },
+        bodyMn: { contains: `/medee/${slug}` },
+      },
+      orderBy: { publishedAt: "desc" },
+      select: { slug: true, titleMn: true, kind: true, publishedAt: true },
+    }),
+    prisma.article.findMany({
+      where: {
+        kind: "DIGEST", status: "PUBLISHED",
+        digestItems: { some: { article: { slug } } },
+      },
+      orderBy: { publishedAt: "desc" },
+      select: { slug: true, titleMn: true, publishedAt: true },
+    }),
+  ]);
+  // Тоймыг хоёр удаа хэвлэхгүй
+  const digestSlugs = new Set(digests.map((d) => d.slug));
+  return { articles: articles.filter((a) => !digestSlugs.has(a.slug)), digests };
+}
+
 /** IG тайлбарыг хэвлэнэ — API-аар засагддаггүй тул гараар хуулна */
 function printIgCaption(mediaId: string, fbText: string, indent = "     "): void {
   console.log(`${indent}IG media ${mediaId} — шинэ тайлбар:`);
@@ -606,6 +645,30 @@ if (isEntry("fix.ts")) {
         if (hide && (a.fbPostId || a.igMediaId)) {
           console.log("     ⚠ FB/IG дээрх постыг ГАРААР устгана:" +
             `${a.fbPostId ? ` FB ${a.fbPostId}` : ""}${a.igMediaId ? ` IG ${a.igMediaId}` : ""}`);
+        }
+        if (hide) {
+          const links = await inboundLinks(slug);
+          const total = links.articles.length + links.digests.length;
+          if (total === 0) {
+            console.log("     ✓ энэ нийтлэл рүү заасан бусад агуулга алга");
+          } else {
+            console.log(`     ⚠ ${total} нийтлэл/тойм энэ рүү заасан — нуувал холбоос нь 404 болно:`);
+            for (const d of links.digests) {
+              console.log(`        тойм  /medee/${d.slug} (${d.publishedAt?.toISOString().slice(0, 10) ?? "—"})`);
+              console.log(`              ${d.titleMn}`);
+            }
+            for (const x of links.articles) {
+              console.log(`        ${x.kind === "DIGEST" ? "тойм " : "мэдээ"} /medee/${x.slug} ` +
+                `(${x.publishedAt?.toISOString().slice(0, 10) ?? "—"})`);
+              console.log(`              ${x.titleMn}`);
+            }
+            if (links.digests.length > 0) {
+              console.log("        Тоймыг дахин үүсгэх:");
+              for (const d of links.digests) {
+                console.log(`          ./scripts/prod.sh agent:digest -- --replace ${d.slug}`);
+              }
+            }
+          }
         }
         if (!apply) continue;
         if (hide) await hideArticle(slug, { reason: arg("reason"), now });
