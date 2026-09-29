@@ -13,6 +13,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { prisma } from "../db";
 import { jobRunMeta } from "../jobs/meta";
+import { mark, spentSince } from "../lib/spend";
 import {
   assembleBody, checkDigest, dedupeItems, sectionSource, DIGEST_MAX_TOKENS, DIGEST_OUTLINE_SCHEMA, DIGEST_SCHEMA,
   DIGEST_SECTION_SCHEMA, MIN_ARTICLES, OUTLINE_MAX_TOKENS, resolveOutline, SECTION_MAX_TOKENS,
@@ -283,6 +284,8 @@ export async function runDigest(
   published?: boolean;
 }> {
   const run = await prisma.jobRun.create({ data: { job: "digest", ...jobRunMeta() } });
+  // Унасан үед ч зардал бичигдэнэ — төв бүртгэлээс
+  const spendMark = mark();
   try {
     const to = new Date();
     const since = new Date(to.getTime() - DAYS * 86_400_000);
@@ -400,7 +403,10 @@ export async function runDigest(
   } catch (e) {
     await prisma.jobRun.update({
       where: { id: run.id },
-      data: { finishedAt: new Date(), ok: false, error: String(e).slice(0, 1000) },
+      data: {
+        finishedAt: new Date(), ok: false, error: String(e).slice(0, 1000),
+        costUsd: spentSince(spendMark).usd,
+      },
     });
     throw e;
   }

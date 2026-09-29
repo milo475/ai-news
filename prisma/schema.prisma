@@ -1183,3 +1183,20 @@ model QuizResult {
   @@index([createdAt])
   @@index([code])
 }
+
+/// Ажлын түгжээ — нэг ажлыг нэг л процесс ажиллуулна.
+///
+/// Advisory lock нь Prisma-гийн холболтын сантай найдваргүй (нэг session дотор
+/// дахин авагдана, суллах нь өөр холболт дээр очиж болно) тул мөрийн түгжээ.
+/// `heartbeatAt` хуучирвал (процесс унасан) дараагийн процесс авч болно.
+model JobLock {
+  /// "bench:2026-10" гэх мэт
+  name        String   @id
+  /// Эзэмшигч: host:pid:санамсаргүй
+  lockedBy    String
+  lockedAt    DateTime @default(now())
+  /// Амьд байгааг батлах цохилт
+  heartbeatAt DateTime @default(now())
+
+  @@index([heartbeatAt])
+}

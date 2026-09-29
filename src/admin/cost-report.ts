@@ -11,7 +11,8 @@ import { prisma } from "../db";
 import { isEntry, runCli } from "../lib/cli";
 import { recentCosts } from "./cost";
 import { dailyLlmBudget, UNCAPPED_STEPS, unrecorded, type DayCost } from "./cost.api";
-import { openRouterBalance } from "../lib/balance";
+import { openRouterBalance, openRouterUsage } from "../lib/balance";
+import { drift, driftMessage } from "../lib/spend.api";
 
 const DEFAULT_DAYS = 3;
 
@@ -86,13 +87,22 @@ if (isEntry("cost-report.ts")) {
     }
     if (!found) console.log("  ✓ алга — бүх LLM алхам зардлаа бүртгэж байна");
 
-    const balance = await openRouterBalance();
-    if (balance !== null) {
-      const spent = rows.reduce((n, d) => n + d.total, 0);
-      console.log(
-        `\nOpenRouter үлдэгдэл: $${balance.toFixed(2)} · ` +
-          `${days} хоногт бүртгэгдсэн $${spent.toFixed(3)}`,
-      );
+    // Бүртгэгдсэнийг OpenRouter-ийн БОДИТ зарцуулалттай харьцуулна
+    const [balance, usage] = await Promise.all([openRouterBalance(), openRouterUsage()]);
+    console.log("\nOpenRouter-тэй харьцуулалт:");
+    console.log(`  үлдэгдэл (дансны кредит): $${balance === null ? "?" : balance.toFixed(2)}`);
+    if (usage) {
+      const today = rows[0];
+      const d = drift(today?.total ?? 0, usage.daily);
+      console.log(`  өнөөдөр бодит:   $${usage.daily.toFixed(4)}`);
+      console.log(`  өнөөдөр бүртгэл: $${(today?.total ?? 0).toFixed(4)}`);
+      if (d) {
+        const msg = driftMessage(d);
+        console.log(msg ? `  ⚠ ${msg}` : `  ✓ зөрүү ${Math.round(d.ratio * 100)}% — хэвийн`);
+      }
+      console.log(`  7 хоногийн бодит: $${usage.weekly.toFixed(3)} · сарын $${usage.monthly.toFixed(3)}`);
+    } else {
+      console.log("  бодит зарцуулалт уншигдсангүй (/api/v1/key)");
     }
     await prisma.$disconnect();
   });

@@ -17,7 +17,8 @@ import {
 import { nextPublishAt, publishTimes } from "../jobs/mode.api";
 import { isEntry, runCli } from "../lib/cli";
 import { prisma } from "../db";
-import { jobRunMeta } from "../jobs/meta";
+import { finishJob, startJob } from "../jobs/track";
+import { lockHolder, tryLock } from "../lib/lock";
 import { benchModels } from "./models";
 import { judgeModel, judgeModel2 } from "./models.api";
 import { judge } from "./judge";
@@ -61,6 +62,8 @@ export interface RunOptions {
   writeArticle?: boolean;
   /** Үлдэгдлийн урьдчилсан шалгалтыг алгасах (зөвхөн тест) */
   skipBalanceCheck?: boolean;
+  /** Түгжээг алгасах (зөвхөн тест) */
+  skipLock?: boolean;
   /** Нэг cron run-д олгох хугацаа. Тестэд богиносгоно. */
   chunkMs?: number;
   /** Одоогийн цаг — НИЙТЛЭХ цонхны шалгалтад (тестэд) */
@@ -84,21 +87,49 @@ export interface RunSummary {
   articleSlug?: string;
 }
 
+/** Түгжээний нэр — сар тус бүрд тусдаа */
+export function benchLockName(month: string): string {
+  return `bench:${month}`;
+}
+
 export async function runBenchmark(opts: RunOptions = {}): Promise<RunSummary> {
-  // JobRun — /admin дээр явц харагдах, давхар ажиллахаас хамгаалах
-  const job = await prisma.jobRun.create({ data: { job: "bench", ...jobRunMeta() } });
+  // JobRun — /admin дээр явц харагдах. Зардал нь төв бүртгэлээс автоматаар
+  // бичигдэнэ: 2026-09-28-нд унасан замд `costUsd` огт бичигдээгүйгээс 195
+  // дуудлагын зардал ($1.5 орчим) бүхэлдээ алдагдаж, $0.029 гэж үлдсэн.
+  const month = opts.month ?? currentMonth();
+
+  // Нэг run-ыг нэг л процесс ажиллуулна. Гараар дуудсан `npm run bench` ба
+  // cron-ы үргэлжлүүлэх алхам зэрэг ажиллаад unique зөрчил гаргаж байсан.
+  const lock = opts.skipLock ? null : await tryLock(benchLockName(month));
+  if (!opts.skipLock && !lock) {
+    const holder = await lockHolder(benchLockName(month));
+    const note = `өөр процесс ажиллаж байна${holder ? ` (${holder.lockedBy})` : ""}`;
+    console.log(`Бенчмарк ${month}: ${note} — алгасав`);
+    return {
+      month, runId: "", models: 0, tasks: 0, results: 0, costUsd: 0,
+      status: "RUNNING", note, top: [], pending: -1,
+    };
+  }
+
+  const job = await startJob("bench");
   try {
-    return await execute(opts, job.id);
-  } catch (e) {
-    await prisma.jobRun.update({
-      where: { id: job.id },
-      data: { finishedAt: new Date(), ok: false, error: String(e).slice(0, 1000) },
+    const r = await execute(opts);
+    await finishJob(job, {
+      ok: r.status !== "FAILED",
+      itemsIn: r.models * r.tasks,
+      itemsOut: r.results,
+      ...(r.note ? { error: r.note.slice(0, 1000) } : {}),
     });
+    return r;
+  } catch (e) {
+    await finishJob(job, { ok: false, error: String(e).slice(0, 1000) });
     throw e;
+  } finally {
+    await lock?.release();
   }
 }
 
-async function execute(opts: RunOptions, jobId: string): Promise<RunSummary> {
+async function execute(opts: RunOptions): Promise<RunSummary> {
   const month = opts.month ?? currentMonth();
   const text = opts.text ?? chatText;
   const chat = opts.chat ?? chatJson;
@@ -330,15 +361,22 @@ async function execute(opts: RunOptions, jobId: string): Promise<RunSummary> {
         }
 
         const outputWords = wordCount(output);
-        await prisma.benchResult.create({
-          data: {
+        // Unique зөрчил гарвал (өөр процесс тэр хосыг аль хэдийн бичсэн) тэр
+        // хосыг алгасна — run-ыг FAILED болгохгүй
+        const written = await prisma.benchResult.createMany({
+          skipDuplicates: true,
+          data: [{
             runId: run.id, modelSlug, taskId: task.id, output: output.slice(0, 20_000),
             latencyMs, tokensIn, tokensOut, costUsd, outputWords,
             judgeScore, judgeScore2, judgeNotes,
             checkerPass: check ? check.pass : null,
             error, errorKind, finishReason, reasoningTokens,
-          },
+          }],
         });
+        if (written.count === 0) {
+          console.warn(`   ⊘ ${task.slug}: аль хэдийн бичигдсэн — алгасав`);
+          continue;
+        }
 
         scored.push({
           modelSlug, category: task.category, weight: task.weight,
@@ -386,13 +424,6 @@ async function execute(opts: RunOptions, jobId: string): Promise<RunSummary> {
     await prisma.benchRun.update({ where: { id: run.id }, data: { costUsd: spent } });
     const total = models.length * tasks.length;
     const p = progressOf(total, total - stillPending);
-    await prisma.jobRun.update({
-      where: { id: jobId },
-      data: {
-        finishedAt: new Date(), ok: true,
-        itemsIn: total, itemsOut: scored.length, costUsd: spent,
-      },
-    });
     console.log(`\n⏸ ${month}: ${progressLabel(p)} — дараагийн prepare run үргэлжлүүлнэ`);
     return {
       month, runId: run.id, models: 0, tasks: tasks.length, results: scored.length,
@@ -477,15 +508,6 @@ async function execute(opts: RunOptions, jobId: string): Promise<RunSummary> {
   };
 
   if (allFailed) {
-    await prisma.jobRun.update({
-      where: { id: jobId },
-      data: {
-        finishedAt: new Date(), ok: false,
-        itemsIn: models.length * tasks.length, itemsOut: 0,
-        attempted: everything.length, failed: everything.length,
-        costUsd: spent, error: failNote,
-      },
-    });
     console.error(`
 ✗ ${failNote}`);
     console.error("  Дүгнэлт ч, нийтлэл ч үүсгэсэнгүй. Засаад дахин: npm run bench");
@@ -502,16 +524,6 @@ async function execute(opts: RunOptions, jobId: string): Promise<RunSummary> {
       console.warn(`⚠ нийтлэл бичигдсэнгүй: ${(e as Error).message.slice(0, 160)}`);
     }
   }
-
-  await prisma.jobRun.update({
-    where: { id: jobId },
-    data: {
-      finishedAt: new Date(), ok: true,
-      itemsIn: models.length * tasks.length, itemsOut: everything.length,
-      costUsd: spent,
-      ...(note ? { error: note } : {}),
-    },
-  });
 
   console.log(
     `\n${status === "BUDGET" ? "⚠ төсвөөр зогслоо" : "✓ дууслаа"} — ` +

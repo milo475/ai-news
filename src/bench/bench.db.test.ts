@@ -379,3 +379,95 @@ test(
     }
   },
 );
+
+test(
+  "зэрэг ажиллахаас хамгаална — хоёр дахь процесс алгасна",
+  { skip: !hasDb && "DATABASE_URL алга" },
+  async () => {
+    const MONTH = nextMonth();
+    const { prisma } = await import("../db");
+    const { runBenchmark, benchLockName } = await import("./run");
+    const { resetMonth } = await import("./reset");
+    const { tryLock } = await import("../lib/lock");
+    const { chatText } = await import("../agent/llm");
+
+    if ((await prisma.benchTask.count({ where: { isActive: true } })) < 2) return;
+    await cleanup(MONTH);
+
+    // Өөр процесс аль хэдийн ажиллаж байгаа мэт
+    const other = await tryLock(benchLockName(MONTH));
+    assert.ok(other, "тестийн түгжээ авагдсангүй");
+
+    try {
+      const r = await runBenchmark({
+        month: MONTH, skipBalanceCheck: true, now: SAFE_NOW,
+        models: ["test/alpha"], taskLimit: 2, writeArticle: false,
+        text: (async () => { throw new Error("дуудагдах ёсгүй"); }) as typeof chatText,
+      });
+      assert.equal(r.status, "RUNNING");
+      assert.match(r.note ?? "", /өөр процесс ажиллаж байна/);
+      // Run огт үүсээгүй байх ёстой
+      assert.equal(await prisma.benchRun.findUnique({ where: { month: MONTH } }), null);
+    } finally {
+      await other!.release();
+      await resetMonth(MONTH, { yes: true }).catch(() => {});
+      await cleanup(MONTH);
+      await prisma.$disconnect();
+    }
+  },
+);
+
+test(
+  "давхардсан үр дүнг алгасна, run FAILED болохгүй",
+  { skip: !hasDb && "DATABASE_URL алга" },
+  async () => {
+    const MONTH = nextMonth();
+    const { prisma } = await import("../db");
+    const { runBenchmark } = await import("./run");
+    const { resetMonth } = await import("./reset");
+    const { chatJson, chatText } = await import("../agent/llm");
+
+    const tasks = await prisma.benchTask.findMany({
+      where: { isActive: true }, take: 2, select: { id: true },
+    });
+    if (tasks.length < 2) return;
+    await cleanup(MONTH);
+
+    const text = (async () => ({
+      text: "Монгол хэл дээрх бүрэн хариулт.", tokensIn: 10, tokensOut: 20, costUsd: 0,
+      latencyMs: 5, finishReason: "stop", reasoningTokens: 0,
+    })) as typeof chatText;
+    const chat = (async () => ({ data: { score: 8, note: "сайн" }, tokens: 0, costUsd: 0 })) as unknown as typeof chatJson;
+
+    try {
+      // Өөр процесс аль хэдийн НЭГ хосыг бичсэн мэт
+      const run = await prisma.benchRun.create({
+        data: { month: MONTH, judgeModel: "test/judge", status: "RUNNING" },
+      });
+      await prisma.benchResult.create({
+        data: {
+          runId: run.id, modelSlug: "test/alpha", taskId: tasks[0]!.id,
+          output: "өмнөх процессын бичсэн", judgeScore: 9,
+        },
+      });
+
+      const r = await runBenchmark({
+        month: MONTH, skipBalanceCheck: true, now: SAFE_NOW,
+        models: ["test/alpha"], taskLimit: 2, text, chat, writeArticle: false,
+      });
+
+      assert.notEqual(r.status, "FAILED", `unique зөрчил run-ыг унагаасан: ${r.note}`);
+      // Давхардсан хос дахин бичигдээгүй
+      const count = await prisma.benchResult.count({
+        where: { runId: run.id, modelSlug: "test/alpha", taskId: tasks[0]!.id },
+      });
+      assert.equal(count, 1);
+      // Нийт 2 даалгавар — нэг нь өмнөхөөс, нэг нь шинэ
+      assert.equal(await prisma.benchResult.count({ where: { runId: run.id } }), 2);
+    } finally {
+      await resetMonth(MONTH, { yes: true }).catch(() => {});
+      await cleanup(MONTH);
+      await prisma.$disconnect();
+    }
+  },
+);

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { studioStats } from "@/studio/stats";
-import { balanceMessage, levelOf, openRouterBalance } from "@/lib/balance";
+import { balanceMessage, levelOf, openRouterBalance, openRouterUsage } from "@/lib/balance";
+import { drift, driftMessage } from "@/lib/spend.api";
 import { recentCosts } from "@/admin/cost";
 import { dailyLlmBudget, limitMessage, UNCAPPED_STEPS, unrecorded } from "@/admin/cost.api";
 import { prisma } from "@/db";
@@ -57,7 +58,7 @@ export default async function Admin({
 
   const umamiUrl = process.env.NEXT_PUBLIC_UMAMI_URL?.trim().replace(/\/+$/, "") || null;
 
-  const [board, counts, jobs, articles, searches, empties, todayCount, fbQueue, readyCount, studio, balance, costs] = await Promise.all([
+  const [board, counts, jobs, articles, searches, empties, todayCount, fbQueue, readyCount, studio, balance, costs, usage] = await Promise.all([
     dashboard(),
     prisma.article.groupBy({ by: ["status"], _count: true }),
     Promise.all(
@@ -90,6 +91,7 @@ export default async function Admin({
     studioStats(),
     openRouterBalance(),
     recentCosts(2),
+    openRouterUsage(),
   ]);
   const next = nextPublishAt(new Date(), publishTimes());
   const countOf = (s: string) => counts.find((c) => c.status === s)?._count ?? 0;
@@ -129,7 +131,7 @@ export default async function Admin({
       </div>
 
       <BalanceBanner balance={balance} />
-      <CostBreakdown days={costs} />
+      <CostBreakdown days={costs} usage={usage} />
 
       <Dashboard d={board} dailyLimit={dailyLimit} igOn={igOn} />
 
@@ -542,7 +544,12 @@ function BalanceBanner({ balance }: { balance: number | null }) {
 }
 
 /** Өдрийн LLM зардал алхам бүрээр — хаана мөнгө явж байгааг харах */
-function CostBreakdown({ days }: { days: Awaited<ReturnType<typeof recentCosts>> }) {
+function CostBreakdown({
+  days, usage,
+}: {
+  days: Awaited<ReturnType<typeof recentCosts>>;
+  usage: Awaited<ReturnType<typeof openRouterUsage>>;
+}) {
   const budget = dailyLlmBudget();
   const today = days[0];
   if (!today) return null;
@@ -616,6 +623,20 @@ function CostBreakdown({ days }: { days: Awaited<ReturnType<typeof recentCosts>>
           ⚠ Зардал бүртгэгдээгүй алхам: {missing.join(", ")} — LLM дуудсан ч $0 гэж бичигдсэн байна.
         </p>
       )}
+
+      {usage && <DriftNote recorded={today.total} actual={usage.daily} />}
     </section>
+  );
+}
+
+/** Бүртгэгдсэн ба OpenRouter-ийн бодит зарцуулалтын зөрүү */
+function DriftNote({ recorded, actual }: { recorded: number; actual: number }) {
+  const d = drift(recorded, actual);
+  if (!d) return null;
+  const msg = driftMessage(d);
+  return (
+    <p className={`text-xs ${msg ? "text-warn" : "text-muted"}`}>
+      {msg ?? `✓ OpenRouter-ийн бодит зарцуулалт $${d.actual.toFixed(3)} — зөрүү ${Math.round(d.ratio * 100)}%`}
+    </p>
   );
 }

@@ -5,6 +5,7 @@
  * Лимит/түр алдаа (429, 5xx) болон JSON задлах алдаанд 2 удаа дахин оролдоно.
  */
 import { loadEnv } from "../lib/env";
+import { recordCall } from "../lib/spend";
 import { siteUrl } from "../lib/site";
 
 const URL_CHAT = "https://openrouter.ai/api/v1/chat/completions";
@@ -298,7 +299,10 @@ async function callOnce<T>(
     (err as Error & { retryable?: boolean }).retryable = true;
     throw err;
   }
-  return { data, tokens: json.usage?.total_tokens ?? 0, costUsd: json.usage?.cost ?? 0 };
+  const costUsd = json.usage?.cost ?? 0;
+  // Төв бүртгэл — алхам нь зардлаа мартах боломжгүй
+  recordCall(costUsd);
+  return { data, tokens: json.usage?.total_tokens ?? 0, costUsd };
 }
 
 /**
@@ -436,11 +440,13 @@ export async function chatText(opts: ChatTextOptions): Promise<ChatTextResult> {
       const text = choice?.message?.content ?? "";
       if (!text.trim()) throw emptyError(call.maxTokens, json);
 
+      const costUsd = json.usage?.cost ?? 0;
+      recordCall(costUsd);
       return {
         text,
         tokensIn: json.usage?.prompt_tokens ?? 0,
         tokensOut: json.usage?.completion_tokens ?? 0,
-        costUsd: json.usage?.cost ?? 0,
+        costUsd,
         latencyMs: Date.now() - started,
         finishReason: choice?.finish_reason ?? null,
         reasoningTokens: json.usage?.completion_tokens_details?.reasoning_tokens ?? 0,
@@ -525,10 +531,13 @@ export async function chatImage(opts: { model: string; prompt: string }): Promis
     throw new Error(`OpenRouter image: зураг ирсэнгүй${said ? ` — "${said}"` : ""}`);
   }
   const [head, b64] = url.slice(5).split(",", 2);
+  // Зураг үүсгэлтийн зардал ч төв бүртгэлд орно
+  const costUsd = json.usage?.cost ?? 0;
+  recordCall(costUsd);
   return {
     buffer: Buffer.from(b64 ?? "", "base64"),
     mime: (head ?? "image/png").replace(";base64", ""),
     tokens: json.usage?.total_tokens ?? 0,
-    costUsd: json.usage?.cost ?? 0,
+    costUsd,
   };
 }

@@ -77,3 +77,67 @@ export async function openRouterBalance(
     return null;
   }
 }
+
+// ---------- Бодит зарцуулалт ----------
+
+/**
+ * OpenRouter-ийн түлхүүрийн БОДИТ зарцуулалт (`/api/v1/key`).
+ *
+ * Үлдэгдлийн бууралтаас найдвартай: цэнэглэлт, буцаалт нь үлдэгдлийг
+ * хөдөлгөдөг ч зарцуулалтыг хөдөлгөхгүй. Бүртгэгдсэн зардлыг ҮҮНТЭЙ харьцуулна.
+ *
+ * Үлдэгдэл нь `/api/v1/credits` → `total_credits − total_usage` (дансны кредит).
+ * Локал ба production нэг ижил эх сурвалж, ижил түлхүүр.
+ */
+export interface KeyUsage {
+  daily: number;
+  weekly: number;
+  monthly: number;
+  /** Түлхүүрийн лимитээс үлдсэн (дансны кредитээс өөр) */
+  limitRemaining: number | null;
+}
+
+let usageCache: { at: number; value: KeyUsage | null } | null = null;
+
+export function resetUsageCache(): void {
+  usageCache = null;
+}
+
+export async function openRouterUsage(
+  opts: { fetchFn?: typeof fetch; now?: () => number } = {},
+): Promise<KeyUsage | null> {
+  const now = opts.now ?? Date.now;
+  if (usageCache && now() - usageCache.at < TTL_MS) return usageCache.value;
+
+  const key = process.env.OPENROUTER_API_KEY;
+  if (!key) return null;
+
+  try {
+    const res = await (opts.fetchFn ?? fetch)("https://openrouter.ai/api/v1/key", {
+      headers: { Authorization: `Bearer ${key}` },
+      signal: AbortSignal.timeout(5_000),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const json = (await res.json()) as {
+      data?: {
+        usage_daily?: number; usage_weekly?: number; usage_monthly?: number;
+        limit_remaining?: number | null;
+      };
+    };
+    const d = json.data ?? {};
+    const num = (v: unknown) => (Number.isFinite(Number(v)) ? Number(v) : 0);
+    const value: KeyUsage = {
+      daily: num(d.usage_daily),
+      weekly: num(d.usage_weekly),
+      monthly: num(d.usage_monthly),
+      limitRemaining: d.limit_remaining === null || d.limit_remaining === undefined
+        ? null
+        : num(d.limit_remaining),
+    };
+    usageCache = { at: now(), value };
+    return value;
+  } catch {
+    usageCache = { at: now(), value: null };
+    return null;
+  }
+}
