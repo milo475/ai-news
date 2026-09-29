@@ -1,7 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  dropsModality, dropsSourceRelay, hardensLegal, inflections, relaySource, speculationVerdict,
+  dropsModality, dropsSourceRelay, FIDELITY_BODY_CHARS, FIDELITY_SOURCE_CHARS, hardensLegal,
+  inflections, relaySource, speculationVerdict,
   dropsAttribution, dropsHedge, dropsRelay, FIDELITY_DAILY_WARN, FIDELITY_SYSTEM, fidelitySystem,
   fidelityUser, hardensSpeculation, hasAssertion, hasAttribution, hasFinality, hasHedge, hasRelay,
   hasSpeculation, isUsableVerdict, keepsRelay, needsAttribution, normalizeVerdict,
@@ -456,4 +457,23 @@ test("«эсэх» нь тодорхойгүйг илэрхийлнэ — бат
     speculationVerdict("AI систем аюулд орсон хүмүүсийг илрүүлсэн эсэх нь тодорхойгүй.", PENTAGON_EN),
     null,
   );
+});
+
+// ---------- Шүүгчид өгөх эх текстийн урт ----------
+
+test("анхдагчаар биеийг 2,000 тэмдэгтээр таслана", () => {
+  const u = fidelityUser({ hook: "г", titleMn: "т", summaryMn: "х", bodyMn: "a".repeat(9_000) });
+  assert.equal(u.includes("a".repeat(2_000)), true);
+  assert.equal(u.includes("a".repeat(2_001)), false);
+});
+
+test("эх сурвалжтай тулгах үед БҮТЭН текстийг өгнө", () => {
+  // 2,000 тэмдэгтээр таслахад шүүгч «нийтлэлд ийм тоо байхгүй — зохиосон» гэж
+  // ХУДАЛ зөрчил гаргаж байв (2026-09-30, 138 цагаачийн IG тайлбар)
+  const u = fidelityUser({
+    hook: "г", titleMn: null, summaryMn: null,
+    bodyMn: "b".repeat(9_000), bodyChars: FIDELITY_SOURCE_CHARS,
+  });
+  assert.equal(u.includes("b".repeat(FIDELITY_SOURCE_CHARS)), true);
+  assert.ok(FIDELITY_SOURCE_CHARS > FIDELITY_BODY_CHARS);
 });

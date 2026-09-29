@@ -72,6 +72,10 @@ export interface StoredPlan {
   claims: ClaimIssue[];
   /** Засварын дараа үлдсэн НОЦТОЙ зөрчлүүд */
   blocking: FieldIssue[];
+  /** Зассан FB текстээс гарсан IG тайлбар ба шүүгчийн дүгнэлт */
+  igCaption: { text: string; ok: boolean; issues: string[] } | null;
+  /** Үсгийн алдаа, олдмол үг */
+  spell: { word: string; suggestion: string; where: string }[];
   costUsd: number;
 }
 

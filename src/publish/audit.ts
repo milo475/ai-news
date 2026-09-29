@@ -13,7 +13,7 @@ import "dotenv/config";
 import { prisma } from "../db";
 import { isEntry, runCli } from "../lib/cli";
 import { chatJson } from "../agent/llm";
-import { checkBeforePublish, sameEvent, type FieldIssue } from "./prepublish.api";
+import { checkBeforePublish, offendingSentence, sameEvent, type FieldIssue } from "./prepublish.api";
 import { buildCaption } from "./instagram.api";
 import {
   AUDIT_BODY_CHARS, CLAIMS_SCHEMA, CLAIMS_SYSTEM, claimsUser, duplicatePairs, evidence, groupIssues,
@@ -186,7 +186,11 @@ function wrap(text: string, width = 94, indent = "      "): string {
   return lines.map((l) => indent + l).join("\n");
 }
 
-export function printReport(r: AuditResult, sources: Map<string, string>): void {
+export function printReport(
+  r: AuditResult,
+  sources: Map<string, string>,
+  texts: Map<string, Record<string, string>> = new Map(),
+): void {
   const ranked = rankRows(r.rows);
 
   console.log(`\nШалгасан: ${r.checked} нийтлэл · зөрчилтэй: ${ranked.length} · ` +
@@ -212,6 +216,14 @@ export function printReport(r: AuditResult, sources: Map<string, string>): void 
     for (const issue of groupIssues(row.issues)) {
       console.log(`\n   ⚠ [${issue.severity}] ${issue.rule} — ${issue.fields.join(", ")}`);
       console.log(wrap(issue.detail));
+      // Дүрмийг барьсан ЯГ ТЭР өгүүлбэр — «биет/таамаг→баталгаа» гэдэг нь
+      // 2,000 тэмдэгтийн хаана асуудал байгааг хэлэхгүй
+      const text = texts.get(row.slug)?.[issue.fields[0] as string] ?? null;
+      const sentence = text ? offendingSentence(issue.rule as never, text, source) : null;
+      if (sentence) {
+        console.log("      манай текст:");
+        console.log(wrap(sentence, 90, "        › "));
+      }
       const ev = evidence(source, RULE_EVIDENCE[issue.rule] ?? []);
       if (ev) {
         console.log("      эх сурвалж:");
@@ -273,8 +285,17 @@ if (isEntry("audit.ts")) {
     // Тайланд эх сурвалжийн ишлэл харуулахад л хэрэгтэй — санах ойд үлдээнэ
     const rows = await publishedSince(days, slug);
     const sources = new Map(rows.map((a) => [a.slug, (a.sourceText ?? "").slice(0, 8_000)]));
+    const texts = new Map(rows.map((a) => [a.slug, {
+      "гарчиг": a.titleMn ?? "",
+      "хураангуй": a.summaryMn ?? "",
+      "биет": a.bodyMn ?? "",
+      "Гол баримт": a.bodyMn ?? "",
+      "Монголд юу гэсэн үг": a.bodyMn ?? "",
+      "картын гарчиг": a.fbHook ?? "",
+      "FB текст": a.fbText ?? "",
+    }]));
 
-    printReport(result, sources);
+    printReport(result, sources, texts);
 
     // IG тайлбар нь fbText-ээс гардаг — тусад нь шалгах шаардлагагүй, гэхдээ
     // API-аар засагддаггүй тул гараар засах жагсаалтыг тусад нь гаргана

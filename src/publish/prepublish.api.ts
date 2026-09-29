@@ -8,8 +8,8 @@
  * ХЭЗЭЭ Ч дахин шалгадаггүй байсан нь цоорхой байв.
  */
 import {
-  dropsHedge, dropsModality, dropsRelay, dropsSourceRelay, hardensLegal, hardensSpeculation,
-  relaySource, speculationVerdict,
+  clausesOf, dropsHedge, dropsModality, dropsRelay, dropsSourceRelay, hardensLegal,
+  hardensSpeculation, relaySource, sentencesOf, speculationVerdict,
 } from "./fidelity.api";
 import { checkDates } from "./dates.api";
 import { jaccard, sharedCount, stemTokens } from "../lib/text.api";
@@ -447,4 +447,65 @@ export function checkAge(a: {
     hours,
     reason: `эх сурвалж ${Math.round(hours)}ц (${Math.round(hours / 24)} хоног) хуучин — хязгаар ${max}ц`,
   };
+}
+
+// ---------- Зөрчил ЯГ ХААНА байна вэ ----------
+
+/**
+ * Дүрмийг барьсан ЯГ ТЭР өгүүлбэрийг олно.
+ *
+ * «биет/таамаг→баталгаа» гэсэн мөр нь 2,000 тэмдэгтийн биеийн хаана асуудал
+ * байгааг хэлэхгүй тул гараар засахад юу ч өгөхгүй. Дүрэм бүрийн барих
+ * нөхцөлийг өгүүлбэр (шаардвал хэсэг) тус бүрт дахин шалгаж, эхний таарсныг
+ * буцаана.
+ */
+export function offendingSentence(rule: RuleName, text: string, source: string): string | null {
+  const units = rule === "таамаг→баталгаа"
+    ? sentencesOf(text).flatMap(clausesOf)
+    : sentencesOf(text);
+
+  // «ноцтой» нь нийтлэлийг зогсоодог тул түүнийг ЭХЭЛЖ харуулна; байхгүй бол
+  // анхааруулга үүсгэсэн хэсгийг
+  let warn: string | null = null;
+
+  for (const u of units) {
+    switch (rule) {
+      case "таамаг→баталгаа": {
+        const v = speculationVerdict(u, source);
+        if (v === "ноцтой") return u;
+        if (v && !warn) warn = u;
+        break;
+      }
+      case "түр→бүрэн":
+        if (dropsHedge(u, source)) return u;
+        break;
+      case "хуулийн томьёолол хүчтэй болов":
+        if (hardensLegal(u, source)) return u;
+        break;
+      case "дамжуулалт алга":
+      case "модаль сулрав":
+      case "эх сурвалжид байхгүй огноо":
+        // Эдгээр нь текст БҮХЭЛДЭЭ дутуу гэсэн дүгнэлт — нэг өгүүлбэрт заахгүй
+        return null;
+    }
+  }
+  return warn;
+}
+
+/** Тайлбар мөр: дүрэм → эх сурвалжаас юуг ишлэх вэ */
+export function sourceNeedles(rule: RuleName): string[] {
+  switch (rule) {
+    case "дамжуулалт алга":
+      return ["according to", "reported by", "reporting by", "interviewed by", "sources told"];
+    case "түр→бүрэн":
+      return ["pause", "temporar", "partial", "suspend"];
+    case "таамаг→баталгаа":
+      return ["could have", "may have", "might", "suggested", "alleged", "possibly", "likely"];
+    case "хуулийн томьёолол хүчтэй болов":
+      return ["reasonable grounds", "probable cause", "alleged", "amount to"];
+    case "модаль сулрав":
+      return ["likely", "appears to", "seems to", "reportedly", "probably"];
+    default:
+      return [];
+  }
 }

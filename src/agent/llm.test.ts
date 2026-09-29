@@ -3,6 +3,7 @@ import { afterEach, beforeEach, test } from "node:test";
 import {
   chatJson, chatText, creditDetail, isAuthError, isCreditError, isTruncated, LlmAuthError,
   resetAuthFailure,
+  noReasoningParams,
 } from "./llm";
 
 const KEY = "OPENROUTER_API_KEY";
@@ -122,7 +123,7 @@ test("тасралт: max_tokens 2 дахин өргөж, reasoning унтраа
   assert.equal(calls, 2);
   assert.equal(bodies[0]!.max_tokens, 100);
   assert.equal(bodies[1]!.max_tokens, 200, "2 дахин өргөх ёстой");
-  assert.deepEqual(bodies[1]!.reasoning, { enabled: false }, "reasoning унтраасан байх ёстой");
+  assert.deepEqual(bodies[1]!.reasoning, noReasoningParams("m").reasoning, "reasoning унтраасан байх ёстой");
 });
 
 test("тасралт: хоёр дахь удаад ч багтахгүй бол алдаа, гурав дахь оролдлого байхгүй", async () => {
@@ -157,7 +158,7 @@ test("chatText: тасралтад мөн ижил дүрэм", async () => {
   assert.equal(r.text, "бүтэн");
   assert.equal(calls, 2);
   assert.equal(bodies[1]!.max_tokens, 200);
-  assert.deepEqual(bodies[1]!.reasoning, { enabled: false });
+  assert.deepEqual(bodies[1]!.reasoning, noReasoningParams("m").reasoning);
 });
 
 test("isTruncated: бусад алдаанд false", () => {
@@ -219,4 +220,32 @@ test("402-ийн гурван хэлбэр бүрд ойлгомжтой мон�
   );
   assert.match(creditDetail("can only afford 308"), /308 токен/);
   assert.match(creditDetail("Insufficient credits"), /үлдэгдэл хүрэлцэхгүй/);
+});
+
+// ---------- Reasoning-ийг загварын гэр бүлээр унтраах ----------
+
+test("Gemini — бодолтын төсөв 0 (enabled:false нь хүчин төгөлдөр биш)", () => {
+  // 2026-09-30: gemini-3.8-flash нь enabled:false-ийг үл тоож 14,653 токен идсэн
+  assert.deepEqual(noReasoningParams("google/gemini-3.8-flash"), {
+    reasoning: { max_tokens: 0, exclude: true },
+  });
+});
+
+test("GPT / Grok — effort: minimal", () => {
+  assert.deepEqual(noReasoningParams("openai/gpt-6-sol"), {
+    reasoning: { effort: "minimal", exclude: true },
+  });
+});
+
+test("бусад — enabled: false", () => {
+  assert.deepEqual(noReasoningParams("deepseek/deepseek-v4.1-flash"), {
+    reasoning: { enabled: false, exclude: true },
+  });
+});
+
+test("exclude нь үргэлж — хариунаас бодолтыг хасна", () => {
+  for (const m of ["google/gemini-3.8-flash", "openai/gpt-6-sol", "x/y"]) {
+    const r = noReasoningParams(m).reasoning as Record<string, unknown>;
+    assert.equal(r.exclude, true, m);
+  }
 });

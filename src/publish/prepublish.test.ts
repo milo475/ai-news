@@ -2,7 +2,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   blocking, bodyWithoutSections, canRepair, checkAge, checkBeforePublish, checkDuplicate,
-  DEFAULT_NEWS_MAX_AGE_H, mdSections, sectionText, type FieldIssue,
+  DEFAULT_NEWS_MAX_AGE_H, mdSections, offendingSentence, sectionText, sourceNeedles,
+  type FieldIssue,
   EVENT_JACCARD, EVENT_SHARED_STEMS, newsMaxAgeHours, TIMELESS_CATEGORIES,
   factTokens, MIN_NEW_FACTS, newFactsVs, RECENT_HOURS, sameEvent,
   UPDATE_PREFIX, withUpdatePrefix, type RecentArticle,
@@ -375,4 +376,45 @@ test("эх текстгүй бол хуучин зан төлөв хэвээр (
 
 test("хуучирсан мэдээний анхдагч босго 72 цаг", () => {
   assert.equal(DEFAULT_NEWS_MAX_AGE_H, 72);
+});
+
+// ---------- Зөрчил яг хаана байна вэ ----------
+
+test("«таамаг→баталгаа» барьсан ЯГ ТЭР хэсгийг буцаана", () => {
+  const body =
+    "Bloomberg-ийн мэдээлснээр шалгалт үргэлжилж байна.\n\n" +
+    "Ерөнхийлөгч Дональд Трамп хариуцлагыг үгүйсгэж байсан ч албаны шалгалт үүнийг няцаав.";
+  const s = offendingSentence("таамаг→баталгаа", body, PENTAGON_SRC);
+  // «үгүйсгэж» (эх нь «downplayed») нь эхний зөрчил — хэсэг тус бүрээр барина
+  assert.match(s ?? "", /үгүйсгэж/);
+  assert.doesNotMatch(s ?? "", /Bloomberg/, "цэвэр өгүүлбэр буцаж болохгүй");
+  assert.doesNotMatch(s ?? "", /няцаав/, "зөвхөн барьсан ХЭСГИЙГ буцаана, бүтэн өгүүлбэрийг биш");
+});
+
+test("ишлэлтэй эхний хэсгийн ард байгаа зөрчлийг ч олно", () => {
+  const body = "Трамп хариуцлагыг бага үнэлсэн гэж мэдэгдэж байсан ч албаны шалгалт үүнийг няцаав.";
+  assert.match(offendingSentence("таамаг→баталгаа", body, PENTAGON_SRC) ?? "", /няцаав/);
+});
+
+test("«хуулийн томьёолол» барьсан өгүүлбэрийг буцаана", () => {
+  const body = "Мэдээ гарлаа. НҮБ-ын комисс дайны гэмт хэрэг гэж үзэх бүрэн үндэслэлтэйг онцоллоо.";
+  assert.match(offendingSentence("хуулийн томьёолол хүчтэй болов", body, PENTAGON_SRC) ?? "", /НҮБ/);
+});
+
+test("текст бүхэлдээ дутуу дүрэмд өгүүлбэр заахгүй", () => {
+  assert.equal(offendingSentence("дамжуулалт алга", "Ямар нэг текст.", PENTAGON_SRC), null);
+  assert.equal(offendingSentence("модаль сулрав", "Ямар нэг текст.", PENTAGON_SRC), null);
+});
+
+test("зөрчилгүй текстэд null", () => {
+  assert.equal(
+    offendingSentence("таамаг→баталгаа", "Bloomberg-ийн мэдээлснээр дүгнэжээ.", PENTAGON_SRC),
+    null,
+  );
+});
+
+test("дүрэм бүрт эх сурвалжаас юуг ишлэхийг мэднэ", () => {
+  assert.ok(sourceNeedles("дамжуулалт алга").includes("according to"));
+  assert.ok(sourceNeedles("хуулийн томьёолол хүчтэй болов").includes("reasonable grounds"));
+  assert.deepEqual(sourceNeedles("эх сурвалжид байхгүй огноо"), []);
 });

@@ -22,7 +22,7 @@ const stored = (over: Partial<StoredPlan> = {}): StoredPlan => ({
   proposed: {
     titleMn: "Шинэ", summaryMn: "Шинэ", bodyMn: "Шинэ биет", fbText: "", fbHook: "", changed: ["x"],
   },
-  issues: [], claims: [], blocking: [], costUsd: 0.02,
+  issues: [], claims: [], blocking: [], igCaption: null, spell: [], costUsd: 0.02,
   ...over,
 });
 

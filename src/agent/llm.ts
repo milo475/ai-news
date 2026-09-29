@@ -218,11 +218,29 @@ export function stripFence(text: string): string {
 }
 
 /** Нэг дуудлага — алдаа гаргавал дээд түвшний давталт дахин оролдоно */
+/**
+ * Reasoning-ийг унтраах параметр нь загварын гэр бүлээс хамаарна.
+ *
+ * OpenRouter-ийн `reasoning.enabled:false` нь Gemini-д ХҮЧИН ТӨГӨЛДӨР БИШ:
+ * 2026-09-30-нд «Хятадын хөлөг»-ийн засварт gemini-3.8-flash 14,653 токеныг
+ * reasoning-д идэж, хариу нь max_tokens-д багтаагүй. Gemini-д «бодолтын
+ * төсөв» нь `reasoning.max_tokens` — 0 нь бодолтыг бүрэн унтраана.
+ * `exclude:true` нь хариунаас хасна (төлбөрийг хасахгүй) тул хоёуланг нь өгнө.
+ */
+export function noReasoningParams(model: string): Record<string, unknown> {
+  const m = model.toLowerCase();
+  if (m.includes("gemini")) return { reasoning: { max_tokens: 0, exclude: true } };
+  if (m.includes("gpt") || m.includes("grok") || m.includes("o1") || m.includes("o3")) {
+    return { reasoning: { effort: "minimal", exclude: true } };
+  }
+  return { reasoning: { enabled: false, exclude: true } };
+}
+
 async function callOnce<T>(
   apiKey: string,
   opts: ChatJsonOptions,
   noReasoning: boolean,
-): Promise<{ data: T; tokens: number; costUsd: number }> {
+): Promise<{ data: T; tokens: number; costUsd: number; reasoningTokens: number }> {
   const res = await fetch(URL_CHAT, {
     method: "POST",
     headers: {
@@ -248,7 +266,7 @@ async function callOnce<T>(
       ],
       temperature: opts.temperature ?? 0.3,
       max_tokens: opts.maxTokens,
-      ...(noReasoning ? { reasoning: { enabled: false } } : {}),
+      ...(noReasoning ? noReasoningParams(opts.model) : {}),
       response_format: {
         type: "json_schema",
         json_schema: { name: "result", strict: true, schema: opts.schema },
@@ -302,7 +320,13 @@ async function callOnce<T>(
   const costUsd = json.usage?.cost ?? 0;
   // Төв бүртгэл — алхам нь зардлаа мартах боломжгүй
   recordCall(costUsd);
-  return { data, tokens: json.usage?.total_tokens ?? 0, costUsd };
+  return {
+    data,
+    tokens: json.usage?.total_tokens ?? 0,
+    costUsd,
+    // Reasoning унтраасан ч 0-ээс их байвал тухайн provider дуудлагыг тоогоогүй
+    reasoningTokens: json.usage?.completion_tokens_details?.reasoning_tokens ?? 0,
+  };
 }
 
 /**
@@ -310,17 +334,33 @@ async function callOnce<T>(
  * costUsd — OpenRouter-ийн тайлагнасан бодит зардал (өдрийн төсөв хянахад).
  */
 export async function chatJson<T>(
-  opts: ChatJsonOptions,
-): Promise<{ data: T; tokens: number; costUsd: number }> {
+  opts: ChatJsonOptions & {
+    /**
+     * Reasoning унтраасан ч энэ хэмжээнээс их токен идвэл шилжих загвар.
+     * Provider «бодолтыг» үл тоовол ижил загвараар дахин оролдох нь нэмэргүй.
+     */
+    fallbackModel?: string;
+  },
+): Promise<{ data: T; tokens: number; costUsd: number; reasoningTokens?: number }> {
   const apiKey = apiKeyOrThrow();
 
-  let call = opts;
+  let call: ChatJsonOptions = opts;
   let noReasoning = opts.reasoning === false;
   let widened = false;
+  let switched = false;
   let attempt = 0;
   for (;;) {
     try {
-      return await callOnce<T>(apiKey, call, noReasoning);
+      const out = await callOnce<T>(apiKey, call, noReasoning);
+      // Унтраасан атал бодолт явсан бол тэмдэглэнэ — хэмжилтгүйгээр «хязгаарлав»
+      // гэж хэлэх боломжгүй
+      if (noReasoning && out.reasoningTokens > 0) {
+        console.warn(
+          `  ⚠ ${call.model}: reasoning унтраасан ч ${out.reasoningTokens} токен идлээ ` +
+            "(provider үл тоожээ)",
+        );
+      }
+      return out;
     } catch (e) {
       // Provider reasoning-ийг шаардаж байвал асаагаад шууд дахин — оролдлого зарцуулахгүй
       if ((e as { reasoningRejected?: boolean }).reasoningRejected && noReasoning) {
@@ -339,6 +379,17 @@ export async function chatJson<T>(
         );
         call = { ...call, maxTokens: wider };
         noReasoning = true;
+        continue;
+      }
+      // Өргөсний дараа ч бодолт идсээр байвал ӨӨР ЗАГВАР руу — ижил загвараар
+      // гуравдахь удаа оролдох нь ижил үр дүн өгнө
+      if (isTruncated(e) && widened && !switched && opts.fallbackModel) {
+        switched = true;
+        console.warn(
+          `  ⇄ ${call.model} → ${opts.fallbackModel}: reasoning хязгаарлагдахгүй байна ` +
+            `(${(e as { reasoningTokens?: number }).reasoningTokens ?? 0} токен)`,
+        );
+        call = { ...call, model: opts.fallbackModel, maxTokens: opts.maxTokens };
         continue;
       }
       const retryable = (e as { retryable?: boolean }).retryable ?? false;
@@ -408,7 +459,7 @@ export async function chatText(opts: ChatTextOptions): Promise<ChatTextResult> {
           ],
           temperature: call.temperature ?? 0.3,
           max_tokens: call.maxTokens,
-          ...(noReasoning ? { reasoning: { enabled: false } } : {}),
+          ...(noReasoning ? noReasoningParams(opts.model) : {}),
         }),
         signal: AbortSignal.timeout(call.timeoutMs ?? 60_000),
       });

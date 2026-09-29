@@ -9,6 +9,7 @@
  *   npm run article:fix -- --audit serious --list           # аль нийтлэл сонгогдохыг ($0)
  *   npm run article:fix -- --audit serious                  # аудитын ноцтой бүх нийтлэл
  *   npm run article:fix -- --apply --slugs a,b,c            # зөвхөн сонгосныг засна
+ *   npm run article:fix -- --apply --slugs a --no-judge     # зөвхөн механик дахин шалгалт
  *
  * АНХДАГЧ нь dry-run: DB-д ч, Facebook-д ч юу ч бичихгүй. `--apply` нь:
  *   1. titleMn / summaryMn / bodyMn / fbText -ийг шинэчилнэ
@@ -24,15 +25,21 @@ import { prisma } from "../db";
 import { isEntry, runCli } from "../lib/cli";
 import { chatJson } from "../agent/llm";
 import { MAX_TITLE_CHARS } from "../agent/improve.api";
-import { blocking, checkBeforePublish, type FieldIssue } from "./prepublish.api";
+import {
+  blocking, checkBeforePublish, offendingSentence, sourceNeedles, type FieldIssue,
+} from "./prepublish.api";
+import { evidence } from "./audit.api";
 import { buildCaption } from "./instagram.api";
 import { judgeClaims } from "./audit";
 import { type ClaimIssue } from "./audit.api";
 import {
-  actorFeedback, checkFixed, correctionNote, diffLines, FIX_SCHEMA, fixSystem, fixUser, keepsActor,
-  noteProblems, type FixOut,
+  checkFixed, CORRECTION_PREFIX, correctionNote, diffLines, FIX_SCHEMA, fixFeedback, fixSystem,
+  fixUser, keepsActor,
+  MAX_FIX_TRIES,
+  noteProblems, SPELL_SCHEMA, SPELL_SYSTEM, spellUser, type FixOut, type SpellIssue,
 } from "./fix.api";
 import { judgeFidelity } from "./fidelity";
+import { FIDELITY_SOURCE_CHARS } from "./fidelity.api";
 import {
   logFileName, planFileName, PLAN_VERSION, stateHash, validateStored, type StoredPlan,
 } from "./fix-store.api";
@@ -75,6 +82,8 @@ export function savePlan(
     issues: plan.issues,
     claims: plan.claims,
     blocking: blocking(plan.remaining),
+    igCaption: plan.igCaption,
+    spell: plan.spell,
     costUsd: plan.costUsd,
   };
   const file = join(dir, planFileName(now, plan.slug));
@@ -113,6 +122,8 @@ const SELECT = {
 export interface FixPlan {
   slug: string;
   titleMn: string;
+  /** Эх нийтлэлийн текст — зөрчлийн ишлэлийг харуулахад */
+  sourceText: string;
   /** Засварын өмнөх текстүүд — ялгааг харуулахад */
   summaryBefore: string;
   bodyBefore: string;
@@ -134,6 +145,10 @@ export interface FixPlan {
   actorKept: { title: boolean; card: boolean };
   /** Гараар өгсөн гарчгийг шүүгч хүлээж авсан эсэх */
   overrideVerdict: { field: "гарчиг" | "картын гарчиг"; ok: boolean; issues: string[] }[];
+  /** ЗАССАН FB текстээс гарсан IG тайлбар ба түүний шүүгчийн дүгнэлт */
+  igCaption: { text: string; ok: boolean; issues: string[] } | null;
+  /** Үсгийн алдаа, олдмол үг */
+  spell: SpellIssue[];
   costUsd: number;
 }
 
@@ -179,12 +194,14 @@ export async function planFix(
   }
 
   const base = {
-    slug, titleMn: a.titleMn, summaryBefore: a.summaryMn ?? "", bodyBefore: a.bodyMn,
+    slug, titleMn: a.titleMn, sourceText: a.sourceText,
+    summaryBefore: a.summaryMn ?? "", bodyBefore: a.bodyMn,
     fbBefore: a.fbText, hookBefore: a.fbHook, issues, claims, costUsd,
   };
   const noFix = {
     ...base, fixed: null, remaining: [], note: null,
     actorKept: { title: true, card: true }, overrideVerdict: [],
+    igCaption: null, spell: [],
   };
   if (issues.length === 0 && claims.length === 0) return noFix;
 
@@ -200,23 +217,33 @@ export async function planFix(
     claims,
   });
 
-  // Гарчиг үйлдэгчээ алдвал НЭГ УДАА дахин оролдоно — «Bloomberg мэдээлэв»
-  // гэсэн гарчиг дамжуулалтаа сэргээсэн ч хэн юу хийснийг нь алддаг
+  // Гарчгийн урт, үйлдэгч, тэмдэглэлийн хэл — бүгдийг нэг давталтаар засуулна.
+  // Өмнө нь гарчиг 60-аас хэтрэхэд шууд throw хийж, засвар бүхэлдээ унадаг байв.
   let out = await chat<FixOut>({
     model: FIX_MODEL, system: fixSystem(MAX_TITLE_CHARS), user: userPrompt,
     schema: FIX_SCHEMA, maxTokens: 8_000, temperature: 0.2, reasoning: false,
+    fallbackModel: process.env.FIX_FALLBACK_MODEL?.trim() || undefined,
   });
   costUsd += out.costUsd;
 
-  if (!keepsActor(a.titleMn, out.data.titleMn ?? "")) {
+  const beforeFix = { titleMn: a.titleMn, bodyMn: a.bodyMn, fbHook: a.fbHook };
+  for (let tryNo = 1; tryNo < MAX_FIX_TRIES; tryNo++) {
+    const notes = fixFeedback(beforeFix, out.data, MAX_TITLE_CHARS, MAX_CARD_TITLE_CHARS);
+    if (notes.length === 0) break;
+    console.warn(`  ↻ засвар ${tryNo}/${MAX_FIX_TRIES - 1}: ${notes.map((n) => n.slice(0, 90)).join(" · ")}`);
     const retry = await chat<FixOut>({
       model: FIX_MODEL,
       system: fixSystem(MAX_TITLE_CHARS),
-      user: `${userPrompt}\n\n--- ДАХИН ОРОЛДОХ ШАЛТГААН ---\n${actorFeedback(a.titleMn, out.data.titleMn ?? "")}`,
+      user: `${userPrompt}\n\n--- ДАХИН ОРОЛДОХ ШАЛТГААН ---\n${notes.join("\n")}`,
       schema: FIX_SCHEMA, maxTokens: 8_000, temperature: 0.3, reasoning: false,
+      fallbackModel: process.env.FIX_FALLBACK_MODEL?.trim() || undefined,
     });
     costUsd += retry.costUsd;
-    if (keepsActor(a.titleMn, retry.data.titleMn ?? "")) out = retry;
+    // Шинэ хувилбар нь дор байвал хуучныг үлдээнэ
+    if (fixFeedback(beforeFix, retry.data, MAX_TITLE_CHARS, MAX_CARD_TITLE_CHARS).length
+      < fixFeedback(beforeFix, out.data, MAX_TITLE_CHARS, MAX_CARD_TITLE_CHARS).length) {
+      out = retry;
+    }
   }
 
   const check = checkFixed({ titleMn: a.titleMn, bodyMn: a.bodyMn }, out.data, MAX_TITLE_CHARS);
@@ -257,7 +284,10 @@ export async function planFix(
     // байхад чи Bloomberg мэдээлэв гэж байна» гэж ЗӨРЧЛИЙГ ӨӨРИЙГ НЬ
     // жишиг болгож, зөв гарчгийг татгалздаг байв.
     const verdict = await judgeFidelity(
-      { hook: value, kind: "гарчиг", titleMn: null, summaryMn: null, bodyMn: a.sourceText },
+      {
+        hook: value, kind: "гарчиг",
+        titleMn: null, summaryMn: null, bodyMn: a.sourceText, bodyChars: FIDELITY_SOURCE_CHARS,
+      },
       { chat },
     );
     costUsd += verdict.costUsd;
@@ -281,9 +311,61 @@ export async function planFix(
     fbHook: fixed.fbHook || a.fbHook,
   });
 
+  // ——— IG тайлбар: ЗӨВХӨН зассан FB текстээс, эх сурвалжтай тулгана ———
+  // Өмнө нь зассан текст байхгүй бол ХУУЧИН fbText рүү унадаг байсан — тэр нь
+  // яг л засах ёстой байсан текст. Одоо хуучин рүү буцахгүй.
+  let igCaption: FixPlan["igCaption"] = null;
+  if (a.igMediaId) {
+    if (!fixed.fbText) {
+      igCaption = {
+        text: "",
+        ok: false,
+        issues: ["зассан FB текст гарсангүй — IG тайлбарыг гараар бич эсвэл постыг хас"],
+      };
+    } else {
+      const text = buildCaption(fixed.fbText);
+      const v = await judgeFidelity(
+        {
+          hook: text, kind: "IG тайлбар",
+          titleMn: null, summaryMn: null, bodyMn: a.sourceText, bodyChars: FIDELITY_SOURCE_CHARS,
+        },
+        { chat },
+      );
+      costUsd += v.costUsd;
+      igCaption = {
+        text,
+        ok: v.ok && v.faithful,
+        issues: v.ok ? v.issues : ["шүүгч ажиллсангүй"],
+      };
+    }
+  }
+
+  // ——— Үсгийн алдаа, олдмол үг (нэг дуудлага) ———
+  let spell: SpellIssue[] = [];
+  const draftNote = correctionNote(now, opts.note ? [opts.note] : fixed.changed);
+  let note = draftNote;
+  if (!opts.note) {
+    try {
+      const sp = await chat<{ fixedNote: string; issues: SpellIssue[] }>({
+        model: FIX_MODEL, system: SPELL_SYSTEM,
+        user: spellUser({ note: draftNote, bodyMn: fixed.bodyMn }),
+        schema: SPELL_SCHEMA, maxTokens: 1_500, temperature: 0, reasoning: false,
+      });
+      costUsd += sp.costUsd;
+      spell = sp.data.issues ?? [];
+      const cleaned = sp.data.fixedNote?.trim();
+      // Хянан тохиолдуулагч тэмдэглэлийг сунгаж, дүрэм зөрчихгүй байх ёстой
+      if (cleaned && cleaned.length <= draftNote.length + 40 && noteProblems([cleaned]).length === 0) {
+        note = cleaned.startsWith(CORRECTION_PREFIX) ? cleaned : correctionNote(now, [cleaned]);
+      }
+    } catch (e) {
+      console.warn(`  ⚠ үсгийн шалгалт ажиллсангүй: ${(e as Error).message.slice(0, 100)}`);
+    }
+  }
+
   return {
-    ...base, fixed, remaining, costUsd,
-    note: correctionNote(now, opts.note ? [opts.note] : fixed.changed),
+    ...base, fixed, remaining, costUsd, igCaption, spell,
+    note,
     actorKept: {
       title: keepsActor(a.titleMn, fixed.titleMn),
       card: !a.fbHook || !fixed.fbHook || keepsActor(a.fbHook, fixed.fbHook),
@@ -442,11 +524,23 @@ export function printPlan(plan: FixPlan): void {
     console.log("\n  ⚠ КАРТЫН ГАРЧИГ ҮЙЛДЭГЧЭЭ АЛДСАН — гараар өгөх: --card-title \"…\"");
   }
 
+  if (plan.igCaption) {
+    console.log("\n  IG тайлбар (зассан FB текстээс):");
+    if (!plan.igCaption.ok) {
+      console.log(`     ✗ IG: гараар бич эсвэл хас — ${plan.igCaption.issues.join("; ")}`);
+    } else {
+      console.log("     ✓ эх сурвалжтай тулгагдлаа");
+    }
+    for (const l of (plan.igCaption.text || "(текст гарсангүй)").split("\n")) {
+      console.log(`       ${l}`);
+    }
+  }
+
   console.log(`\n  Тэмдэглэл (--apply хийх өдрөөр дахин үүснэ): ${plan.note}`);
   const noteBad = noteProblems(plan.fixed.changed);
-  if (noteBad.length > 0) {
-    console.log(`  ⚠ тэмдэглэл уншигчид тохирохгүй: ${noteBad.join("; ")}`);
-    console.log("     --apply-аас өмнө гараар засах: --note \"…\"");
+  if (noteBad.length > 0) console.log(`  ⚠ тэмдэглэл: ${noteBad.join("; ")}`);
+  for (const sp of plan.spell) {
+    console.log(`  ⚠ үг (${sp.where}): «${sp.word}» → «${sp.suggestion}»`);
   }
 
   // Ноцтой ба анхааруулгыг ТУСАД НЬ. Өмнө нь «0 ноцтой зөрчил: биет/модаль
@@ -456,8 +550,29 @@ export function printPlan(plan: FixPlan): void {
   const warn = plan.remaining.filter((i) => i.severity === "анхаарах");
   if (bad.length > 0) {
     console.log(`\n  ✗ засварын дараа ч ${bad.length} НОЦТОЙ зөрчил үлдэв — --apply алгасна:`);
-    for (const i of bad) console.log(`       ${i.field}/${i.rule}`);
-    console.log("       хүчээр засах: --force");
+    for (const i of bad) {
+      console.log(`\n       ${i.field} / ${i.rule}`);
+      const field = fieldText(plan, i.field);
+      const sentence = field ? offendingSentence(i.rule, field, plan.sourceText) : null;
+      if (sentence) {
+        console.log("       манай текст:");
+        console.log(`         › ${sentence.slice(0, 300)}`);
+      }
+      const ev = evidence(plan.sourceText, sourceNeedles(i.rule));
+      if (ev) {
+        console.log("       эх сурвалж:");
+        console.log(`         › ${ev}`);
+      }
+      if (!sentence && !ev) console.log(`       ${i.detail}`);
+    }
+    // Шүүгч ноцтой зөрчил олоогүй бол механик дүрмийн худал эерэг байж болзошгүй
+    if (plan.claims.filter((c) => c.severity === "ноцтой").length === 0 && plan.claims.length >= 0) {
+      console.log(
+        "\n       ⚠ LLM шүүгч энд ноцтой зөрчил олсонгүй — механик дүрмийн ХУДАЛ ЭЕРЭГ\n" +
+          "         байж болзошгүй. Дээрх өгүүлбэрийг уншаад шийднэ үү.",
+      );
+    }
+    console.log("\n       хүчээр засах: --force · засагдахгүй бол: --hide --slugs <slug>");
   } else {
     console.log("\n  ✓ засварын дараа ноцтой зөрчил үлдээгүй");
   }
@@ -566,6 +681,19 @@ export async function inboundLinks(slug: string): Promise<Inbound> {
   // Тоймыг хоёр удаа хэвлэхгүй
   const digestSlugs = new Set(digests.map((d) => d.slug));
   return { articles: articles.filter((a) => !digestSlugs.has(a.slug)), digests };
+}
+
+/** Зөрчил гарсан талбарын ЗАССАН текстийг олно */
+function fieldText(plan: FixPlan, field: FieldIssue["field"]): string | null {
+  const f = plan.fixed;
+  if (!f) return null;
+  switch (field) {
+    case "гарчиг": return f.titleMn;
+    case "хураангуй": return f.summaryMn;
+    case "картын гарчиг": return f.fbHook || plan.hookBefore;
+    case "FB текст": return f.fbText || plan.fbBefore;
+    default: return f.bodyMn; // биет, Гол баримт, Монголд юу гэсэн үг
+  }
 }
 
 /** IG тайлбарыг хэвлэнэ — API-аар засагддаггүй тул гараар хуулна */
@@ -692,6 +820,7 @@ if (isEntry("fix.ts")) {
 
     // ═══ --apply: ХАДГАЛСАН саналыг хэрэглэнэ, LLM дуудахгүй ═══
     if (apply) {
+      let applyCost = 0;
       for (const slug of slugs) {
         const loaded = await loadPlan(slug, now);
         if (!loaded.ok) { console.error(`\n✗ ${slug}: ${loaded.reason}`); continue; }
@@ -725,6 +854,29 @@ if (isEntry("fix.ts")) {
           continue;
         }
 
+        // Шүүгчээр ДАХИН: JSON-ыг гараар засаж болох тул хадгалсан дүгнэлт нь
+        // саналд хамаарахаа больсон байж болно
+        if (judge && cur.sourceText) {
+          const v = await judgeFidelity(
+            {
+              hook: `${stored.proposed.titleMn}\n\n${stored.proposed.summaryMn}`,
+              kind: "гарчиг",
+              titleMn: null, summaryMn: null, bodyMn: cur.sourceText,
+              bodyChars: FIDELITY_SOURCE_CHARS,
+            },
+            {},
+          );
+          applyCost += v.costUsd;
+          if (v.ok && !v.faithful && !force) {
+            console.warn(
+              `\n⊘ ${slug}: шүүгч саналыг татгалзав — алгасав\n   ${v.issues.join("; ")}\n` +
+                `   Хүчээр: --force`,
+            );
+            continue;
+          }
+          if (!v.ok) console.warn(`  ⚠ ${slug}: шүүгч ажиллсангүй — механик шалгалтаар үргэлжилнэ`);
+        }
+
         const out = await applyFix(slug, stored.proposed, { now });
         console.log(`\n✓ ${slug} (санал: ${loaded.file})`);
         console.log(`  карт: ${out.card}${out.cardError ? ` — ${out.cardError}` : ""}`);
@@ -733,8 +885,20 @@ if (isEntry("fix.ts")) {
           console.log("  ⚠ FB постын ЗУРГИЙГ Graph API солихыг дэмждэггүй — тэнд хуучин карт үлдэнэ");
         }
         const ig = await prisma.article.findUnique({ where: { slug }, select: { igMediaId: true } });
-        if (ig?.igMediaId) printIgCaption(ig.igMediaId, stored.proposed.fbText || "", "  ");
+        if (ig?.igMediaId) {
+          if (stored.igCaption?.ok && stored.igCaption.text) {
+            console.log(`  IG media ${ig.igMediaId} — шинэ тайлбар (ГАРААР хуулна):`);
+            for (const l of stored.igCaption.text.split("\n")) console.log(`    ${l}`);
+          } else {
+            console.log(
+              `  ✗ IG media ${ig.igMediaId}: гараар бич эсвэл хас — ` +
+                `${stored.igCaption?.issues.join("; ") ?? "тайлбар шалгагдаагүй"}`,
+            );
+          }
+        }
       }
+
+      if (applyCost > 0) console.log(`\nШүүгчийн дахин шалгалт: $${applyCost.toFixed(4)}`);
 
       const digests = await digestsContaining(slugs);
       if (digests.length > 0) {
@@ -781,12 +945,7 @@ if (isEntry("fix.ts")) {
         try { printPlan(plan); } finally { console.log = orig; }
 
         if (!plan.fixed) { failed.push({ slug, why: "зөрчилгүй — засах зүйл алга" }); continue; }
-        if (a.igMediaId) {
-          say("\n  IG тайлбар (API-аар засагдахгүй — гараар хуулна):");
-          const capt = buildCaption(plan.fixed.fbText || a.fbText || "");
-          say(`     IG media ${a.igMediaId} — шинэ тайлбар:`);
-          for (const l of capt.split("\n")) say(`       ${l}`);
-        }
+        if (a.igMediaId) say(`     IG media ${a.igMediaId} — дээрх тайлбарыг ГАРААР хуулна`);
         const file = savePlan(plan, { ...a }, now);
         say(`  Санал хадгалав: ${file}`);
         done.push({ slug, blocking: blocking(plan.remaining).length, file });

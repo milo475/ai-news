@@ -2,7 +2,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   actorFeedback, actorTokens, checkFixed, correctionNote, CORRECTION_PREFIX, diffLines, FIX_SCHEMA,
-  fixSystem, fixUser, keepsActor, MAX_NOTE_CHARS, MIN_BODY_RATIO, noteProblems, ubDate, type FixOut,
+  fixFeedback, fixSystem, fixUser, keepsActor, MAX_FIX_TRIES, MAX_NOTE_CHARS, MIN_BODY_RATIO,
+  noteProblems, SPELL_SYSTEM, spellUser, ubDate, type FixOut,
 } from "./fix.api";
 
 const OUT: FixOut = {
@@ -199,4 +200,72 @@ test("хэт урт тэмдэглэлийг барина", () => {
 test("prompt-д хоригтой үгс жагсаагдсан", () => {
   assert.match(fixSystem(60), /Редакцын дотоод хэллэг ХОРИОТОЙ/);
   assert.match(fixSystem(60), /Сайн жишээ/);
+});
+
+// ---------- Дахин оролдох шалтгаанууд ----------
+
+const BEFORE = {
+  titleMn: "АНУ хиймэл оюунд найдаж сургууль цохисныг Пентагон тогтоов",
+  bodyMn: "a".repeat(1_100),
+  fbHook: "Хиймэл оюунд найдсан цохилтод 150 гаруй хүн амь үрэгдэв.",
+};
+
+test("БОДИТ: 67 тэмдэгт гарчиг — уртыг нь хэлж дахин бичүүлнэ", () => {
+  const long = "АНУ-ын арми Иран дахь сургуулийг AI-д хэт найдан цохисон гэж Bloomberg мэдээлэв";
+  assert.equal(long.length, 79);
+  const notes = fixFeedback(BEFORE, { ...OUT, titleMn: long }, 60, 110);
+  assert.match(notes.join(" "), /79 тэмдэгт, дээд хязгаар 60 — ТОВЧИЛЖ бич/);
+});
+
+test("уртын заавар дотор гарчгийг өөрийг нь өгнө", () => {
+  const notes = fixFeedback(BEFORE, { ...OUT, titleMn: "б".repeat(70) }, 60, 110);
+  assert.match(notes.join(" "), /Чиний гарчиг/);
+  // checkFixed-ийн ерөнхий мөр давхардахгүй
+  assert.equal(notes.filter((n) => /тэмдэгт/.test(n)).length, 1);
+});
+
+test("үйлдэгчээ алдсан гарчгийг мөн хэлнэ", () => {
+  const notes = fixFeedback(BEFORE, { ...OUT, titleMn: "Сургууль цохисныг Bloomberg мэдээлэв" }, 60, 110);
+  assert.match(notes.join(" "), /ану/);
+});
+
+test("хэт урт тэмдэглэлийг ГАРААР бус, дахин оролдлогоор засна", () => {
+  const notes = fixFeedback(BEFORE, { ...OUT, changed: ["а".repeat(300)] }, 60, 110);
+  assert.match(notes.join(" "), /changed .* тохирохгүй/);
+  assert.match(notes.join(" "), /богино/);
+});
+
+test("картын гарчгийн уртыг шалгана", () => {
+  const notes = fixFeedback(BEFORE, { ...OUT, fbHook: "к".repeat(120) }, 60, 110);
+  assert.match(notes.join(" "), /Картын гарчиг 120 тэмдэгт/);
+});
+
+test("бүх шаардлага хангагдвал дахин оролдохгүй", () => {
+  assert.deepEqual(
+    fixFeedback(BEFORE, {
+      ...OUT,
+      titleMn: "АНУ сургууль цохисныг Bloomberg мэдээлэв",
+      fbHook: "АНУ сургууль цохисныг Bloomberg мэдээлэв",
+      changed: ["Энэ мэдээг Bloomberg мэдээлсэн болохыг гарчигт нэмлээ."],
+    }, 60, 110),
+    [],
+  );
+});
+
+test("MAX_FIX_TRIES нь 3", () => {
+  assert.equal(MAX_FIX_TRIES, 3);
+});
+
+// ---------- Үсгийн шалгалт ----------
+
+test("хянан тохиолдуулагчийн prompt-д бодит алдаанууд жишээ болсон", () => {
+  assert.match(SPELL_SYSTEM, /эртэдсэн/);
+  assert.match(SPELL_SYSTEM, /хасч/);
+  assert.match(SPELL_SYSTEM, /ЗӨРЧИЛ БИШ/);
+});
+
+test("хянан тохиолдуулагчид тэмдэглэл ба биет хоёулаа очно", () => {
+  const u = spellUser({ note: "Засвар (2026-09-30): x", bodyMn: "Биет" });
+  assert.match(u, /ТЭМДЭГЛЭЛ/);
+  assert.match(u, /БИЕТ/);
 });

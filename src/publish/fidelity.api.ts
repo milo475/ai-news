@@ -472,10 +472,20 @@ export interface FidelityInput {
   titleMn: string | null;
   summaryMn: string | null;
   bodyMn: string | null;
+  /**
+   * Биеийн дээд урт. Анхдагч 2,000 нь ГАРЧГИЙГ манай нийтлэлтэй тулгахад
+   * хангалттай. Харин IG тайлбар, гараар өгсөн гарчгийг ЭХ НИЙТЛЭЛТЭЙ тулгах
+   * үед 2,000 тэмдэгт хэт бага: шүүгч эх сурвалжийн үлдсэн хэсгийг хараагүй
+   * атлаа «нийтлэлд ийм тоо байхгүй — зохиосон» гэж ХУДАЛ зөрчил гаргаж байв.
+   */
+  bodyChars?: number;
 }
 
 /** Нийтлэлээс шүүгчид өгөх хэсгийн дээд урт */
 export const FIDELITY_BODY_CHARS = 2_000;
+
+/** Эх нийтлэлтэй шууд тулгах үед — бүтэн текст багтах ёстой */
+export const FIDELITY_SOURCE_CHARS = 8_000;
 
 export function fidelityUser(a: FidelityInput): string {
   return [
@@ -484,7 +494,7 @@ export function fidelityUser(a: FidelityInput): string {
     "--- ЭХ НИЙТЛЭЛ ---",
     `Гарчиг: ${a.titleMn ?? ""}`,
     `Хураангуй: ${a.summaryMn ?? ""}`,
-    `Текст: ${(a.bodyMn ?? "").slice(0, FIDELITY_BODY_CHARS)}`,
+    `Текст: ${(a.bodyMn ?? "").slice(0, a.bodyChars ?? FIDELITY_BODY_CHARS)}`,
   ].join("\n");
 }
 

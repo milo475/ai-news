@@ -285,3 +285,112 @@ export function noteProblems(changed: string[]): string[] {
   if (text.length > MAX_NOTE_CHARS) out.push(`${text.length} тэмдэгт (дээд тал ${MAX_NOTE_CHARS})`);
   return out;
 }
+
+// ---------- Дахин оролдох шалтгаанууд ----------
+
+/** Хэдэн удаа дахин оролдох вэ */
+export const MAX_FIX_TRIES = 3;
+
+/**
+ * Саналд юу дутуу байгааг ЗАГВАРТ ОЙЛГОМЖТОЙ хэлнэ.
+ *
+ * Өмнө нь гарчиг 60 тэмдэгтээс хэтэрвэл шууд `throw` хийж, тухайн нийтлэлийн
+ * засвар бүхэлдээ унадаг байв (2026-09-30: Пентагоны гарчиг 67 тэмдэгт).
+ * Одоо алдааг буцаан өгөөд дахин бичүүлнэ.
+ */
+export function fixFeedback(
+  before: { titleMn: string; bodyMn: string; fbHook: string | null },
+  out: FixOut,
+  maxTitle: number,
+  maxCardTitle: number,
+): string[] {
+  const notes: string[] = [];
+  const title = (out.titleMn ?? "").trim();
+  const hook = (out.fbHook ?? "").trim();
+
+  if (title.length > maxTitle) {
+    notes.push(
+      `Гарчиг ${title.length} тэмдэгт, дээд хязгаар ${maxTitle} — ТОВЧИЛЖ бич. ` +
+        `Үйлдэгч (хэн), дамжуулсан хэвлэлийг хадгалаад бусдыг нь хас. Чиний гарчиг: «${title}»`,
+    );
+  }
+  if (hook.length > maxCardTitle) {
+    notes.push(`Картын гарчиг ${hook.length} тэмдэгт, дээд хязгаар ${maxCardTitle} — товчил.`);
+  }
+  if (title && !keepsActor(before.titleMn, title)) notes.push(actorFeedback(before.titleMn, title));
+  if (hook && before.fbHook && !keepsActor(before.fbHook, hook)) {
+    notes.push(`Картын гарчиг: ${actorFeedback(before.fbHook, hook)}`);
+  }
+
+  const check = checkFixed(before, out, maxTitle);
+  for (const p of check.problems) {
+    // Гарчгийн уртыг дээр нь нарийвчлан хэлсэн — давхардуулахгүй
+    if (/^гарчиг \d+ тэмдэгт/.test(p)) continue;
+    notes.push(`Засвар хүлээн авагдахгүй: ${p}`);
+  }
+
+  for (const p of noteProblems(out.changed ?? [])) {
+    notes.push(
+      `changed (уншигчид харагдах тэмдэглэл) тохирохгүй: ${p}. ` +
+        `1–2 богино өгүүлбэр, ${MAX_NOTE_CHARS} тэмдэгтээс богино, энгийн үгээр.`,
+    );
+  }
+  return notes;
+}
+
+// ---------- Үсгийн алдаа, олдмол үг ----------
+
+export const SPELL_SYSTEM = `Чи монгол хэлний хянан тохиолдуулагч. Өгөгдсөн текстээс
+ҮСГИЙН АЛДАА ба ОЛДМОЛ (монгол хэлэнд байдаггүй) үгсийг ол.
+
+Жишээ алдаанууд: «эртэдсэн» (→ «эрт дээр үед» эсвэл «эртний»), «хасч» (→ «хасаж»),
+«боловсруулагдсан» (хэт хүнд), давхар нөхцөл, кириллд латин үсэг холилдсон.
+
+ЗӨРЧИЛ БИШ: нэр томьёо (zero-day, Medicare, GPT-6), компанийн нэр, тоо, ишлэл.
+
+issues: алдаа бүрт {word: яг тэр үг, suggestion: зөв хэлбэр, where: "тэмдэглэл"|"биет"}.
+Алдаагүй бол хоосон массив.
+fixedNote: ТЭМДЭГЛЭЛИЙГ засварласан хувилбар. Засах зүйлгүй бол ЯГ ТЭР ХЭВЭЭР буцаа.
+
+Зөвхөн JSON.`;
+
+export const SPELL_SCHEMA = {
+  type: "object",
+  properties: {
+    fixedNote: { type: "string", description: "Засварласан тэмдэглэл (өөрчлөх зүйлгүй бол хэвээр)" },
+    issues: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          word: { type: "string" },
+          suggestion: { type: "string" },
+          where: { type: "string", enum: ["тэмдэглэл", "биет"] },
+        },
+        required: ["word", "suggestion", "where"],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ["fixedNote", "issues"],
+  additionalProperties: false,
+} as const;
+
+export interface SpellIssue {
+  word: string;
+  suggestion: string;
+  where: "тэмдэглэл" | "биет";
+}
+
+/** Хянан тохиолдуулагчид өгөх биеийн дээд урт — зардлыг барина */
+export const SPELL_BODY_CHARS = 3_000;
+
+export function spellUser(a: { note: string; bodyMn: string }): string {
+  return [
+    "--- ТЭМДЭГЛЭЛ (уншигчид харагдана) ---",
+    a.note,
+    "",
+    "--- БИЕТ ---",
+    a.bodyMn.slice(0, SPELL_BODY_CHARS),
+  ].join("\n");
+}
