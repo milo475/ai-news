@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   actorFeedback, actorTokens, checkFixed, correctionNote, CORRECTION_PREFIX, diffLines, FIX_SCHEMA,
-  fixSystem, fixUser, keepsActor, MIN_BODY_RATIO, ubDate, type FixOut,
+  fixSystem, fixUser, keepsActor, MAX_NOTE_CHARS, MIN_BODY_RATIO, noteProblems, ubDate, type FixOut,
 } from "./fix.api";
 
 const OUT: FixOut = {
@@ -171,4 +171,32 @@ test("дахин оролдох заавар алга болсон нэрийг 
 test("prompt-д үйлдэгчийн дүрэм баримтжсан", () => {
   assert.match(fixSystem(60), /ҮЙЛДЭГЧ/);
   assert.match(fixSystem(60), /гарчгийн ТӨГСГӨЛД/);
+});
+
+// ---------- Уншигчид харагдах тэмдэглэл ----------
+
+test("дотоод хэллэгийг барина", () => {
+  const p = noteProblems(["Дамжуулалтыг сэргээж, таамгийг баталгаа болгосныг залруулав."]);
+  assert.ok(p.length > 0);
+  assert.match(p.join(" "), /дотоод хэллэг/);
+});
+
+test("уншигчид зориулсан тэмдэглэл цэвэр", () => {
+  assert.deepEqual(
+    noteProblems([
+      "Энэ мэдээг Пентагон биш, Bloomberg мэдээлсэн болохыг гарчиг, эхлэлд нэмлээ.",
+      "Эх нийтлэлд байхгүй байсан «2026 он» гэсэн огноог хаслаа.",
+    ]),
+    [],
+  );
+});
+
+test("хэт урт тэмдэглэлийг барина", () => {
+  const p = noteProblems(["а".repeat(MAX_NOTE_CHARS + 1)]);
+  assert.match(p.join(" "), /тэмдэгт/);
+});
+
+test("prompt-д хоригтой үгс жагсаагдсан", () => {
+  assert.match(fixSystem(60), /Редакцын дотоод хэллэг ХОРИОТОЙ/);
+  assert.match(fixSystem(60), /Сайн жишээ/);
 });

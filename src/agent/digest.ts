@@ -449,14 +449,45 @@ if (isEntry("digest.ts")) {
       return;
     }
 
-    // --replace: хуучныг нуугаад шинийг нь шинэ дүрмээр үүсгэнэ
+    // --replace: хуучныг нуугаад шинийг нь ОДООГИЙН (засагдсан) биетүүдээс үүсгэнэ.
+    // Нийтлэл засагдсаны дараа тойм хуучин, буруу мэдэгдлийг давтаж үлддэг байв.
     const replace = at("replace");
+    let oldBody: string | null = null;
+    let oldTitle: string | null = null;
     if (replace) {
+      const old = await prisma.article.findUnique({
+        where: { slug: replace },
+        select: { titleMn: true, bodyMn: true },
+      });
+      oldBody = old?.bodyMn ?? null;
+      oldTitle = old?.titleMn ?? null;
       const ok = await hideDigest(replace);
       console.log(ok ? `⊘ хуучин тоймыг нуув: /medee/${replace}` : `⚠ «${replace}» олдсонгүй — үргэлжлүүлнэ`);
     }
 
     const r = await runDigest(process.argv.includes("--publish"));
+
+    // Өмнө → дараа: юу өөрчлөгдсөнийг шууд харуулна
+    if (replace && r.slug) {
+      const fresh = await prisma.article.findUnique({
+        where: { slug: r.slug },
+        select: { titleMn: true, bodyMn: true },
+      });
+      console.log(`\n─── ТОЙМ: ӨМНӨ → ДАРАА ───`);
+      console.log(`  Гарчиг:\n     − ${oldTitle ?? "(байхгүй)"}\n     + ${fresh?.titleMn ?? "(байхгүй)"}`);
+      const { diffLines } = await import("../publish/fix.api");
+      const diff = diffLines(oldBody ?? "", fresh?.bodyMn ?? "");
+      console.log(`  Биет: ${diff.length} мөр өөрчлөгдлөө`);
+      for (const d of diff.slice(0, 40)) {
+        if (d.before) console.log(`     − ${d.before}`);
+        if (d.after) console.log(`     + ${d.after}`);
+      }
+      if (diff.length > 40) console.log(`     … бас ${diff.length - 40} мөр`);
+      console.log(
+        `\n  Шинэ тойм DRAFT — /admin дээр хянаад нийтэлнэ:` +
+          `\n    ./scripts/prod.sh agent:digest -- --publish`,
+      );
+    }
     if (r.issues?.length) {
       console.log(`\n⚠ ${r.issues.length} алдаа — тойм DRAFT хэвээр. /admin дээр хянана уу.`);
     }

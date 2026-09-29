@@ -152,6 +152,8 @@ const SPECULATION_WORDS = [
   "магадгүй", "байж болзошгүй", "байж болох", "байж мэдэх", "таамаг", "санал болгов",
   "санал болгосон", "гэж үзэж болох", "боломжтой гэв", "эргэлзэж", "сэжиглэж",
   "бололтой", "төлөвтэй", "гэх мэдээлэл", "гэх ярьц",
+  // «…илрүүлсэн эсэх» гэдэг нь тодорхойгүйг илэрхийлнэ — батлах биш
+  "эсэх", "эсэхийг", "үгүй юу", "тодорхойгүй",
   "could have", "may have", "might", "suggested", "alleged", "possibly",
   // «likely similar» -ийг «төстэй» болгосон (г) тохиолдлоос хойш нэмэгдсэн
   "likely", "probably", "potentially", "appears to", "appeared to", "seem to", "seems to",
@@ -207,13 +209,32 @@ export function sentencesOf(text: string): string[] {
  * нь бидний биш, эх сурвалжийн батлалт гэдгийг уншигч ойлгоно.
  */
 export function hardensSpeculation(text: string, sourceText: string): boolean {
+  return speculationVerdict(text, sourceText) !== null;
+}
+
+/**
+ * Зөрчлийн ХҮЧ — нийтлэхийг зогсоох уу, эсвэл шүүгчид үлдээх үү.
+ *
+ * Механик дүрэм нь ҮНЭНЧ ишлэлийг («…гэж Ерөнхий сайд мэдэгдэв» — эх сурвалж
+ * дээр ч тэр хүн яг тэгж хэлсэн) ХҮЧТЭЙ БОЛГОСОН ишлэлээс («Трамп санал
+ * болгосныг» → «Трамп мэдэгдсэн») ялгаж чадахгүй: хоёулаа «гэж … мэдэгдэв»
+ * хэлбэртэй.
+ *
+ * Тиймээс: ишлэлгүй, шууд батлан хэлсэн өгүүлбэр бол НОЦТОЙ (нийтлэл зогсоно);
+ * ишлэлтэй бол АНХААРАХ — хэн хэлснийг нь заасан тул уншигч тогтсон үнэн гэж
+ * уншихгүй, харин ишлэлийн хүч зөв эсэхийг LLM шүүгч шийднэ.
+ */
+export function speculationVerdict(text: string, sourceText: string): "ноцтой" | "анхаарах" | null {
   // Урт нийтлэлд санамсаргүй тааралдсан НЭГ «may» нь гол мэдэгдлийг таамаг
   // болгодоггүй — MODALITY_MIN-тэй ижил босго (хэмжилт: 20 нийтлэлийн эх
   // текстэд 0–5 тэмдэглэгээ, 1-тэй нь бүгд баталгаатай мэдээ байв)
-  if (countSpeculation(sourceText) < MODALITY_MIN) return false;
-  return sentencesOf(text).some(
+  if (countSpeculation(sourceText) < MODALITY_MIN) return null;
+
+  const offending = sentencesOf(text).filter(
     (s) => hasAssertion(s) && !hasSpeculation(s) && !keepsRelay(s),
   );
+  if (offending.length === 0) return null;
+  return offending.some((s) => !hasAttribution(s)) ? "ноцтой" : "анхаарах";
 }
 
 // ---------- ЭХ СУРВАЛЖТАЙ ШУУД ТУЛГАХ (англи эх → монгол гаргалт) ----------

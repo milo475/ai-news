@@ -271,3 +271,69 @@ export function groupIssues(issues: FieldIssue[]): GroupedIssue[] {
   }
   return [...by.values()].sort((a, b) => SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity]);
 }
+
+// ---------- Давхардсан нийтлэл ----------
+
+/**
+ * Нэг үйл явдлыг ХОЁР УДАА нийтэлсэн эсэх.
+ *
+ * 2026-09-25 ба 09-26-нд «OpenAI GPT-6 Sol болон Luna» гэсэн хоёр нийтлэл өөр
+ * эх сурвалжаас (TechCrunch, OpenAI Blog) гарсан — нийтлэхийн өмнөх давхардлын
+ * шалгалт 2026-09-28-нд л орсон тул түүнээс өмнөх давхардлууд сайт дээр үлдсэн.
+ * Аудит нь нийтлэгдсэн хосуудыг эргэж хардаг.
+ */
+export interface DuplicatePair {
+  a: { slug: string; titleMn: string; publishedAt: Date | null };
+  b: { slug: string; titleMn: string; publishedAt: Date | null };
+  score: number;
+  shared: number;
+  /** Хожим гарсан нь — ихэвчлэн үүнийг нуух эсвэл нэгтгэх */
+  later: string;
+}
+
+export interface DuplicateInput {
+  slug: string;
+  titleMn: string;
+  summaryMn: string;
+  category: string;
+  companies: string[];
+  publishedAt: Date | null;
+}
+
+/**
+ * Аудитын давхцлын доод босго.
+ *
+ * `sameEvent` нь НИЙТЛЭХИЙН ӨМНӨХ 48 цагийн цонхонд тохируулагдсан: тэнд ижил
+ * компани + ижил ангилал + 4 ижил үндэс нь бараг үргэлж нэг үйл явдал байдаг.
+ * 30 хоногийн цонхонд энэ нь хэт сул — «OpenAI сургалтаа зогсоов» ба «OpenAI-ийн
+ * агент Австралид нэвтэрсэн» хоёрыг нэг үйл явдал гэж барьж байв. Тиймээс
+ * аудитад үгийн бодит давхцлыг шаардана.
+ */
+export const AUDIT_DUP_MIN_SCORE = 0.25;
+
+/** Бүх хосыг тулгаж, нэг үйл явдлынхыг буцаана */
+export function duplicatePairs(
+  rows: DuplicateInput[],
+  same: (a: DuplicateInput, b: DuplicateInput) => { same: boolean; score: number; shared: number },
+  minScore = AUDIT_DUP_MIN_SCORE,
+): DuplicatePair[] {
+  const out: DuplicatePair[] = [];
+  for (let i = 0; i < rows.length; i++) {
+    for (let j = i + 1; j < rows.length; j++) {
+      const a = rows[i]!;
+      const b = rows[j]!;
+      const v = same(a, b);
+      if (!v.same || v.score < minScore) continue;
+      const at = a.publishedAt?.getTime() ?? 0;
+      const bt = b.publishedAt?.getTime() ?? 0;
+      out.push({
+        a: { slug: a.slug, titleMn: a.titleMn, publishedAt: a.publishedAt },
+        b: { slug: b.slug, titleMn: b.titleMn, publishedAt: b.publishedAt },
+        score: v.score,
+        shared: v.shared,
+        later: at >= bt ? a.slug : b.slug,
+      });
+    }
+  }
+  return out.sort((x, y) => y.score - x.score);
+}

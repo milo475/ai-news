@@ -41,6 +41,7 @@ enum ArticleStatus {
   PUBLISHED // сайт дээр гарсан
   REJECTED // agent үнэлээд хаясан
   SKIPPED // хоцрогдсон — үнэлэлгүй алгассан (LLM дуудаагүй)
+  HIDDEN // нийтлэгдсэний дараа буцаан нуусан (засагдахааргүй зөрчил)
 }
 
 /// AI компани (OpenAI, Anthropic, Google ...)

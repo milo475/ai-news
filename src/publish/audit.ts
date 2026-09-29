@@ -13,12 +13,12 @@ import "dotenv/config";
 import { prisma } from "../db";
 import { isEntry, runCli } from "../lib/cli";
 import { chatJson } from "../agent/llm";
-import { checkBeforePublish, type FieldIssue } from "./prepublish.api";
+import { checkBeforePublish, sameEvent, type FieldIssue } from "./prepublish.api";
 import { buildCaption } from "./instagram.api";
 import {
-  AUDIT_BODY_CHARS, CLAIMS_SCHEMA, CLAIMS_SYSTEM, claimsUser, evidence, groupIssues, needsJudge,
-  normalizeClaims, rankRows, RULE_EVIDENCE, riskTopics, worstSeverity,
-  type AuditRow, type ClaimIssue,
+  AUDIT_BODY_CHARS, CLAIMS_SCHEMA, CLAIMS_SYSTEM, claimsUser, duplicatePairs, evidence, groupIssues,
+  needsJudge, normalizeClaims, rankRows, RULE_EVIDENCE, riskTopics, worstSeverity,
+  type AuditRow, type ClaimIssue, type DuplicatePair,
 } from "./audit.api";
 
 /** Аудитын шүүгч — prepublish-ийн шүүгчтэй нэг модель (FIDELITY_MODEL) */
@@ -33,6 +33,7 @@ const SELECT = {
   publishedAt: true, publishedAtSource: true, sourceUrl: true, sourceText: true,
   fbHook: true, fbText: true, igMediaId: true,
   source: { select: { name: true } },
+  companies: { select: { name: true } },
 } as const;
 
 type Row = {
@@ -40,6 +41,7 @@ type Row = {
   category: string; kind: string; publishedAt: Date | null; publishedAtSource: Date | null;
   sourceUrl: string; sourceText: string | null; fbHook: string | null; fbText: string | null;
   igMediaId: string | null; source: { name: string } | null;
+  companies: { name: string }[];
 };
 
 /** Сүүлийн N хоногт нийтлэгдсэн мэдээ, тойм (шинээс хуучин руу) */
@@ -99,6 +101,8 @@ export interface AuditResult {
   costUsd: number;
   /** Төсөв дүүрсэн тул шалгагдаагүй нийтлэлүүд */
   skippedForBudget: string[];
+  /** Нэг үйл явдлыг хоёр удаа нийтэлсэн хосууд */
+  duplicates: DuplicatePair[];
 }
 
 export async function runAudit(opts: {
@@ -150,7 +154,18 @@ export async function runAudit(opts: {
     out.push(row);
   }
 
-  return { checked: rows.length, judged, rows: out, costUsd, skippedForBudget };
+  // Нэг үйл явдал хоёр нийтлэл болсон эсэх — LLM-гүй, $0
+  const duplicates = duplicatePairs(
+    rows
+      .filter((a) => a.kind === "NEWS")
+      .map((a) => ({
+        slug: a.slug, titleMn: a.titleMn ?? "", summaryMn: a.summaryMn ?? "",
+        category: a.category, companies: a.companies.map((c) => c.name), publishedAt: a.publishedAt,
+      })),
+    (x, y) => sameEvent(x, y),
+  );
+
+  return { checked: rows.length, judged, rows: out, costUsd, skippedForBudget, duplicates };
 }
 
 // ---------- Тайлан ----------
@@ -223,6 +238,17 @@ export function printReport(r: AuditResult, sources: Map<string, string>): void 
   console.log(`\n${"═".repeat(96)}`);
   const bad = ranked.filter((x) => worstSeverity(x) === "ноцтой").length;
   console.log(`ноцтой ${bad} · анхаарах ${ranked.length - bad}`);
+
+  if (r.duplicates.length > 0) {
+    console.log(`\nНЭГ ҮЙЛ ЯВДЛЫГ ХОЁР УДАА НИЙТЭЛСЭН: ${r.duplicates.length} хос`);
+    for (const d of r.duplicates) {
+      console.log(`\n  · давхцал ${d.score} (${d.shared} ижил үндэс)`);
+      console.log(`    /medee/${d.a.slug}  ${ub(d.a.publishedAt)}  ${d.a.titleMn}`);
+      console.log(`    /medee/${d.b.slug}  ${ub(d.b.publishedAt)}  ${d.b.titleMn}`);
+      console.log(`    хожим гарсан нь: /medee/${d.later} — нуух:`);
+      console.log(`      npm run article:fix -- --hide --slugs ${d.later}`);
+    }
+  }
 }
 
 function arg(name: string): string | undefined {

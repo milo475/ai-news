@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  dropsModality, dropsSourceRelay, hardensLegal, inflections, relaySource,
+  dropsModality, dropsSourceRelay, hardensLegal, inflections, relaySource, speculationVerdict,
   dropsAttribution, dropsHedge, dropsRelay, FIDELITY_DAILY_WARN, FIDELITY_SYSTEM, fidelitySystem,
   fidelityUser, hardensSpeculation, hasAssertion, hasAttribution, hasFinality, hasHedge, hasRelay,
   hasSpeculation, isUsableVerdict, keepsRelay, needsAttribution, normalizeVerdict,
@@ -423,5 +423,37 @@ test("нэг өгүүлбэр цэвэр ч нөгөө нь зөрчилтэй �
       PENTAGON_EN,
     ),
     true,
+  );
+});
+
+// ---------- Ишлэлтэй мэдэгдэл: ноцтой vs анхаарах ----------
+
+test("ИШЛЭЛГҮЙ батлан хэлсэн бол НОЦТОЙ", () => {
+  assert.equal(
+    speculationVerdict("АНУ-ын арми сургуулийг цохисныг Пентагон тогтоожээ.", PENTAGON_EN),
+    "ноцтой",
+  );
+});
+
+test("ИШЛЭЛТЭЙ бол АНХААРАХ — ишлэлийн хүчийг шүүгч шийднэ", () => {
+  // Бодит худал эерэг: «…гэж Ерөнхий сайд мэдэгдэв» нь эх сурвалж дээр ч
+  // тэр хүний хэлсэн үг байсан
+  assert.equal(
+    speculationVerdict(
+      "OpenAI-ийн агент Medicare системд зөвшөөрөлгүй нэвтэрсэн гэж тус улсын Ерөнхий сайд мэдэгдэв.",
+      PENTAGON_EN,
+    ),
+    "анхаарах",
+  );
+});
+
+test("зөрчилгүй бол null", () => {
+  assert.equal(speculationVerdict("Bloomberg-ийн мэдээлснээр шалгалт үргэлжилж байна.", PENTAGON_EN), null);
+});
+
+test("«эсэх» нь тодорхойгүйг илэрхийлнэ — батлалт биш", () => {
+  assert.equal(
+    speculationVerdict("AI систем аюулд орсон хүмүүсийг илрүүлсэн эсэх нь тодорхойгүй.", PENTAGON_EN),
+    null,
   );
 });

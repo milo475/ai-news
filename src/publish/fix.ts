@@ -17,6 +17,9 @@
  *   4. IG тайлбарыг ЖАГСААЛТААР гаргана — IG-ийн API caption засахыг дэмждэггүй
  */
 import "dotenv/config";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { prisma } from "../db";
 import { isEntry, runCli } from "../lib/cli";
 import { chatJson } from "../agent/llm";
@@ -27,14 +30,77 @@ import { judgeClaims } from "./audit";
 import { type ClaimIssue } from "./audit.api";
 import {
   actorFeedback, checkFixed, correctionNote, diffLines, FIX_SCHEMA, fixSystem, fixUser, keepsActor,
-  type FixOut,
+  noteProblems, type FixOut,
 } from "./fix.api";
 import { judgeFidelity } from "./fidelity";
+import {
+  logFileName, planFileName, PLAN_VERSION, stateHash, validateStored, type StoredPlan,
+} from "./fix-store.api";
 
 const FIX_MODEL = process.env.WRITE_MODEL ?? "google/gemini-3.8-flash";
 
 /** Картын гарчгийн дээд урт — картад багтах ёстой (card.api-ийн fitHeadline) */
 const MAX_CARD_TITLE_CHARS = 110;
+
+/** Саналуудыг хаана хадгалах вэ */
+export function storeDir(): string {
+  return process.env.ARTICLE_FIX_DIR?.trim() || join(homedir(), "article-fix");
+}
+
+/** Dry-run-ийн саналыг диск дээр хадгална */
+export function savePlan(
+  plan: FixPlan,
+  articleState: {
+    sourceText: string | null; titleMn: string | null; summaryMn: string | null;
+    bodyMn: string | null; fbText: string | null; fbHook: string | null;
+  },
+  now: Date,
+): string {
+  if (!plan.fixed) throw new Error("хадгалах санал алга");
+  const dir = storeDir();
+  mkdirSync(dir, { recursive: true });
+  const stored: StoredPlan = {
+    version: PLAN_VERSION,
+    slug: plan.slug,
+    at: now.toISOString(),
+    stateHash: stateHash(articleState),
+    before: {
+      titleMn: articleState.titleMn ?? "",
+      summaryMn: articleState.summaryMn ?? "",
+      bodyMn: articleState.bodyMn ?? "",
+      fbText: articleState.fbText,
+      fbHook: articleState.fbHook,
+    },
+    proposed: plan.fixed,
+    issues: plan.issues,
+    claims: plan.claims,
+    blocking: blocking(plan.remaining),
+    costUsd: plan.costUsd,
+  };
+  const file = join(dir, planFileName(now, plan.slug));
+  writeFileSync(file, `${JSON.stringify(stored, null, 2)}\n`, { mode: 0o600 });
+  return file;
+}
+
+/** Хадгалсан саналыг уншиж, одоогийн байдалтай тулгана */
+export async function loadPlan(slug: string, now: Date): Promise<
+  { ok: true; plan: StoredPlan; file: string } | { ok: false; reason: string }
+> {
+  const file = join(storeDir(), planFileName(now, slug));
+  let raw: unknown;
+  try {
+    raw = JSON.parse(readFileSync(file, "utf8"));
+  } catch {
+    return { ok: false, reason: `санал олдсонгүй: ${file} — эхлээд dry-run ажиллуулна уу` };
+  }
+  const a = await prisma.article.findUnique({
+    where: { slug },
+    select: { sourceText: true, titleMn: true, summaryMn: true, bodyMn: true, fbText: true, fbHook: true },
+  });
+  if (!a) return { ok: false, reason: `${slug}: олдсонгүй` };
+  const v = validateStored(raw, { stateHash: stateHash(a), slug });
+  return v.ok ? { ok: true, plan: v.plan, file } : { ok: false, reason: v.reason };
+}
 
 const SELECT = {
   id: true, slug: true, titleMn: true, summaryMn: true, bodyMn: true, category: true,
@@ -87,6 +153,8 @@ export async function planFix(
     /** Гараар өгсөн гарчиг — шүүгчээр дамжина */
     title?: string;
     cardTitle?: string;
+    /** Гараар өгсөн, уншигчид харагдах тэмдэглэл */
+    note?: string;
   } = {},
 ): Promise<FixPlan> {
   const now = opts.now ?? new Date();
@@ -162,7 +230,7 @@ export async function planFix(
     bodyMn: out.data.bodyMn.trim(),
     fbText: out.data.fbText.trim(),
     fbHook: out.data.fbHook.trim(),
-    changed: out.data.changed,
+    changed: opts.note ? [opts.note] : out.data.changed,
   };
 
   // ——— Гараар өгсөн гарчиг: шүүгчээр дамжина ———
@@ -215,7 +283,7 @@ export async function planFix(
 
   return {
     ...base, fixed, remaining, costUsd,
-    note: correctionNote(now, fixed.changed),
+    note: correctionNote(now, opts.note ? [opts.note] : fixed.changed),
     actorKept: {
       title: keepsActor(a.titleMn, fixed.titleMn),
       card: !a.fbHook || !fixed.fbHook || keepsActor(a.fbHook, fixed.fbHook),
@@ -241,10 +309,9 @@ export interface ApplyResult {
  */
 export async function applyFix(
   slug: string,
-  plan: FixPlan,
+  fixed: FixOut,
   opts: { now?: Date } = {},
 ): Promise<ApplyResult> {
-  if (!plan.fixed) throw new Error("засвар алга — хэрэглэх зүйл байхгүй");
   const now = opts.now ?? new Date();
   const a = await prisma.article.findUniqueOrThrow({
     where: { slug },
@@ -254,13 +321,13 @@ export async function applyFix(
   await prisma.article.update({
     where: { slug },
     data: {
-      titleMn: plan.fixed.titleMn,
-      summaryMn: plan.fixed.summaryMn,
-      bodyMn: plan.fixed.bodyMn,
-      ...(plan.fixed.fbText ? { fbText: plan.fixed.fbText } : {}),
+      titleMn: fixed.titleMn,
+      summaryMn: fixed.summaryMn,
+      bodyMn: fixed.bodyMn,
+      ...(fixed.fbText ? { fbText: fixed.fbText } : {}),
       // Тэмдэглэлийн огноо нь --apply хийсэн АГШНЫ УБ огноо байх ёстой:
-      // dry-run 23:50-д, apply нь 00:10-д хийгдвэл plan.note хуучин огноотой
-      correctionNote: correctionNote(now, plan.fixed.changed),
+      // dry-run 23:50-д, apply нь 00:10-д хийгдвэл хуучин огноо бичигдэнэ
+      correctionNote: correctionNote(now, fixed.changed),
       correctedAt: now,
     },
   });
@@ -268,7 +335,7 @@ export async function applyFix(
   // ——— Карт: суурь зураг дээр шинэ гарчгийг дахин бичнэ ———
   let card: ApplyResult["card"] = "өөрчлөгдөөгүй";
   let cardError: string | undefined;
-  const newHook = plan.fixed.fbHook;
+  const newHook = fixed.fbHook;
   if (newHook && newHook !== a.fbHook) {
     if (!a.heroImageData) {
       card = "суурь зураг алга";
@@ -294,11 +361,11 @@ export async function applyFix(
     }
   }
 
-  if (!a.fbPostId || !plan.fixed.fbText) return { fb: "постлогдоогүй", card, cardError };
+  if (!a.fbPostId || !fixed.fbText) return { fb: "постлогдоогүй", card, cardError };
 
   try {
     const { editPost } = await import("./facebook");
-    await editPost(a.fbPostId, plan.fixed.fbText);
+    await editPost(a.fbPostId, fixed.fbText);
     return { fb: "засав", card, cardError };
   } catch (e) {
     return { fb: "алдаа", fbError: (e as Error).message.slice(0, 200), card, cardError };
@@ -376,14 +443,69 @@ export function printPlan(plan: FixPlan): void {
   }
 
   console.log(`\n  Тэмдэглэл (--apply хийх өдрөөр дахин үүснэ): ${plan.note}`);
-  console.log(
-    plan.remaining.length === 0
-      ? "\n  ✓ засварын дараа механик шалгалт цэвэр"
-      : `\n  ⚠ засварын дараа ч ${blocking(plan.remaining).length} ноцтой зөрчил: ` +
-        plan.remaining.map((i) => `${i.field}/${i.rule}`).join(", "),
-  );
+  const noteBad = noteProblems(plan.fixed.changed);
+  if (noteBad.length > 0) {
+    console.log(`  ⚠ тэмдэглэл уншигчид тохирохгүй: ${noteBad.join("; ")}`);
+    console.log("     --apply-аас өмнө гараар засах: --note \"…\"");
+  }
+
+  // Ноцтой ба анхааруулгыг ТУСАД НЬ. Өмнө нь «0 ноцтой зөрчил: биет/модаль
+  // сулрав» гэж өөртэйгөө зөрчилдсөн мөр гардаг байв: тоо нь зөвхөн ноцтойг
+  // тоолж, жагсаалт нь бүгдийг хэвлэдэг байсан.
+  const bad = blocking(plan.remaining);
+  const warn = plan.remaining.filter((i) => i.severity === "анхаарах");
+  if (bad.length > 0) {
+    console.log(`\n  ✗ засварын дараа ч ${bad.length} НОЦТОЙ зөрчил үлдэв — --apply алгасна:`);
+    for (const i of bad) console.log(`       ${i.field}/${i.rule}`);
+    console.log("       хүчээр засах: --force");
+  } else {
+    console.log("\n  ✓ засварын дараа ноцтой зөрчил үлдээгүй");
+  }
+  if (warn.length > 0) {
+    console.log(`  · ${warn.length} анхааруулга (нийтлэхийг зогсоохгүй): ` +
+      warn.map((i) => `${i.field}/${i.rule}`).join(", "));
+  }
   console.log(`  Зардал: $${plan.costUsd.toFixed(4)}`);
 }
+
+/**
+ * Нийтлэлийг НУУНА — засагдахааргүй зөрчилтэй үед устгахын оронд.
+ *
+ * `status: "HIDDEN"` нь бүх `status: "PUBLISHED"` шүүлтээс автоматаар хасагдана:
+ * нийтлэлийн хуудас 404, жагсаалт, sitemap, карт, RSS-д гарахгүй. `publishedAt`
+ * хэвээр үлдэнэ — `--show` буцаахад хэрэгтэй. FB/IG дээрх пост хэвээр үлдэх тул
+ * тэднийг гараар устгах шаардлагатайг мэдэгдэнэ.
+ */
+export async function hideArticle(
+  slug: string,
+  opts: { reason?: string; now?: Date } = {},
+): Promise<{ fbPostId: string | null; igMediaId: string | null }> {
+  const now = opts.now ?? new Date();
+  const a = await prisma.article.findUniqueOrThrow({
+    where: { slug },
+    select: { status: true, fbPostId: true, igMediaId: true },
+  });
+  if (a.status !== "PUBLISHED") throw new Error(`${slug}: статус ${a.status} — нуух шаардлагагүй`);
+  await prisma.article.update({
+    where: { slug },
+    data: {
+      status: "HIDDEN",
+      correctionNote: opts.reason?.trim() || HIDDEN_NOTE,
+      correctedAt: now,
+    },
+  });
+  return { fbPostId: a.fbPostId, igMediaId: a.igMediaId };
+}
+
+/** Нуусан нийтлэлийг буцаана */
+export async function showArticle(slug: string): Promise<void> {
+  const a = await prisma.article.findUniqueOrThrow({ where: { slug }, select: { status: true } });
+  if (a.status !== "HIDDEN") throw new Error(`${slug}: статус ${a.status} — нуугдаагүй байна`);
+  await prisma.article.update({ where: { slug }, data: { status: "PUBLISHED" } });
+}
+
+/** Нуусан нийтлэлийн анхдагч тайлбар — /admin дээр харагдана */
+export const HIDDEN_NOTE = "Эх сурвалжтай тулгахад засагдахааргүй зөрчил илэрсэн тул нийтлэлийг түр хаав.";
 
 /** Нийтлэлийг агуулсан НИЙТЛЭГДСЭН долоо хоногийн тоймууд */
 export async function digestsContaining(slugs: string[]): Promise<
@@ -420,13 +542,15 @@ function arg(name: string): string | undefined {
 
 if (isEntry("fix.ts")) {
   await runCli(async () => {
+    const now = new Date();
     const apply = process.argv.includes("--apply");
+    const force = process.argv.includes("--force");
     const judge = !process.argv.includes("--no-judge");
     const audit = arg("audit");
     const slugsArg = arg("slugs");
     const one = arg("slug");
-
-    console.log(apply ? "ГОРИМ: --apply (DB ба FB-д БИЧНЭ)" : "ГОРИМ: dry-run (юу ч бичихгүй)");
+    const hide = process.argv.includes("--hide");
+    const show = process.argv.includes("--show");
 
     // ——— Аль нийтлэлүүд дээр ажиллах вэ ———
     let slugs: string[];
@@ -445,91 +569,209 @@ if (isEntry("fix.ts")) {
       const ranked = rankRows(result.rows);
       slugs = (audit === "serious" ? ranked.filter((r) => worstSeverity(r) === "ноцтой") : ranked)
         .map((r) => r.slug);
-      console.log(`Аудит: ${result.checked} шалгав, ${slugs.length} нийтлэл засварлахаар сонгогдов ` +
+      console.log(`Аудит: ${result.checked} шалгав, ${slugs.length} нийтлэл сонгогдов ` +
         `($${result.costUsd.toFixed(4)})\n`);
     } else if (one) {
       slugs = [one];
     } else {
       throw new Error(
         "Хэрэглээ:\n" +
-          "  npm run article:fix -- --slug <slug> [--title \"…\"] [--card-title \"…\"] [--apply]\n" +
-          "  npm run article:fix -- --audit serious [--days 30]\n" +
-          "  npm run article:fix -- --apply --slugs a,b,c",
+          "  npm run article:fix -- --slug <slug> [--title \"…\"] [--apply]\n" +
+          "  npm run article:fix -- --audit serious [--list]\n" +
+          "  npm run article:fix -- --apply --slugs a,b,c   (dry-run-ийн саналыг хэрэглэнэ)\n" +
+          "  npm run article:fix -- --hide --slugs a,b [--apply]\n" +
+          "  npm run article:fix -- --show --slugs a,b [--apply]",
       );
     }
-    if (slugs.length === 0) { console.log("Засварлах нийтлэл алга."); return; }
+    if (slugs.length === 0) { console.log("Нийтлэл алга."); return; }
 
-    // --list: аль нийтлэлүүд сонгогдсоныг харуулаад гарна (LLM зарцуулахгүй)
+    // ——— Нуух / буцаах ———
+    if (hide || show) {
+      const verb = hide ? "нуух" : "буцаах";
+      console.log(apply ? `ГОРИМ: --apply (${verb})` : `ГОРИМ: dry-run (${verb} — юу ч бичихгүй)`);
+      for (const slug of slugs) {
+        const a = await prisma.article.findUnique({
+          where: { slug },
+          select: { status: true, titleMn: true, fbPostId: true, igMediaId: true },
+        });
+        if (!a) { console.warn(`  ⚠ ${slug}: олдсонгүй`); continue; }
+        const wanted = hide ? "PUBLISHED" : "HIDDEN";
+        if (a.status !== wanted) {
+          console.warn(`  ⚠ ${slug}: статус ${a.status} — ${verb} шаардлагагүй`);
+          continue;
+        }
+        console.log(`\n  ${hide ? "⊘" : "↩"} /medee/${slug}`);
+        console.log(`     ${a.titleMn}`);
+        console.log(`     ${a.status} → ${hide ? "HIDDEN" : "PUBLISHED"}`);
+        if (hide && (a.fbPostId || a.igMediaId)) {
+          console.log("     ⚠ FB/IG дээрх постыг ГАРААР устгана:" +
+            `${a.fbPostId ? ` FB ${a.fbPostId}` : ""}${a.igMediaId ? ` IG ${a.igMediaId}` : ""}`);
+        }
+        if (!apply) continue;
+        if (hide) await hideArticle(slug, { reason: arg("reason"), now });
+        else await showArticle(slug);
+        console.log("     ✓ бичигдлээ");
+      }
+      if (!apply) console.log(`\nХэрэглэх: npm run article:fix -- --${hide ? "hide" : "show"} --slugs ${slugs.join(",")} --apply`);
+      await prisma.$disconnect();
+      return;
+    }
+
+    console.log(apply ? "ГОРИМ: --apply (DB ба FB-д БИЧНЭ)" : "ГОРИМ: dry-run (юу ч бичихгүй)");
+
+    // --list: аль нийтлэл сонгогдсоныг харуулаад гарна (LLM зарцуулахгүй)
     if (process.argv.includes("--list")) {
       console.log(`Сонгогдсон: ${slugs.length}`);
       for (const sl of slugs) console.log(`  · /medee/${sl}`);
       console.log(`\nЗасах: npm run article:fix -- --slugs ${slugs.join(",")}`);
       return;
     }
+
+    // ═══ --apply: ХАДГАЛСАН саналыг хэрэглэнэ, LLM дуудахгүй ═══
+    if (apply) {
+      for (const slug of slugs) {
+        const loaded = await loadPlan(slug, now);
+        if (!loaded.ok) { console.error(`\n✗ ${slug}: ${loaded.reason}`); continue; }
+        const stored = loaded.plan;
+
+        // Хадгалсан `blocking`-д итгэхгүй — дүрэм өөрчлөгдсөн байж болно.
+        // Саналыг ОДООГИЙН дүрмээр дахин шалгана (механик, $0).
+        const cur = await prisma.article.findUniqueOrThrow({
+          where: { slug },
+          select: {
+            sourceText: true, publishedAtSource: true, fbText: true, fbHook: true,
+            source: { select: { name: true } },
+          },
+        });
+        const bad = blocking(checkBeforePublish({
+          titleMn: stored.proposed.titleMn,
+          summaryMn: stored.proposed.summaryMn,
+          bodyMn: stored.proposed.bodyMn,
+          fbText: stored.proposed.fbText || cur.fbText,
+          fbHook: stored.proposed.fbHook || cur.fbHook,
+          sourceText: cur.sourceText,
+          publishedAtSource: cur.publishedAtSource,
+          sourceName: cur.source?.name ?? null,
+        }));
+        if (bad.length > 0 && !force) {
+          console.warn(
+            `\n⊘ ${slug}: засварын дараа ч ${bad.length} ноцтой зөрчил үлдэж байна — алгасав\n` +
+              `   ${bad.map((i) => `${i.field}/${i.rule}`).join(", ")}\n` +
+              `   Хүчээр: --force · эсвэл нуух: --hide --slugs ${slug}`,
+          );
+          continue;
+        }
+
+        const out = await applyFix(slug, stored.proposed, { now });
+        console.log(`\n✓ ${slug} (санал: ${loaded.file})`);
+        console.log(`  карт: ${out.card}${out.cardError ? ` — ${out.cardError}` : ""}`);
+        console.log(`  FB текст: ${out.fb}${out.fbError ? ` — ${out.fbError}` : ""}`);
+        if (out.card === "дахин зурав") {
+          console.log("  ⚠ FB постын ЗУРГИЙГ Graph API солихыг дэмждэггүй — тэнд хуучин карт үлдэнэ");
+        }
+        const ig = await prisma.article.findUnique({ where: { slug }, select: { igMediaId: true } });
+        if (ig?.igMediaId) printIgCaption(ig.igMediaId, stored.proposed.fbText || "", "  ");
+      }
+
+      const digests = await digestsContaining(slugs);
+      if (digests.length > 0) {
+        console.log(`\nДолоо хоногийн тоймыг ДАХИН ҮҮСГЭНЭ (засагдсан биеэс):`);
+        for (const d of digests) {
+          console.log(`  ./scripts/prod.sh agent:digest -- --replace ${d.slug}`);
+        }
+        console.log("  (тойм DRAFT болж үүснэ — /admin дээр хянаад --publish нэмнэ)");
+      }
+      await prisma.$disconnect();
+      return;
+    }
+
+    // ═══ dry-run: саналыг үүсгэж, ХАДГАЛНА ═══
+    const lines: string[] = [];
+    const say = (...a: unknown[]) => { const t = a.join(" "); lines.push(t); console.log(t); };
+
     if (slugs.length > 1 && (arg("title") || arg("card-title"))) {
       throw new Error("--title / --card-title нь зөвхөн нэг нийтлэлд (--slug) хэрэглэгдэнэ");
     }
 
-    // ——— Тус бүрийг нь төлөвлөнө ———
-    const plans: { slug: string; plan: FixPlan; igMediaId: string | null }[] = [];
+    const done: { slug: string; blocking: number; file: string }[] = [];
+    const failed: { slug: string; why: string }[] = [];
     let costUsd = 0;
+
     for (const slug of slugs) {
-      const before = await prisma.article.findUnique({
-        where: { slug }, select: { igMediaId: true },
+      const a = await prisma.article.findUnique({
+        where: { slug },
+        select: {
+          igMediaId: true, sourceText: true, titleMn: true, summaryMn: true, bodyMn: true,
+          fbText: true, fbHook: true,
+        },
       });
-      if (!before) { console.warn(`⚠ ${slug}: олдсонгүй`); continue; }
+      if (!a) { failed.push({ slug, why: "олдсонгүй" }); continue; }
       try {
-        const plan = await planFix(slug, { judge, title: arg("title"), cardTitle: arg("card-title") });
+        const plan = await planFix(slug, {
+          judge, title: arg("title"), cardTitle: arg("card-title"), note: arg("note"), now,
+        });
         costUsd += plan.costUsd;
-        printPlan(plan);
-        if (plan.fixed && before.igMediaId) {
-          console.log("\n  IG тайлбар (API-аар засагдахгүй — гараар хуулна):");
-          printIgCaption(before.igMediaId, plan.fixed.fbText || plan.fbBefore || "", "     ");
+        // printPlan нь console.log хийдэг тул түүнийг мөн файлд авахын тулд
+        // гаралтыг түр барина
+        const orig = console.log;
+        console.log = (...x: unknown[]) => { lines.push(x.join(" ")); orig(...x); };
+        try { printPlan(plan); } finally { console.log = orig; }
+
+        if (!plan.fixed) { failed.push({ slug, why: "зөрчилгүй — засах зүйл алга" }); continue; }
+        if (a.igMediaId) {
+          say("\n  IG тайлбар (API-аар засагдахгүй — гараар хуулна):");
+          const capt = buildCaption(plan.fixed.fbText || a.fbText || "");
+          say(`     IG media ${a.igMediaId} — шинэ тайлбар:`);
+          for (const l of capt.split("\n")) say(`       ${l}`);
         }
-        plans.push({ slug, plan, igMediaId: before.igMediaId });
+        const file = savePlan(plan, { ...a }, now);
+        say(`  Санал хадгалав: ${file}`);
+        done.push({ slug, blocking: blocking(plan.remaining).length, file });
       } catch (e) {
-        console.error(`\n✗ ${slug}: ${(e as Error).message.slice(0, 200)}`);
+        const why = (e as Error).message.slice(0, 220);
+        failed.push({ slug, why });
+        say(`\n✗ ${slug}: ${why}`);
       }
     }
 
-    const fixable = plans.filter((p) => p.plan.fixed);
-    console.log(`\n${"═".repeat(96)}`);
-    console.log(`Засварлах боломжтой: ${fixable.length}/${slugs.length} · LLM $${costUsd.toFixed(4)}`);
+    say(`\n${"═".repeat(96)}`);
+    say(`Санал бэлэн: ${done.length}/${slugs.length} · LLM $${costUsd.toFixed(4)}`);
 
-    // ——— Эдгээр нийтлэлийг агуулсан долоо хоногийн тоймууд ———
-    const digests = await digestsContaining(fixable.map((p) => p.slug));
+    const blocked = done.filter((d) => d.blocking > 0);
+    if (blocked.length > 0) {
+      say(`\n⊘ Засварын дараа ч ноцтой зөрчилтэй (--apply алгасна): ${blocked.length}`);
+      for (const b of blocked) say(`  · ${b.slug} — ${b.blocking} зөрчил`);
+    }
+    if (failed.length > 0) {
+      say(`\n✗ Санал гарсангүй: ${failed.length}`);
+      for (const f of failed) say(`  · ${f.slug} — ${f.why}`);
+      say("  Засаж болохгүй бол нуух: npm run article:fix -- --hide --slugs <slug>");
+    }
+
+    const digests = await digestsContaining(done.map((d) => d.slug));
     if (digests.length > 0) {
-      console.log(`\nЭдгээр нийтлэлийг агуулсан долоо хоногийн тойм: ${digests.length}`);
+      say(`\nЭдгээр нийтлэлийг агуулсан долоо хоногийн тойм: ${digests.length}`);
       for (const d of digests) {
-        console.log(`  · /medee/${d.slug} (${d.publishedAt?.toISOString().slice(0, 10) ?? "—"})` +
+        say(`  · /medee/${d.slug} (${d.publishedAt?.toISOString().slice(0, 10) ?? "—"})` +
           `${d.fbPostId ? " · FB-д постлогдсон" : ""}`);
-        console.log(`    засагдах нийтлэлүүд: ${d.items.join(", ")}`);
+        say(`    засагдах нийтлэлүүд: ${d.items.join(", ")}`);
       }
-      console.log(
-        "\n  ⚠ Тойм нь эх сурвалжгүй тул article:fix-ээр засагдахгүй. `agent:digest`-д\n" +
-          "    одоогоор --replace флаг БАЙХГҮЙ — тоймыг дахин үүсгэх боломж хараахан алга.\n" +
-          "    Тойм нь засагдсан нийтлэл рүү холбогддог тул уншигч зөв хувилбарт хүрнэ.",
-      );
+      say("\n  --apply-ын ДАРАА тоймыг засагдсан биеэс дахин үүсгэнэ:");
+      for (const d of digests) say(`    ./scripts/prod.sh agent:digest -- --replace ${d.slug}`);
     }
 
-    if (!apply) {
-      console.log(
-        `\nХэрэглэх: npm run article:fix -- --apply --slugs ${fixable.map((p) => p.slug).join(",")}`,
-      );
-      return;
+    const ready = done.filter((d) => d.blocking === 0).map((d) => d.slug);
+    if (ready.length > 0) {
+      say(`\nХэрэглэх: npm run article:fix -- --apply --slugs ${ready.join(",")}`);
     }
 
-    // ——— Бичих ———
-    for (const { slug, plan, igMediaId } of fixable) {
-      const out = await applyFix(slug, plan);
-      console.log(`\n✓ ${slug}`);
-      console.log(`  карт: ${out.card}${out.cardError ? ` — ${out.cardError}` : ""}`);
-      console.log(`  FB текст: ${out.fb}${out.fbError ? ` — ${out.fbError}` : ""}`);
-      if (out.card === "дахин зурав") {
-        console.log("  ⚠ FB постын ЗУРГИЙГ Graph API солихыг дэмждэггүй — тэнд хуучин карт үлдэнэ");
-      }
-      if (igMediaId) printIgCaption(igMediaId, plan.fixed!.fbText || plan.fbBefore || "", "  ");
-    }
+    // Бүтэн гаралтыг өдрийн файлд
+    const dir = storeDir();
+    mkdirSync(dir, { recursive: true });
+    const logFile = join(dir, logFileName(now));
+    writeFileSync(logFile, `${lines.join("\n")}\n`, { mode: 0o600, flag: "a" });
+    console.log(`\nБүтэн гаралт: ${logFile}`);
+
     await prisma.$disconnect();
   });
 }

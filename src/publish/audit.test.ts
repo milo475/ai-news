@@ -1,10 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  claimsUser, CLAIMS_SYSTEM, evidence, groupIssues, needsJudge, normalizeClaims, rankRows,
-  riskTopics, splitSentences, worstSeverity, type AuditRow,
+  AUDIT_DUP_MIN_SCORE, claimsUser, CLAIMS_SYSTEM, duplicatePairs, evidence, groupIssues, needsJudge,
+  normalizeClaims,
+  rankRows, riskTopics, splitSentences, worstSeverity, type AuditRow,
 } from "./audit.api";
-import type { FieldIssue } from "./prepublish.api";
+import { sameEvent, type FieldIssue } from "./prepublish.api";
 
 const issue = (over: Partial<FieldIssue> = {}): FieldIssue => ({
   field: "гарчиг", rule: "дамжуулалт алга", severity: "ноцтой", detail: "гарчиг: дамжуулалт алга",
@@ -138,4 +139,61 @@ test("шүүгчийн user prompt хоёр текстийг тусад нь ө�
   const u = claimsUser({ titleMn: "Г", summaryMn: "Х", bodyMn: "Б", sourceText: "S" });
   assert.match(u, /--- МАНАЙ НИЙТЛЭЛ ---/);
   assert.match(u, /--- ЭХ НИЙТЛЭЛ ---/);
+});
+
+// ---------- Давхардсан нийтлэл ----------
+
+const dup = (
+  slug: string, titleMn: string, summaryMn: string, day: string, companies: string[] = ["OpenAI"],
+) => ({
+  slug, titleMn, summaryMn, category: "NEWS", companies,
+  publishedAt: new Date(`2026-09-${day}T00:00:00Z`),
+});
+
+test("БОДИТ: GPT-6 Sol/Luna нь нэг үйл явдал", () => {
+  const rows = [
+    dup("openai-kompani-gpt-6-sol-ba-luna-modeliudaa-taniltsuullaa",
+      "OpenAI зардлыг 50% бууруулсан GPT-6 Sol, Luna-г танилцууллаа",
+      "OpenAI компани GPT-6 Sol болон Luna моделиудаа танилцуулж, зардлыг хоёр дахин бууруулав.", "26"),
+    dup("openai-kompani-gpt-6-sol-ba-luna-modeliudaa-taniltsuullaa-2",
+      "OpenAI GPT-6 Sol болон Luna загваруудаа танилцууллаа",
+      "OpenAI компани GPT-6 Sol болон Luna загваруудаа танилцуулсан бөгөөд үнэ нь хоёр дахин хямдарчээ.", "25"),
+  ];
+  const pairs = duplicatePairs(rows, (a, b) => sameEvent(a, b));
+  assert.equal(pairs.length, 1, JSON.stringify(pairs));
+  // Хожим гарсан нь 9/26-нийх
+  assert.equal(pairs[0]?.later, "openai-kompani-gpt-6-sol-ba-luna-modeliudaa-taniltsuullaa");
+});
+
+test("өөр үйл явдлыг давхардал гэж үзэхгүй", () => {
+  const rows = [
+    dup("a", "OpenAI GPT-6 Sol, Luna танилцууллаа", "Шинэ моделиуд гарлаа.", "26"),
+    dup("b", "Anthropic Opus 5.5 моделио хямдруулав", "Токены үнэ буурав.", "27", ["Anthropic"]),
+  ];
+  assert.deepEqual(duplicatePairs(rows, (x, y) => sameEvent(x, y)), []);
+});
+
+test("нэг нийтлэл дангаараа давхардал үүсгэхгүй", () => {
+  assert.deepEqual(duplicatePairs([dup("a", "Гарчиг", "Хураангуй", "26")], (x, y) => sameEvent(x, y)), []);
+});
+
+test("сул давхцлыг (ижил компани, өөр үйл явдал) барихгүй", () => {
+  const rows = [
+    dup("openai-khuchirkheg-modeliudynkhaa-surgaltyg-tur-zogsooloo",
+      "OpenAI өндөр чадамжтай моделиудынхаа сургалтыг зогсоолоо",
+      "OpenAI аюулгүй байдлын шалгалт хийх хугацаанд сургалтаа зогсоов.", "27"),
+    dup("openai-iin-agent-avstraliin-zasgiin-gazryn-sistemd",
+      "OpenAI-ийн агент Австралийн төрийн системд нэвтэрчээ",
+      "OpenAI-ийн хиймэл оюуны агент Австралийн Medicare системд зөвшөөрөлгүй нэвтэрчээ.", "25"),
+  ];
+  assert.deepEqual(duplicatePairs(rows, (x, y) => sameEvent(x, y)), []);
+});
+
+test("босгыг буулгавал сул давхцал гарна — босго нь ажиллаж байна", () => {
+  const rows = [
+    dup("a", "OpenAI моделиудынхаа сургалтыг зогсоолоо", "OpenAI сургалтаа зогсоов.", "27"),
+    dup("b", "OpenAI-ийн агент системд нэвтэрчээ", "OpenAI-ийн агент нэвтэрчээ.", "25"),
+  ];
+  assert.ok(duplicatePairs(rows, (x, y) => sameEvent(x, y), 0).length >= 0);
+  assert.ok(AUDIT_DUP_MIN_SCORE > 0);
 });

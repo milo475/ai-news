@@ -9,7 +9,7 @@
  */
 import {
   dropsHedge, dropsModality, dropsRelay, dropsSourceRelay, hardensLegal, hardensSpeculation,
-  relaySource,
+  relaySource, speculationVerdict,
 } from "./fidelity.api";
 import { checkDates } from "./dates.api";
 import { jaccard, sharedCount, stemTokens } from "../lib/text.api";
@@ -81,6 +81,8 @@ const SOURCE_RULES: {
   fn: (text: string, source: string) => boolean;
   why: string;
   fields: CheckedField[];
+  /** Зэргийг динамикаар тогтоох дүрмүүд (ишлэлтэй эсэхээс хамаарна) */
+  grade?: (text: string, source: string) => Severity | null;
 }[] = [
   {
     rule: "түр→бүрэн", severity: "ноцтой", fn: dropsHedge,
@@ -96,6 +98,9 @@ const SOURCE_RULES: {
     rule: "таамаг→баталгаа", severity: "ноцтой", fn: hardensSpeculation,
     why: "таамгийг баталгаажсан баримт мэт бичсэн",
     fields: ALL_FIELDS,
+    // Ишлэлтэй («…гэж сайд мэдэгдэв») бол анхааруулга — ишлэлийн хүч зөв
+    // эсэхийг механикаар ялгах боломжгүй, LLM шүүгч шийднэ
+    grade: speculationVerdict,
   },
   {
     rule: "хуулийн томьёолол хүчтэй болов", severity: "ноцтой", fn: hardensLegal,
@@ -183,9 +188,11 @@ export function checkBeforePublish(a: PrePublishInput): FieldIssue[] {
         if (!r.fields.includes(field)) continue;
         if (!r.fn(value, src)) continue;
         const outlet = r.rule === "дамжуулалт алга" ? relaySource(src) : null;
+        const severity = r.grade?.(value, src) ?? r.severity;
         issues.push({
-          field, rule: r.rule, severity: r.severity,
-          detail: `${field}: ${r.why}${outlet ? ` — «${outlet}»` : ""}`,
+          field, rule: r.rule, severity,
+          detail: `${field}: ${r.why}${outlet ? ` — «${outlet}»` : ""}` +
+            (severity === "анхаарах" && r.grade ? " (ишлэлтэй — шүүгч шийднэ)" : ""),
         });
         // Нэг талбарт ХЭД ХЭДЭН дүрэм барьж болно: Пентагоны мэдээний биед
         // «таамаг→баталгаа» ба «хуулийн томьёолол» хоёулаа байсан атал эхнийх
